@@ -15,6 +15,7 @@ class LLMRequest(BaseModel):
     task_class: str
     messages: list[dict]
     model: str | None = None
+    classification: str = "LOCAL_PREFERRED"   # LOCAL_ONLY | LOCAL_PREFERRED | CLOUD_PERMITTED
     max_tokens: int = 1024
 
 class LLMResponse(BaseModel):
@@ -59,14 +60,15 @@ class EgressGate:
         )
 
     async def dispatch(self, request: LLMRequest) -> LLMResponse:
-        policy = MatterPolicy(matter_ref=request.matter_ref, classification="LOCAL_PREFERRED")
+        # classification travels on the request until the matters table exists
+        policy = MatterPolicy(matter_ref=request.matter_ref, classification=request.classification)  # type: ignore[arg-type]
         # matter classification policy comes from the matters table when it exists; the
         # routing table already encodes the request's task class.
         candidates = self.routing.route(request.task_class, policy, self.registry)
         if not candidates:
             self.trace.append(DispatchRecord(
                 matter_ref=request.matter_ref, task_class=request.task_class,
-                classification="LOCAL_PREFERRED", provider="-", model="-",
+                classification=request.classification, provider="-", model="-",
                 status="refused", error="no eligible provider"))
             raise GateRefusal(f"no eligible provider for {request.task_class}")
         last_error = ""
@@ -76,7 +78,7 @@ class EgressGate:
                 # A provider may serve many LLMs; the request must say which one — never guess.
                 self.trace.append(DispatchRecord(
                     matter_ref=request.matter_ref, task_class=request.task_class,
-                    classification="LOCAL_PREFERRED", provider=cfg.name, model="-",
+                    classification=request.classification, provider=cfg.name, model="-",
                     status="refused", error=f"no model specified for provider {cfg.name}"))
                 raise GateRefusal(f"no model specified for provider {cfg.name}")
             payload = {"model": model, "messages": request.messages, "max_tokens": request.max_tokens}
@@ -87,14 +89,14 @@ class EgressGate:
                 last_error = str(ex)
                 self.trace.append(DispatchRecord(
                     matter_ref=request.matter_ref, task_class=request.task_class,
-                    classification="LOCAL_PREFERRED", provider=cfg.name, model=payload["model"],
+                    classification=request.classification, provider=cfg.name, model=payload["model"],
                     status="error", error=last_error, latency_ms=int((time.monotonic()-t0)*1000)))
                 continue
             prov = self._provenance_of(cfg, result)
             usage = result.get("usage", {})
             self.trace.append(DispatchRecord(
                 matter_ref=request.matter_ref, task_class=request.task_class,
-                classification="LOCAL_PREFERRED", provider=cfg.name,
+                classification=request.classification, provider=cfg.name,
                 model=result.get("model", payload["model"]),
                 weights_revision=prov.weights_revision, engine=prov.engine,
                 verified=1 if prov.verified else 0,
