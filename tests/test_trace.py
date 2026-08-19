@@ -23,4 +23,4 @@ def test_by_matter_and_summary(tmp_path):
     assert len(rows) == 3
     s = ts.summary()
     assert s["dispatches"] == 3 and s["errors"] == 1
-    assert s["by_engine"]["mlx-lm"] == 1 and s["by_engine"]["cloud"] == 1
+    assert s["by_engine"]["mlx-lm"] == 2 and s["by_engine"]["cloud"] == 1   # rec 3 keeps engine=mlx-lm
