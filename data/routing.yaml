@@ -1,0 +1,13 @@
+rules:
+  - task_class: drafting
+    local_only: [mini1-mlx]
+    local_preferred: [mini1-mlx, cloud-x]
+    cloud_permitted: [cloud-x, mini1-mlx]
+  - task_class: extraction        # mechanical tier
+    local_only: [mini2]
+    local_preferred: [mini2]
+    cloud_permitted: [mini2]
+defaults:
+  local_only: [mini1-mlx]
+  local_preferred: [mini1-mlx, cloud-x]
+  cloud_permitted: [cloud-x, mini1-mlx]
