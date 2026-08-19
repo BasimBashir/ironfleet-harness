@@ -4,10 +4,12 @@ from pydantic import BaseModel
 class ProviderConfig(BaseModel):
     name: str
     base_url: str                       # OpenAI-compatible endpoint
+    model: str = ""                     # default serving LLM (endpoints serve multiple models — nl-dev req)
+    models: list[str] = []              # discovered model list (probe fills; informational)
     engine: str | None = None           # mlx-lm | vllm | llamacpp | ollama | cloud | None
     tier: str = "cloud"                 # local | cloud
     admitted: str = "full"              # full | mechanical-only | refused  (set by probe, CR-3)
-    declared_provenance: dict[str, str] = {}   # {"weights_revision": "...", "quant": "4bit"}
+    declared_provenance: dict[str, str] = {}   # describes `model`: {"weights_revision": "...", "quant": "4bit"}
 
 class ProviderRegistry:
     def __init__(self) -> None:

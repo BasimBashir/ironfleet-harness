@@ -9,13 +9,14 @@ async def test_register_full_admission():
         if url.endswith("/models"): return {"data": [{"id": "qwen-30b"}]}
         if url.endswith("/health"): return {"model": "qwen-30b", "revision": "rev-1"}
         return None
-    res = await register_provider("mini1", "http://mini1:8080/v1", "sk", engine="mlx-lm",
-                                  declared={"weights_revision": "rev-1"},
+    res = await register_provider("mini1", "http://mini1:8080/v1", "sk", model="qwen-30b",
+                                  engine="mlx-lm", declared={"weights_revision": "rev-1"},
                                   registry=reg, fetch=fetch, keychain_set=keys)
     assert isinstance(res, ProbeResult)
     assert res.reachable and res.auth_ok and res.models == ["qwen-30b"]
     assert res.provenance.verified and res.admission == "full"
-    assert reg.get("mini1").admitted == "full" and keys["mini1"] == "sk"
+    assert reg.get("mini1").admitted == "full" and reg.get("mini1").model == "qwen-30b" and reg.get("mini1").models == ["qwen-30b"]
+    assert keys["mini1"] == "sk"
 
 @pytest.mark.asyncio
 async def test_register_unreachable_reports_and_does_not_store_key():

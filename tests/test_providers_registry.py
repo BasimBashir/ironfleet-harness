@@ -13,7 +13,8 @@ def test_registry_upsert_get_list():
     reg.upsert(cfg)
     assert reg.get("mini1").engine == "mlx-lm"
     assert [c.name for c in reg.list()] == ["mini1"]
-    cfg2 = ProviderConfig(name="mini1", base_url="http://mini1:8080/v1", engine="mlx-lm",
-                          tier="local", admitted="mechanical-only")
+    cfg2 = ProviderConfig(name="mini1", base_url="http://mini1:8080/v1", model="qwen-30b",
+                          engine="mlx-lm", tier="local", admitted="mechanical-only")
     reg.upsert(cfg2)
     assert reg.get("mini1").admitted == "mechanical-only"   # upsert replaces
+    assert reg.get("mini1").model == "qwen-30b"             # model is part of the entry

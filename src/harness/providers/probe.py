@@ -14,7 +14,7 @@ class ProbeResult(BaseModel):
     admission: str            # full | mechanical-only | refused
 
 async def register_provider(
-    name: str, base_url: str, api_key: str, engine: str | None = None,
+    name: str, base_url: str, api_key: str, model: str = "", engine: str | None = None,
     declared: dict[str, str] | None = None,
     registry: ProviderRegistry | None = None,
     fetch: Fetch | None = None,
@@ -29,7 +29,7 @@ async def register_provider(
     models_payload = await fetch(f"{base_url.rstrip('/')}/models", headers)
     reachable, auth_ok = models_payload is not None, models_payload is not None
     models = [m.get("id", "") for m in (models_payload or {}).get("data", [])]
-    cfg = ProviderConfig(name=name, base_url=base_url, engine=engine,
+    cfg = ProviderConfig(name=name, base_url=base_url, model=model, models=models, engine=engine,
                          tier="local" if engine in ("mlx-lm", "vllm", "llamacpp", "ollama") else "cloud",
                          declared_provenance=declared or {})
     prov = await check_provenance(cfg, fetch)
