@@ -39,3 +39,13 @@ def test_mechanical_only_provider_usable_for_extraction_not_drafting(tmp_path):
     assert [c.name for c in ext] == ["mini2"]                       # mechanical tier serves extraction
     drafting = rt.route("drafting", MatterPolicy(matter_ref="M", classification="LOCAL_ONLY"), _registry())
     assert all(c.name != "mini2" for c in drafting)                 # but never drafting
+
+def test_malformed_routing_fails_loud_not_silent(tmp_path):
+    import pytest
+    p = tmp_path / "bad.yaml"; p.write_text("rules: []\n")          # no defaults section
+    with pytest.raises(ValueError):
+        RoutingTable.from_yaml(p)
+    q = tmp_path / "partial.yaml"; q.write_text(ROUTING + "\n")     # valid
+    rt = RoutingTable.from_yaml(q)
+    result = rt.route("unknown-task", MatterPolicy(matter_ref="M", classification="LOCAL_ONLY"), _registry())
+    assert [c.name for c in result] == ["mini1-mlx"]               # unknown task falls to defaults
