@@ -1,4 +1,3 @@
-import pytest
 from harness.keychain import set_key, get_key
 from harness.providers.config import ProviderConfig, ProviderRegistry
 
