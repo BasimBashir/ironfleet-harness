@@ -1,7 +1,7 @@
 # tests/test_gate.py
 import pytest
 from harness.gate import EgressGate, LLMRequest, GateRefusal
-from harness.policy import RoutingTable, MatterPolicy
+from harness.policy import RoutingTable
 from harness.providers.config import ProviderConfig, ProviderRegistry
 from harness.trace import TraceStore
 

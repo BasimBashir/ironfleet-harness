@@ -15,20 +15,20 @@
 
 | seam | file/hook touched | core-fork? |
 |---|---|---|
-| _(guard hook: …)_ | `.opencode/…` / hook name | no |
-| _(persona subagent: …)_ | `.opencode/agent/hunter.md` | no |
+| _(guard hook: …)_ | `.opencode/…` / hook name |  |
+| _(persona subagent: …)_ | `.opencode/agent/hunter.md` |  |
 
 ## OpenHands
 
 | seam | file/hook touched | core-fork? |
 |---|---|---|
-| _(guard handler: …)_ | event handler name | no |
-| _(persona subagent: …)_ | `.openhands/agents/hunter.yaml` | no |
+| _(guard handler: …)_ | event handler name |  |
+| _(persona subagent: …)_ | `.openhands/agents/hunter.yaml` |  |
 
 ## dsh
 _(runs only after the P0-6 pre-check clears)_
 
 | seam | file/hook touched | core-fork? |
 |---|---|---|
-| _(guard plugin: …)_ | `plugins/ironfleet-…/guard.ts` on tools/post-execute | no |
-| _(persona subagent: …)_ | `plugins/…/manifest.json` | no |
+| _(guard plugin: …)_ | `plugins/ironfleet-…/guard.ts` on tools/post-execute |  |
+| _(persona subagent: …)_ | `plugins/…/manifest.json` |  |

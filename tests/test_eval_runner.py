@@ -1,7 +1,7 @@
 # tests/test_eval_runner.py
 import pytest
 from harness.eval.runner import run_eval
-from harness.gate import EgressGate, LLMRequest
+from harness.gate import EgressGate
 from harness.policy import RoutingTable
 from harness.providers.config import ProviderConfig, ProviderRegistry
 from harness.trace import TraceStore

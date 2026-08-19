@@ -60,12 +60,16 @@ except GateRefusal as e:                # fail-closed: nothing dispatches outsid
     print(f"refused: {e}")
 ```
 
+Real OpenAI-compatible endpoints do not send `_server_meta`, so production trace rows read `verified=0` until a provenance sidecar exists — that is by design, not a fault.
+
 ## Eval
 
 ```python
+import asyncio
 from harness.eval.runner import run_eval
 
-report_path = run_eval(gate, "data/golden_cases", "reports/eval.md")
+scores = asyncio.run(run_eval(gate, "data/golden_cases", "report.md"))
+# returns list[CaseScore]; also writes report.md
 ```
 
 Golden-case YAML format doubles as Jonathan's P0-4b authoring template. See `data/golden_cases/` for examples.
@@ -76,5 +80,5 @@ See [SPIKE_PROTOCOL.md](src/harness/spike/SPIKE_PROTOCOL.md) and [SEAM_COUNT.md]
 
 ## Security & Operations
 
-- **Provider verification** (`P0-6`): See [dsh_precheck.py](src/harness/security/dsh_precheck.py) for security preflight checks.
+- **DSH supply-chain pre-check** (`P0-6`): See [dsh_precheck.py](src/harness/security/dsh_precheck.py) for security preflight checks.
 - **Runbook** (`P0-7`, macOS-only): See [RUNBOOK_P0_7.md](src/harness/ops/RUNBOOK_P0_7.md) for operational procedures.

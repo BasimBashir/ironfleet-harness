@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Awaitable, Callable
 from pydantic import BaseModel
-from harness.policy import RoutingTable, MatterPolicy
+from harness.policy import RoutingTable, MatterPolicy, Classification
 from harness.providers.config import ProviderConfig, ProviderRegistry
 from harness.providers.provenance import ProvenanceReport
 from harness.trace import TraceStore, DispatchRecord
@@ -15,7 +15,7 @@ class LLMRequest(BaseModel):
     task_class: str
     messages: list[dict]
     model: str | None = None
-    classification: str = "LOCAL_PREFERRED"   # LOCAL_ONLY | LOCAL_PREFERRED | CLOUD_PERMITTED
+    classification: Classification = "LOCAL_PREFERRED"
     max_tokens: int = 1024
 
 class LLMResponse(BaseModel):
@@ -61,7 +61,7 @@ class EgressGate:
 
     async def dispatch(self, request: LLMRequest) -> LLMResponse:
         # classification travels on the request until the matters table exists
-        policy = MatterPolicy(matter_ref=request.matter_ref, classification=request.classification)  # type: ignore[arg-type]
+        policy = MatterPolicy(matter_ref=request.matter_ref, classification=request.classification)
         # matter classification policy comes from the matters table when it exists; the
         # routing table already encodes the request's task class.
         candidates = self.routing.route(request.task_class, policy, self.registry)
