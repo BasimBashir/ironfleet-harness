@@ -1,0 +1,13 @@
+id: seed-without-prejudice-001
+matter_type: dispute-resolution
+task_class: detection
+prompt: |
+  Detect whether the following communication contains without-prejudice privilege:
+  "We are willing to settle this matter for $45,000 if payment is made by 2026-09-30."
+  This is a synthetic test case for privilege detection.
+expected_citations:
+  - "[Without Prejudice Rule (common law)]"
+required_grounding:
+  - "Without-prejudice communications are inadmissible in proceedings when settling disputes"
+persona_checks:
+  privilege: "Correctly identifies the communication as protected by without-prejudice privilege"

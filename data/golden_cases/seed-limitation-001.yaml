@@ -1,0 +1,12 @@
+id: seed-limitation-001
+matter_type: civil-litigation
+task_class: analysis
+prompt: |
+  Analyze whether a breach of contract claim filed on 2026-08-01 is within the limitation period
+  for a contract breached on 2023-06-15. This is a synthetic test case for limitation analysis.
+expected_citations:
+  - "[Limitation Act 2010, s 4]"
+required_grounding:
+  - "Limitation period for contract claims is 6 years from breach"
+persona_checks:
+  timing: "Analysis confirms claim is within limitation period"
