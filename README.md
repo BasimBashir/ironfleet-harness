@@ -42,21 +42,22 @@ Edit `data/routing.yaml` to configure task_class × classification → provider 
 ## Dispatch
 
 ```python
-from harness.core.gate import EgressGate
-from harness.routing.table import RoutingTable
-from harness.storage.trace import TraceStore
-from harness.models.requests import LLMRequest
+import asyncio
+from harness.gate import EgressGate, LLMRequest, GateRefusal
+from harness.policy import RoutingTable
+from harness.providers.config import ProviderRegistry
+from harness.trace import TraceStore
 
-registry = load_registry()  # from provider DB
+registry = ProviderRegistry()          # populated via register_provider(...)
 table = RoutingTable.from_yaml("data/routing.yaml")
-traces = TraceStore("data/traces")
-gate = EgressGate(registry, table, traces)
+gate = EgressGate(registry, table, TraceStore("trace.db"))
 
-req = LLMRequest(task_class="legal_qa", classification="client_question", messages=[...])
+req = LLMRequest(matter_ref="M-001", task_class="drafting",
+                 classification="LOCAL_PREFERRED", messages=[{"role": "user", "content": "..."}])
 try:
-    response = await gate.dispatch(req)
-except GateRefusal as e:
-    print(f"Request refused: {e.reason}")
+    resp = asyncio.run(gate.dispatch(req))
+except GateRefusal as e:                # fail-closed: nothing dispatches outside the gate
+    print(f"refused: {e}")
 ```
 
 ## Eval
