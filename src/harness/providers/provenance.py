@@ -23,22 +23,22 @@ async def check_provenance(cfg: ProviderConfig, fetch: Fetch) -> ProvenanceRepor
         return ProvenanceReport(engine="cloud", weights_revision=declared_rev, backend="saas",
                                 verified=bool(declared_rev), raw={"basis": "declared+saas"})
     if cfg.engine == "mlx-lm":
-        health = await fetch(f"{cfg.base_url.rstrip('/v1')}/health", headers)
+        health = await fetch(f"{cfg.base_url.removesuffix('/v1')}/health", headers)
         rev = (health or {}).get("revision", "")
-        return ProvenanceReport(engine="mlx-lm", weights_revision=rev, backend=(health or {}).get("engine", "mlx-lm"),
+        return ProvenanceReport(engine="mlx-lm", weights_revision=rev, backend=(health or {}).get("engine", ""),
                                 verified=bool(rev) and rev == declared_rev, raw={"health": health or {}})
     if cfg.engine == "vllm":
-        ver = await fetch(f"{cfg.base_url.rstrip('/v1')}/version", headers)
+        ver = await fetch(f"{cfg.base_url.removesuffix('/v1')}/version", headers)
         rev = (ver or {}).get("version", "")
         return ProvenanceReport(engine="vllm", weights_revision=declared_rev, backend=f"vllm-{rev}",
                                 verified=bool(declared_rev) and bool(rev), raw={"version": ver or {}})
     if cfg.engine == "llamacpp":
-        props = await fetch(f"{cfg.base_url.rstrip('/v1')}/props", headers)
+        props = await fetch(f"{cfg.base_url.removesuffix('/v1')}/props", headers)
         backend = (props or {}).get("build_info", "")
         return ProvenanceReport(engine="llamacpp", weights_revision=declared_rev, backend=backend,
                                 verified=bool(declared_rev) and bool(backend), raw={"props": props or {}})
     if cfg.engine == "ollama":
-        show = await fetch(f"{cfg.base_url.rstrip('/v1')}/api/show", headers)
+        show = await fetch(f"{cfg.base_url.removesuffix('/v1')}/api/show", headers)
         details = (show or {}).get("details", {})
         backend = details.get("engine") or details.get("backend") or ""   # absent on silent fallback
         return ProvenanceReport(engine="ollama", weights_revision=declared_rev, backend=backend,
@@ -49,6 +49,8 @@ async def check_provenance(cfg: ProviderConfig, fetch: Fetch) -> ProvenanceRepor
 def admission_for(report: ProvenanceReport, cfg: ProviderConfig) -> str:
     if report.verified:
         return "full"
+    if not cfg.engine:
+        return "refused"          # unknown engine: we cannot even know what is running (CR-3)
     # Unverifiable: locals may serve the mechanical tier (deterministic, low-stakes) only;
     # unverifiable clouds are refused outright — the gate must never carry privilege on trust.
     return "mechanical-only" if cfg.tier == "local" else "refused"
