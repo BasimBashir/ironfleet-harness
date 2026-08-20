@@ -35,6 +35,32 @@ print(res.admission)                     # full | mechanical-only | refused
 
 The probe refuses or restricts any endpoint that cannot verifiably report weights revision + executing backend (CR-3).
 
+## Local inference on Windows
+
+`llama-server` (llama.cpp) is the supported Windows local engine — it serves an
+OpenAI-compatible API on `http://127.0.0.1:8080/v1` and reports its actual
+build via `/props`, so the probe can verify it:
+
+```python
+import asyncio
+from harness.providers.probe import register_provider
+
+res = asyncio.run(register_provider(
+    "win-llamacpp", "http://127.0.0.1:8080/v1", "dummy",   # llama-server ignores auth
+    model="<served-model-name>",                            # the name llama-server serves
+    engine="llamacpp",
+    declared={"weights_revision": "<gguf-sha256-or-tag>"},
+))
+print(res.admission)                                       # full
+```
+
+Start the server pinned to one GGUF (`llama-server -m <path-to-model.gguf>`);
+record the file's sha256 (or tag) as `declared={"weights_revision": ...}`.
+The probe verifies by fetching `/props` and requiring non-empty `build_info` —
+declared revision plus a real executing backend is `admission="full"`.
+**Ollama on any OS stays mechanical-only** (CR-3): it silently substitutes the
+executing backend, so its provenance can never be verified.
+
 ## Routing
 
 Edit `data/routing.yaml` to configure task_class × classification → provider mappings. The routing table drives provider selection based on request characteristics.
@@ -81,4 +107,6 @@ See [SPIKE_PROTOCOL.md](src/harness/spike/SPIKE_PROTOCOL.md) and [SEAM_COUNT.md]
 ## Security & Operations
 
 - **DSH supply-chain pre-check** (`P0-6`): See [dsh_precheck.py](src/harness/security/dsh_precheck.py) for security preflight checks.
-- **Runbook** (`P0-7`, macOS-only): See [RUNBOOK_P0_7.md](src/harness/ops/RUNBOOK_P0_7.md) for operational procedures.
+- **Ops runbook** (`P0-7`, per OS): See [RUNBOOK_P0_7.md](src/harness/ops/RUNBOOK_P0_7.md) — encrypted-at-rest store + versioned backup on macOS (`p07_setup_macos.sh` / `p07_verify_macos.sh`), Windows (`p07_setup_windows.ps1` / `p07_verify_windows.ps1`), and Linux (`p07_setup_linux.sh` / `p07_verify_linux.sh`).
+
+The `HARNESS_HOME` environment variable sets the store root on every OS (it overrides each script's per-OS default).
