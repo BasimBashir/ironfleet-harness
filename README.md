@@ -9,6 +9,9 @@ Phase 0 of the Rev-2 merged programme. See [specs](../specs/) and [IronFleet_Mer
 ## Quickstart
 
 ```bash
+python -m venv .venv
+# Windows (PowerShell):  .\.venv\Scripts\Activate.ps1
+# macOS / Linux:         source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
@@ -109,4 +112,4 @@ See [SPIKE_PROTOCOL.md](src/harness/spike/SPIKE_PROTOCOL.md) and [SEAM_COUNT.md]
 - **DSH supply-chain pre-check** (`P0-6`): See [dsh_precheck.py](src/harness/security/dsh_precheck.py) for security preflight checks.
 - **Ops runbook** (`P0-7`, per OS): See [RUNBOOK_P0_7.md](src/harness/ops/RUNBOOK_P0_7.md) — encrypted-at-rest store + versioned backup on macOS (`p07_setup_macos.sh` / `p07_verify_macos.sh`), Windows (`p07_setup_windows.ps1` / `p07_verify_windows.ps1`), and Linux (`p07_setup_linux.sh` / `p07_verify_linux.sh`).
 
-The `HARNESS_HOME` environment variable sets the store root on every OS (it overrides each script's per-OS default).
+The `HARNESS_HOME` environment variable sets the store root for the Windows and Linux ops scripts (macOS uses the IronFleetPriv volume).

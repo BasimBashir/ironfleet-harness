@@ -29,9 +29,11 @@ run them from a checkout there:
 > encrypted disk. The guarantees (encrypted at rest, versioned backup,
 > fail-loud verify) are identical on all three; the blast radius is not.
 >
-> **`HARNESS_HOME`** sets the store root on **every OS** (it overrides the
-> per-OS default in all six scripts). Point it at a location on the encrypted
-> volume before running setup if you do not want the default.
+> **`HARNESS_HOME`** overrides the store root in the Windows and Linux scripts; the
+> macOS scripts always use the `/Volumes/IronFleetPriv` volume. Runtime wiring of
+> `HARNESS_HOME` (the Python core reading it) lands with the session store on the
+> gated paths. Point it at a location on the encrypted volume before running setup
+> if you do not want the default.
 
 ---
 
@@ -241,6 +243,7 @@ $store = if ($env:HARNESS_HOME) { $env:HARNESS_HOME } else { "$env:LOCALAPPDATA\
 schtasks /Create /TN "IronFleet Backup" /SC DAILY /ST 02:30 /RU "$env:USERNAME" /RL LIMITED `
   /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$store\ironfleet-backup.ps1`""
 ```
+Note: without `/RP` the command prompts for the account password interactively.
 
 (On plain cmd, the caret above becomes `^` and the backtick-escapes become
 regular `\"...\"` quoting.)
@@ -250,7 +253,7 @@ Force one run and sanity-check the same night:
 ```powershell
 schtasks /Run /TN "IronFleet Backup"
 Get-ChildItem "$store\backups"                      # a new timestamped dir + 'latest' junction
-Get-Content "$env:LOCALAPPDATA\IronFleet\harness\backups\latest\sessions\*" -TotalCount 1 -ErrorAction SilentlyContinue
+Get-Content "$store\backups\latest\sessions\*" -TotalCount 1 -ErrorAction SilentlyContinue
 ```
 
 The task runs whether or not the console is open (Task Scheduler wakes the
@@ -364,8 +367,8 @@ What it does:
 3. Creates the store layout: `<store>/sessions`, `<store>/trace`,
    `<store>/backups` (idempotent).
 4. Writes `<store>/ironfleet-backup.sh` (mode 700): a param-less,
-   self-locating backup job. Each run `rsync -a --delete --link-dest=<store>/backups/latest`s
-   the store into `<store>/backups/<stamp>/` (excluding the backups dir
+   self-locating backup job. Each run `rsync -a --delete --link-dest=<store>/backups/latest`
+   copies the store into `<store>/backups/<stamp>/` (excluding the backups dir
    itself), then repoints the `latest` symlink — unchanged files are
    hard-linked, so each snapshot costs only what changed.
 
