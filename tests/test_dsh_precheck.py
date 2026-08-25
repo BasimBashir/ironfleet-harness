@@ -9,5 +9,5 @@ def test_flags_lifecycle_scripts_and_missing_licence():
     }
     rep = scan_package_jsons(files)
     assert rep.lifecycle_scripts == [("root", "postinstall"), ("cordis", "prepare")]
-    assert rep.packages == 3 and rep.missing_licence == 1
+    assert rep.packages == 3 and rep.missing_licence == 2  # cordis AND packages/a lack licence fields
     assert rep.critical_findings == 1                                  # root-level install-time execution
