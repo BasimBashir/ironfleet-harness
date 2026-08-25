@@ -16,7 +16,11 @@ class LLMRequest(BaseModel):
     messages: list[dict]
     model: str | None = None
     classification: Classification = "LOCAL_PREFERRED"
-    max_tokens: int = 1024
+    # Generous default cap: reasoning models burn thinking tokens against max_tokens, and local
+    # servers (Ollama) apply their own small num_predict default when the field is omitted.
+    # Providers enforce their own output limits; a strict API that rejects the value returns a
+    # traced error rather than silent truncation. Override per request when needed.
+    max_tokens: int = 128_000
 
 class LLMResponse(BaseModel):
     content: str

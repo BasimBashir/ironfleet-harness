@@ -94,8 +94,7 @@ async def main() -> None:
             messages=[{"role": "user",
                        "content": "Extract the party names as a JSON list. Text: "
                                   "Between ACME Ltd (creditor) and John Smith (debtor). "
-                                  "Reply with JSON only."}],
-            max_tokens=512))      # qwen3.8 is a reasoning model: thinking tokens count toward the cap
+                                  "Reply with JSON only."}]))   # default max_tokens (128k) applies
         print(f"[gate ] extraction OK via {resp.provider} / {resp.model}")
         print(f"[model ] {resp.content.strip()[:200]!r}")
         rows = [r for r in gate.trace.by_matter("LIVE-DEMO") if r.status == "ok"]
