@@ -65,3 +65,20 @@ async def test_missing_model_refuses_instead_of_guessing(tmp_path, fake_transpor
         await gate.dispatch(LLMRequest(matter_ref="M-3", task_class="drafting",
                                        messages=[{"role": "user", "content": "x"}]))
     assert gate.trace.by_matter("M-3")[0].status == "refused"
+
+@pytest.mark.asyncio
+async def test_default_transport_omits_auth_header_when_no_key(monkeypatch, tmp_path, fake_transport):
+    import harness.providers.http_fetch as hf
+    captured: dict = {}
+    async def fake_fetch(url, headers, payload=None):
+        captured["url"], captured["headers"] = url, headers
+        return {"model": "m", "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
+    monkeypatch.setattr(hf, "openai_fetch", fake_fetch)
+    monkeypatch.setattr("harness.keychain._kv", {})          # empty keychain
+    gate = _gate(tmp_path, fake_transport)
+    await gate._default_transport(gate.registry.get("mini1"), {"model": "qwen-30b"})
+    assert "Authorization" not in captured["headers"]        # no "Bearer " illegal header
+    monkeypatch.setattr("harness.keychain._kv", {"mini1": "sk-real"})
+    await gate._default_transport(gate.registry.get("mini1"), {"model": "qwen-30b"})
+    assert captured["headers"].get("Authorization") == "Bearer sk-real"

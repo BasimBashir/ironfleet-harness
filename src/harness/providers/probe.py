@@ -25,7 +25,8 @@ async def register_provider(
     if fetch is None:
         from harness.providers.http_fetch import openai_fetch   # real transport (Task 7 extracts)
         fetch = openai_fetch
-    headers = {"Authorization": f"Bearer {api_key}"}
+    # Empty key (local servers) -> no Authorization header; "Bearer " alone is an illegal value.
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     models_payload = await fetch(f"{base_url.rstrip('/')}/models", headers)
     reachable, auth_ok = models_payload is not None, models_payload is not None
     models = [m.get("id", "") for m in (models_payload or {}).get("data", [])]

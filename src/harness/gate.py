@@ -42,7 +42,9 @@ class EgressGate:
         from harness.keychain import get_key
         from harness.providers.http_fetch import openai_fetch
         key = get_key(provider.name) or ""
-        headers = {"Authorization": f"Bearer {key}"}
+        # No key -> NO Authorization header. A "Bearer " value with an empty token is an
+        # illegal header (httpx LocalProtocolError) — local servers don't need auth anyway.
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
         result = await openai_fetch(f"{provider.base_url.rstrip('/')}/chat/completions", headers, payload)
         if result is None:
             raise RuntimeError(f"provider {provider.name} call failed")
