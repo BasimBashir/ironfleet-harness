@@ -251,7 +251,16 @@ schtasks /Create /TN "IronFleet Backup" /SC DAILY /ST 02:30 /RU "$env:USERNAME" 
 ```
 Note: without `/RP` the command prompts for the account password interactively.
 
-**PowerShell-native alternative (recommended):** the `schtasks` one-liner is
+**Easiest (recommended):** run the helper script from an elevated PowerShell —
+it is paste-safe (no console quoting), uses S4U (no stored password), catches
+up missed runs via `-StartWhenAvailable`, is idempotent (re-registering
+replaces), and force-runs once so you can see a fresh snapshot immediately:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File <store-root>\p07_register_backup_windows.ps1   # -At 14:30 to test by day
+```
+
+**PowerShell-native alternative (manual):** the `schtasks` one-liner above is
 line-wrap-fragile when pasted (a mid-string wrap mangles the quoting) and
 prompts for a password. This variant has neither problem, and
 `-StartWhenAvailable` catches up a missed 02:30 run at next wake/boot
