@@ -267,10 +267,11 @@ prompts for a password. This variant has neither problem, and
 (a dev machine that is asleep or off at 02:30 otherwise skips the backup):
 
 ```powershell
-$action   = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File "<store-root>\ironfleet-backup.ps1"'
-$trigger  = New-ScheduledTaskTrigger -Daily -At 02:30
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName 'IronFleet Backup' -Action $action -Trigger $trigger -Settings $settings -User "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U
+$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File "<store-root>\ironfleet-backup.ps1"'
+$trigger   = New-ScheduledTaskTrigger -Daily -At 02:30
+$settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U   # LogonType is a Principal param, NOT on Register-ScheduledTask (PS 5.1)
+Register-ScheduledTask -TaskName 'IronFleet Backup' -Action $action -Trigger $trigger -Settings $settings -Principal $principal
 Start-ScheduledTask -TaskName 'IronFleet Backup'   # force one run, then check backups\ for a new snapshot
 ```
 

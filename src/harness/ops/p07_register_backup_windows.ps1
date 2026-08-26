@@ -16,13 +16,15 @@ if (-not (Test-Path -LiteralPath $BackupScript -PathType Leaf)) {
     exit 1
 }
 
-$action   = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BackupScript`""
-$trigger  = New-ScheduledTaskTrigger -Daily -At $At
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BackupScript`""
+$trigger   = New-ScheduledTaskTrigger -Daily -At $At
+$settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+# LogonType lives on the Principal, not on Register-ScheduledTask (PS 5.1 has no -LogonType there)
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U
 
 Unregister-ScheduledTask -TaskName 'IronFleet Backup' -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName 'IronFleet Backup' -Action $action -Trigger $trigger -Settings $settings `
-    -User "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U | Out-Null
+    -Principal $principal | Out-Null
 Write-Host "==> registered 'IronFleet Backup' (daily at $At, S4U, catch-up on wake) for $BackupScript"
 
 Start-ScheduledTask -TaskName 'IronFleet Backup'
