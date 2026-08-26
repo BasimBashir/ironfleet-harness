@@ -251,6 +251,22 @@ schtasks /Create /TN "IronFleet Backup" /SC DAILY /ST 02:30 /RU "$env:USERNAME" 
 ```
 Note: without `/RP` the command prompts for the account password interactively.
 
+**PowerShell-native alternative (recommended):** the `schtasks` one-liner is
+line-wrap-fragile when pasted (a mid-string wrap mangles the quoting) and
+prompts for a password. This variant has neither problem, and
+`-StartWhenAvailable` catches up a missed 02:30 run at next wake/boot
+(a dev machine that is asleep or off at 02:30 otherwise skips the backup):
+
+```powershell
+$action   = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File "<store-root>\ironfleet-backup.ps1"'
+$trigger  = New-ScheduledTaskTrigger -Daily -At 02:30
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName 'IronFleet Backup' -Action $action -Trigger $trigger -Settings $settings -User "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U
+Start-ScheduledTask -TaskName 'IronFleet Backup'   # force one run, then check backups\ for a new snapshot
+```
+
+(S4U = run whether the user is logged on or not, without storing a password.)
+
 (On plain cmd, the caret above becomes `^` and the backtick-escapes become
 regular `\"...\"` quoting.)
 
