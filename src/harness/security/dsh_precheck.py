@@ -28,7 +28,7 @@ def scan_package_jsons(files: dict[str, str]) -> PrecheckReport:
                     rep.critical_findings += 1          # root-level install-time execution
         if "license" not in doc:
             rep.missing_licence += 1
-        if "vendor/" in path:
+        if "vendor/" in path.replace("\\", "/"):   # Path.relative_to yields backslashes on Windows
             rep.vendored += 1
     return rep
 
@@ -46,4 +46,4 @@ if __name__ == "__main__":
              for p in repo.rglob("package.json")}
     rep = scan_package_jsons(files)
     write_precheck_report(rep, Path("dsh_precheck_report.md"))
-    print(f"scanned {rep.packages} package.json files → dsh_precheck_report.md")
+    print(f"scanned {rep.packages} package.json files -> dsh_precheck_report.md")

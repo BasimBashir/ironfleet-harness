@@ -11,3 +11,12 @@ def test_flags_lifecycle_scripts_and_missing_licence():
     assert rep.lifecycle_scripts == [("root", "postinstall"), ("cordis", "prepare")]
     assert rep.packages == 3 and rep.missing_licence == 2  # cordis AND packages/a lack licence fields
     assert rep.critical_findings == 1                                  # root-level install-time execution
+
+def test_windows_path_separators_count_vendored():
+    files = {                                                          # Path.relative_to yields backslashes on Windows
+        "package.json": '{"name":"root","license":"MIT"}',
+        "vendor\\cordis\\package.json": '{"name":"cordis","license":"MIT"}',
+        "packages\\a\\package.json": '{"name":"a","license":"MIT"}',
+    }
+    rep = scan_package_jsons(files)
+    assert rep.packages == 3 and rep.vendored == 1 and rep.critical_findings == 0
