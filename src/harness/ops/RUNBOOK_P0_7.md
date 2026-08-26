@@ -233,6 +233,12 @@ What it does:
 
 The script does **not** register the scheduled task — that is §2.3, run by hand.
 
+> **CR-7 deviation opt-in:** for a dev machine whose operator has explicitly accepted an
+> unencrypted store, `p07_setup_windows.ps1 -AcceptUnencryptedStore` skips the BitLocker gate
+> (printing a loud banner); `p07_verify_windows.ps1 -AcceptUnencryptedStore` downgrades the
+> BitLocker check to an advisory WARN. The default fail-loud behavior is unchanged, and the
+> deviation must be recorded (NEXT_STEPS.md) and ratified by the decision-maker.
+
 ### 2.3 Backup scheduling — nightly 02:30 Task Scheduler job (manual)
 
 Register the job by hand (elevated PowerShell is easiest — `schtasks /Create`
@@ -286,6 +292,9 @@ re-plug:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\p07_verify_windows.ps1
 ```
+
+(Append `-AcceptUnencryptedStore` to match a store created under the CR-7 deviation; the
+BitLocker line then WARNs instead of failing.)
 
 Expected output:
 

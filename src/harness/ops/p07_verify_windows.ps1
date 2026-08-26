@@ -2,7 +2,10 @@
 # Checks: BitLocker protection ON, sessions\trace\backups dirs exist, backup
 # script present. WARNs (does not fail) when the Task Scheduler job is absent --
 # registration is a documented manual step, not something setup installs.
+# -AcceptUnencryptedStore (matching setup) downgrades the BitLocker check to an
+# advisory WARN for the recorded CR-7 deviation; everything else still fails loud.
 #Requires -Version 5.1
+param([switch]$AcceptUnencryptedStore)
 
 $ErrorActionPreference = 'Continue'   # every check runs; failures accumulate in $fail
 
@@ -19,8 +22,11 @@ if ($StoreRoot -notmatch '^([A-Za-z]:)') {
 }
 $Drive = $Matches[1]
 
-# --- BitLocker protection must be ON ----------------------------------------------------------
-if (-not (Get-Command manage-bde.exe -ErrorAction SilentlyContinue)) {
+# --- BitLocker protection must be ON (unless the CR-7 deviation flag is set) -------------------
+if ($AcceptUnencryptedStore) {
+    Write-Host "WARN: -AcceptUnencryptedStore -- store is NOT encrypted at rest (CR-7 deviation, operator-accepted)." -ForegroundColor Yellow
+}
+elseif (-not (Get-Command manage-bde.exe -ErrorAction SilentlyContinue)) {
     Write-Host "FAIL: manage-bde.exe not found -- cannot verify BitLocker (Home edition?)." -ForegroundColor Red
     $fail = 1
 }
@@ -57,6 +63,9 @@ else {
 }
 
 # --- Verdict -------------------------------------------------------------------------------------
-if ($fail -eq 0) { Write-Host 'P0-7 OK (Windows): encrypted, laid out, backed up' }
+if ($fail -eq 0) {
+    if ($AcceptUnencryptedStore) { Write-Host 'P0-7 OK (Windows, CR-7 deviation): laid out, backed up -- NOT encrypted at rest' }
+    else { Write-Host 'P0-7 OK (Windows): encrypted, laid out, backed up' }
+}
 else { Write-Host 'P0-7 FAILED (Windows): see FAIL lines above; node is not production-ready.' -ForegroundColor Red }
 exit $fail

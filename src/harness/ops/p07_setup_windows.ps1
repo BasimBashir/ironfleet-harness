@@ -1,9 +1,12 @@
 # P0-7/D13: Windows dev-tier encrypted store + versioned backup.
 # BitLocker-gated store creation (fail-loud: no unencrypted privileged store is
-# ever created), store layout, and a self-locating versioned backup script
-# (robocopy /MIR snapshots + 'latest' junction). Task Scheduler registration is
-# deliberately NOT installed here -- see RUNBOOK_P0_7.md (Windows section).
+# ever created silently), store layout, and a self-locating versioned backup
+# script (robocopy /MIR snapshots + 'latest' junction). Task Scheduler
+# registration is deliberately NOT installed here -- see RUNBOOK_P0_7.md
+# (Windows section). -AcceptUnencryptedStore is the explicit, recorded CR-7
+# deviation for dev machines whose operator accepts an unencrypted store.
 #Requires -Version 5.1
+param([switch]$AcceptUnencryptedStore)
 
 $ErrorActionPreference = 'Stop'
 
@@ -23,38 +26,45 @@ if (-not (Test-Path -LiteralPath "$Drive\")) {
     exit 1
 }
 
-$bde = Get-Command manage-bde.exe -ErrorAction SilentlyContinue
-if (-not $bde) {
-    Write-Host "FAIL: manage-bde.exe not found -- this Windows edition has no manageable BitLocker" -ForegroundColor Red
-    Write-Host "      (Home editions ship device encryption only, which manage-bde cannot drive)." -ForegroundColor Red
-    Write-Host "      Remediation: use Windows Pro/Enterprise/Education, or host the store on a" -ForegroundColor Red
-    Write-Host "      BitLocker-protected data drive and set HARNESS_HOME to it, then re-run:" -ForegroundColor Red
-    Write-Host "      powershell -ExecutionPolicy Bypass -File .\p07_setup_windows.ps1" -ForegroundColor Red
-    exit 1
+if ($AcceptUnencryptedStore) {
+    Write-Host "==> DEVIATION (CR-7): -AcceptUnencryptedStore set -- BitLocker gate skipped;" -ForegroundColor Yellow
+    Write-Host "      store will NOT be encrypted at rest. Operator-accepted risk on this machine;" -ForegroundColor Yellow
+    Write-Host "      record the deviation. Default behavior without the flag is unchanged fail-loud." -ForegroundColor Yellow
 }
+else {
+    $bde = Get-Command manage-bde.exe -ErrorAction SilentlyContinue
+    if (-not $bde) {
+        Write-Host "FAIL: manage-bde.exe not found -- this Windows edition has no manageable BitLocker" -ForegroundColor Red
+        Write-Host "      (Home editions ship device encryption only, which manage-bde cannot drive)." -ForegroundColor Red
+        Write-Host "      Remediation: use Windows Pro/Enterprise/Education, or host the store on a" -ForegroundColor Red
+        Write-Host "      BitLocker-protected data drive and set HARNESS_HOME to it, then re-run:" -ForegroundColor Red
+        Write-Host "      powershell -ExecutionPolicy Bypass -File .\p07_setup_windows.ps1" -ForegroundColor Red
+        exit 1
+    }
 
-# Do not redirect stderr to stdout here: under $ErrorActionPreference='Stop' on PS 5.1 a
-# redirected native stderr line becomes a terminating error. stderr (if any) just prints.
-$statusText = (manage-bde.exe -status $Drive) -join "`r`n"
-$bdeExit = $LASTEXITCODE
-if ($bdeExit -ne 0) {
-    Write-Host "FAIL: cannot determine BitLocker status for drive $Drive (manage-bde exit code $bdeExit)." -ForegroundColor Red
-    Write-Host "      manage-bde needs an elevated prompt on some builds. Open one and re-run:" -ForegroundColor Red
-    Write-Host "        Start-Process powershell -Verb RunAs" -ForegroundColor Red
-    Write-Host "        powershell -ExecutionPolicy Bypass -File .\p07_setup_windows.ps1" -ForegroundColor Red
-    exit 1
+    # Do not redirect stderr to stdout here: under $ErrorActionPreference='Stop' on PS 5.1 a
+    # redirected native stderr line becomes a terminating error. stderr (if any) just prints.
+    $statusText = (manage-bde.exe -status $Drive) -join "`r`n"
+    $bdeExit = $LASTEXITCODE
+    if ($bdeExit -ne 0) {
+        Write-Host "FAIL: cannot determine BitLocker status for drive $Drive (manage-bde exit code $bdeExit)." -ForegroundColor Red
+        Write-Host "      manage-bde needs an elevated prompt on some builds. Open one and re-run:" -ForegroundColor Red
+        Write-Host "        Start-Process powershell -Verb RunAs" -ForegroundColor Red
+        Write-Host "        powershell -ExecutionPolicy Bypass -File .\p07_setup_windows.ps1" -ForegroundColor Red
+        exit 1
+    }
+    if ($statusText -notmatch '(?m)^\s*Protection Status:\s*Protection On\b') {
+        Write-Host "FAIL: drive $Drive is not BitLocker-protected (manage-bde -status: Protection Off)." -ForegroundColor Red
+        Write-Host "      An unencrypted privileged store is never created (P0-7 fail-loud)." -ForegroundColor Red
+        Write-Host "      Remediation, in an elevated PowerShell (Start-Process powershell -Verb RunAs):" -ForegroundColor Red
+        Write-Host "        1. manage-bde -on $Drive -RecoveryPassword    # prints a 48-digit recovery password" -ForegroundColor Red
+        Write-Host "        2. manage-bde -status $Drive                    # wait for: Conversion Status: Fully Encrypted" -ForegroundColor Red
+        Write-Host "        3. manage-bde -protectors -get $Drive           # escrow the recovery password (RUNBOOK, custody)" -ForegroundColor Red
+        Write-Host "        4. re-run: powershell -ExecutionPolicy Bypass -File .\p07_setup_windows.ps1" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "==> BitLocker protection ON for $Drive"
 }
-if ($statusText -notmatch '(?m)^\s*Protection Status:\s*Protection On\b') {
-    Write-Host "FAIL: drive $Drive is not BitLocker-protected (manage-bde -status: Protection Off)." -ForegroundColor Red
-    Write-Host "      An unencrypted privileged store is never created (P0-7 fail-loud)." -ForegroundColor Red
-    Write-Host "      Remediation, in an elevated PowerShell (Start-Process powershell -Verb RunAs):" -ForegroundColor Red
-    Write-Host "        1. manage-bde -on $Drive -RecoveryPassword    # prints a 48-digit recovery password" -ForegroundColor Red
-    Write-Host "        2. manage-bde -status $Drive                    # wait for: Conversion Status: Fully Encrypted" -ForegroundColor Red
-    Write-Host "        3. manage-bde -protectors -get $Drive           # escrow the recovery password (RUNBOOK, custody)" -ForegroundColor Red
-    Write-Host "        4. re-run: powershell -ExecutionPolicy Bypass -File .\p07_setup_windows.ps1" -ForegroundColor Red
-    exit 1
-}
-Write-Host "==> BitLocker protection ON for $Drive"
 
 # --- Store layout: sessions\, trace\, backups\ ------------------------------------------------
 foreach ($d in 'sessions', 'trace', 'backups') {
