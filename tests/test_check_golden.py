@@ -96,3 +96,51 @@ def test_cluster_filter(tmp_path):
     assert any("gc-test-002-y" in p for p in mod.check(cases))
     # filtered to voidable-transactions: only gc-test-001-x is checked -> clean
     assert mod.check(cases, cluster="voidable-transactions") == []
+
+def test_orphan_yaml_detected(tmp_path):
+    mod = _load()
+    cases = _fixture(tmp_path)
+    # Add a YAML with no corresponding manifest entry
+    orphan_yaml = CASE_YAML.replace("gc-test-001-x", "gc-orphan-no-entry")
+    (cases / "gc-orphan-no-entry.yaml").write_text(orphan_yaml)
+    problems = mod.check(cases)
+    assert any("gc-orphan-no-entry: YAML without manifest entry" in p for p in problems)
+
+def test_orphan_yaml_with_cluster_filtering(tmp_path):
+    mod = _load()
+    cases = _fixture(tmp_path)
+    # Add YAML for a different cluster's entry and an orphan
+    m = yaml.safe_load((cases / "sources" / "MANIFEST.yaml").read_text())
+    m["manifest"].append({"id": "gc-test-002-y", "sources": ["other.pdf"],
+                          "citation": "Other v Other [2021] NZHC 2",
+                          "sha256_per_source": ["1" * 64], "cluster": "receivership"})
+    (cases / "sources" / "MANIFEST.yaml").write_text(yaml.safe_dump(m))
+    other_yaml = CASE_YAML.replace("gc-test-001-x", "gc-test-002-y")
+    (cases / "gc-test-002-y.yaml").write_text(other_yaml)
+    orphan_yaml = CASE_YAML.replace("gc-test-001-x", "gc-orphan-z")
+    (cases / "gc-orphan-z.yaml").write_text(orphan_yaml)
+    # unfiltered: both the orphan and the missing source for gc-test-002-y
+    unfiltered_problems = mod.check(cases)
+    assert any("gc-orphan-z: YAML without manifest entry" in p for p in unfiltered_problems)
+    assert any("gc-test-002-y" in p for p in unfiltered_problems)
+    # filtered to voidable-transactions: orphan still fires, gc-test-002-y does NOT
+    filtered_problems = mod.check(cases, cluster="voidable-transactions")
+    assert any("gc-orphan-z: YAML without manifest entry" in p for p in filtered_problems)
+    assert not any("gc-test-002-y" in p for p in filtered_problems)
+
+def test_zero_match_cluster_fails(tmp_path):
+    mod = _load()
+    cases = _fixture(tmp_path)
+    problems = mod.check(cases, cluster="no-such-cluster")
+    assert any("matches no manifest entries" in p for p in problems)
+
+def test_sources_sha256_length_mismatch(tmp_path):
+    mod = _load()
+    cases = _fixture(tmp_path)
+    m = yaml.safe_load((cases / "sources" / "MANIFEST.yaml").read_text())
+    # Create length mismatch: 2 sources but only 1 sha256
+    m["manifest"][0]["sources"] = ["judgment.pdf", "another.pdf"]
+    m["manifest"][0]["sha256_per_source"] = [hashlib.sha256(b"%PDF-dummy").hexdigest()]
+    (cases / "sources" / "MANIFEST.yaml").write_text(yaml.safe_dump(m))
+    problems = mod.check(cases)
+    assert any("gc-test-001-x: sources/sha256_per_source length mismatch" in p for p in problems)

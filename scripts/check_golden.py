@@ -26,19 +26,24 @@ def _sha256(path: Path) -> str:
 def check(cases_dir: Path, cluster: str | None = None) -> list[str]:
     cases_dir = Path(cases_dir)
     doc = yaml.safe_load((cases_dir / "sources" / "MANIFEST.yaml").read_text(encoding="utf-8"))
+    all_manifest_ids = {e["id"] for e in doc["manifest"]}
     entries = [e for e in doc["manifest"] if cluster is None or e["cluster"] == cluster]
-    manifest_ids = {e["id"] for e in entries}
+    if cluster is not None and not entries:
+        return [f"cluster '{cluster}' matches no manifest entries"]
     cases = {c.id: c for c in load_cases(cases_dir) if c.id.startswith("gc-")}
     refs = {p.stem: p for p in (cases_dir / "references").glob("*.md")}
     problems: list[str] = []
     for e in entries:
         cid = e["id"]
-        for fname, declared in zip(e["sources"], e["sha256_per_source"]):
-            src = cases_dir / "sources" / "Set_2" / fname
-            if not src.exists():
-                problems.append(f"{cid}: missing source {fname}")
-            elif _sha256(src) != declared:
-                problems.append(f"{cid}: sha256 mismatch {fname}")
+        if len(e["sources"]) != len(e["sha256_per_source"]):
+            problems.append(f"{cid}: sources/sha256_per_source length mismatch")
+        else:
+            for fname, declared in zip(e["sources"], e["sha256_per_source"]):
+                src = cases_dir / "sources" / "Set_2" / fname
+                if not src.exists():
+                    problems.append(f"{cid}: missing source {fname}")
+                elif _sha256(src) != declared:
+                    problems.append(f"{cid}: sha256 mismatch {fname}")
         if cid not in cases:
             problems.append(f"{cid}: no golden-case YAML")
         elif cid not in refs:
@@ -49,7 +54,7 @@ def check(cases_dir: Path, cluster: str | None = None) -> list[str]:
                 problems.append(f"{cid}: reference answer fails "
                                 f"(citations={s.citation_accuracy:.2f} grounding={s.grounding_score:.2f} checks={s.checks})")
     for cid in cases:
-        if cid not in manifest_ids:
+        if cid not in all_manifest_ids:
             problems.append(f"{cid}: YAML without manifest entry")
     return problems
 
