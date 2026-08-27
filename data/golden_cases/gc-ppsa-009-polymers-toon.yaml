@@ -1,0 +1,29 @@
+# source: Polymers International Ltd v Toon — [2013] NZHC 1897.pdf
+# citation: Polymers International Ltd v Toon [2013] NZHC 1897
+# pins: ss 149-151 the key PPSA provisions on financing statement errors, quoted at [8]
+#       (s 149 registration invalid only if seriously misleading; s 150 seriously misleading
+#       errors in debtor name/serial number; s 151 no need to prove actual misleading);
+#       s 172 search criteria ([9]); failure to classify debtor as a company and to enter
+#       its company number held seriously misleading ([26]-[29]); relief declined [29]-[30]
+# cluster: ppsa-priority  status: draft
+id: gc-ppsa-009-polymers-toon
+matter_type: ppsa-priority
+task_class: analysis
+prompt: |
+  You act for a supplier that in July 2022 registered a financing statement against a
+  customer company to secure its supply debts. On the registrar's default screen the
+  filer recorded the debtor as "other organisation" instead of a company and left the
+  company number field blank. The customer is now in liquidation and a rival secured
+  party says your client's security interest is unperfected. Advise whether the
+  registration was validly made under the Personal Property Securities Act 1999,
+  citing the provisions governing defective financing statements and the search
+  criteria such errors are tested against.
+expected_citations:
+  - "Personal Property Securities Act 1999, s 149"
+  - "Personal Property Securities Act 1999, s 150"
+  - "Personal Property Securities Act 1999, s 172"
+required_grounding:
+  - "seriously misleading"
+  - "financing statement"
+persona_checks:
+  invalid: "invalid"

@@ -1,0 +1,24 @@
+# source: Nicholson v Permakraft (NZ) Ltd — [1985] NZCA 15; [1985] 1 NZLR 242.pdf
+# citation: Nicholson v Permakraft (NZ) Ltd [1985] 1 NZLR 242 (CA)
+# pins: creditors entitled to consideration when company insolvent/near-insolvent
+#       (typescript pp 16-17); objective misfeasance test (ts p 18); Duomatic unanimous
+#       assent (ts p 15, Buckley J)
+# cluster: directors-duties  status: draft
+id: gc-dir-004-nicholson-permakraft
+matter_type: directors-duties
+task_class: analysis
+prompt: |
+  You act for the liquidator of a NZ company. While it was of doubtful solvency its
+  sole director caused it to pay $48,000 to a finance company in satisfaction of a debt
+  owed personally by the director; the company received no consideration. All
+  shareholders later assented to the payment informally. Advise whether the director
+  is liable to the company in misfeasance, citing the leading NZ authority on directors'
+  duties to creditors when a company is insolvent or of doubtful solvency.
+expected_citations:
+  - "Nicholson v Permakraft (NZ) Ltd [1985] 1 NZLR 242"
+  - "Re Duomatic Ltd"
+required_grounding:
+  - "creditors"
+  - "misfeasance"
+persona_checks:
+  liable: "liable"

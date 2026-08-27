@@ -1,0 +1,28 @@
+# source: Kaikoura Freight Ltd (in liq) v Collins — [2017] NZHC 1490.pdf
+# citation: Kaikoura Freight Ltd (in liq) v Collins [2017] NZHC 1490
+# pins: s 301 compensation claim for ss 131/135/136/137 breaches ([2]-[4], $340,837.01 owed);
+#       s 135 pillars per Mason v Lewis ([22]); s 136 subjective and objective test ([30]-[32]);
+#       causal link between breaches and creditor losses ([39]); culpability/duration factors
+#       via Lower v Traveller [2005] 3 NZLR 479 at [79],[83],[86] ([36]-[41]);
+#       s 284 valuation-at-zero directions refused ([48]-[50])
+# cluster: directors-duties  status: draft
+id: gc-dir-005-kaikoura-freight
+matter_type: directors-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Kaikoura Haulage Ltd, wound up owing $340,837.01 to
+  creditors. Judgment has been entered that its sole director breached s 135 of the Companies
+  Act 1993 by reckless trading from 31 October 2012 until cessation, and s 136 by incurring
+  obligations he had no reasonable grounds to believe would be met. The director says he
+  cannot be made to pay more than a fair share of an unhappy outcome. Advise how the amount
+  recoverable from him as compensation under s 301 is assessed, including the requisite causal
+  link between the breaches and the creditors' losses, citing the authority on quantifying a
+  director's liability for losses caused by reckless trading.
+expected_citations:
+  - "Companies Act 1993, s 301"
+  - "Lower v Traveller [2005] 3 NZLR 479"
+required_grounding:
+  - "reckless trading"
+  - "causal link"
+persona_checks:
+  compensation: "compensation"

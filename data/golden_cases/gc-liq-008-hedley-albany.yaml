@@ -1,0 +1,26 @@
+# source: Hedley v Albany Power Centre Ltd (in liq) — (2006) 2 NZCCLR 1148.pdf
+# citation: Hedley v Albany Power Centre Ltd (in liq) [2006] 2 NZCCLR 1148
+# pins: leave application under s 165 treated as a s 284 direction application ([1]-[2],
+#       directions under s 284(1)(a) at [67]-[71]); informed shareholders' views decisive -
+#       fully informed simple majority against suing concludes the matter ([61]-[64]),
+#       majority assessed per s 105(2) with shareholding directors excluded ([65]);
+#       two options if a significant minority supports suing ([66])
+# cluster: liquidators-duties  status: draft
+id: gc-liq-008-hedley-albany
+matter_type: liquidators-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Albany Retail Ltd. A shareholder whose late husband was a
+  former director wants the liquidators sued for breach of duty; she asks you either to sue
+  or to seek a direction under s 284 of the Companies Act 1993 compelling the company's
+  litigation. Other shareholders have not been told what recovery is realistically available
+  or what costs are at risk. Advise how you should proceed before deciding whether to bring
+  the proceeding against the directors, citing the statutory routes available.
+expected_citations:
+  - "Companies Act 1993, s 284"
+  - "Companies Act 1993, s 165"
+required_grounding:
+  - "fully informed"
+  - "majority of shareholders"
+persona_checks:
+  direction: "direction"

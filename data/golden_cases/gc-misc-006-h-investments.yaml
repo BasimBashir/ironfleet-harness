@@ -1,0 +1,28 @@
+# source: H Investments Limited (in liquidation) v Official Assignee [2018] NZCA 76 (29 March 2018).pdf
+# citation: H Investments Limited (in liquidation) v Official Assignee [2018] NZCA 76
+# pins: liquidators' proof of debt pleading ss 131/135/136/137 (and s 194) breaches against the
+#       bankrupt sole director ([1]-[3]); ss 233-242 Insolvency Act 2006 creditor's claim
+#       procedure and definition of provable debts reflecting the claimant's onus ([38]);
+#       standard of proof balance of probabilities ([31], [37]); no shift of onus - s 236
+#       examination power does not transfer the onus to the Assignee or bankrupt ([46]-[47]);
+#       non-payment of GST not of itself breach of duty ([90]); appeal dismissed ([96])
+# cluster: insolvency-general  status: draft
+id: gc-misc-006-h-investments
+matter_type: insolvency-general
+task_class: analysis
+prompt: |
+  You act for a creditor whose proof of debt was rejected by the Official Assignee because
+  you have filed only assertion, no evidence: your company's former sole director is
+  bankrupt and you allege he breached his duties by trading on without paying GST. You want
+  to argue that once the allegation is made the burden should fall on him or the Assignee.
+  Advise what standard applies to establishing a provable debt of this kind, who bears the
+  onus, and whether such an argument would succeed, citing the case law on the standard a
+  claimant must meet on formal proof.
+expected_citations:
+  - "Insolvency Act 2006, s 236"
+  - "Ferreira v Stockinger [2015] NZHC 2916"
+required_grounding:
+  - "balance of probabilities"
+  - "proof of debt"
+persona_checks:
+  dismissed: "dismissed"
