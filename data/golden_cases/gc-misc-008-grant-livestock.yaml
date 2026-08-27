@@ -1,0 +1,38 @@
+# source: Grant v Independent Livestock 2010 Ltd — [2012] NZHC 3458.pdf
+# citation: Grant v Independent Livestock 2010 Ltd [2012] NZHC 3458
+# NOTE: this judgment contains NO Personal Property Securities Act content at all (zero
+#       occurrences; the only "registration" references are IRD/GST numbers on invoices).
+#       The filename hint ("collateral description/registration sufficiency") is not made
+#       out: it is a related-company pooling / phoenix-company / s 301 case. Pins are taken
+#       from the judgment text.
+# pins: pooling order under Companies Act 1993, s 271 declined - no jurisdiction because IL
+#       Agents and IL 2010 are not "related companies" within s 2(3) ([148], [191]); phoenix
+#       cause of action fails because s 386C confines personal liability to the debts of the
+#       phoenix company itself ([145]-[150]); s 301 relief granted against the director -
+#       withholding and dispersal of client sale proceeds held on trust and a fictitious
+#       commission are breaches of the s 131 good faith duty, not s 135 reckless trading
+#       ([146]-[169]); compensation assessed on causation, culpability and duration
+#       (Goatlands; Mason v Lewis) ([171]-[180]); $70,601 ordered under s 301(1)(b)(i) plus
+#       interest ([200])
+# cluster: insolvency-general  status: draft
+id: gc-misc-008-grant-livestock
+matter_type: insolvency-general
+task_class: analysis
+prompt: |
+  You are the liquidator of a NZ livestock agency that failed in June 2024 owing farmers the
+  proceeds of stock sales. Six weeks before the liquidation its sole director incorporated a
+  new company with a similar name, transferred the client ledger and the trading account to it
+  and carried on the identical business from the same premises; that company is also now in
+  liquidation. The two companies have no common shareholders, and the director says the new
+  company existed only to correct errors in client payments. Advise whether the Court can
+  combine the assets of both companies into one fund for their creditors, citing the statutory
+  preconditions and the reasons the application will succeed or fail.
+expected_citations:
+  - "Companies Act 1993, s 271"
+  - "Companies Act 1993, s 386C"
+required_grounding:
+  - "related companies"
+  - "pooling order"
+persona_checks:
+  pooling: "pooling"
+  related: "related"

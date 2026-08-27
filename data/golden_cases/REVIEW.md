@@ -5,14 +5,12 @@ S2 is complete when every row reads `approved` with a date.
 
 | id | judgment | doctrinal focus | task_class | status | date | notes |
 |---|---|---|---|---|---|---|
-| gc-ppsa-001-goldcorp | Goldcorp Exchange Ltd & Ors v Liggett & Ors [1994] UKPC 3 | | analysis | pending | | |
-| gc-ppsa-002-graham-portacom | Graham v Portacom New Zealand Ltd [2004] 2 NZCCLR 288 (HC) | | analysis | pending | | |
-| gc-ppsa-003-bloodstock-waller | New Zealand Bloodstock Ltd v Waller [2006] 3 NZLR 629 (CA) | | analysis | pending | | |
-| gc-ppsa-004-bloodstock-jenkins | New Zealand Bloodstock Leasing Ltd v Jenkins [2007] 3 NZCCLR 811 (HC) | | analysis | pending | | |
-| gc-ppsa-005-marac-greer | Marac Finance Ltd v Greer [2012] 2 NZLR 497 (CA) | | analysis | pending | | |
-| gc-ppsa-006-stockco-gibson | Stockco Ltd v Gibson [2013] 2 NZCCLR 165 (CA) | | analysis | pending | | |
-| gc-ppsa-007-mcintosh-fisk | McIntosh v Fisk [2017] 1 NZLR 863 (SC) | | analysis | pending | | |
-| gc-ppsa-008-grant-livestock | Grant v Independent Livestock 2010 Ltd [2012] NZHC 3458 | | analysis | pending | | |
+| gc-ppsa-001-goldcorp | Goldcorp Exchange Ltd & Ors v Liggett & Ors [1994] UKPC 3 | unallocated bullion buyers: no proprietary interest, unsecured creditors | analysis | draft | 2026-08-27 | |
+| gc-ppsa-002-graham-portacom | Graham v Portacom New Zealand Ltd [2004] 2 NZCCLR 288 (HC) | long lease deemed security interest; unregistered lessor loses | analysis | draft | 2026-08-27 | |
+| gc-ppsa-003-bloodstock-waller | New Zealand Bloodstock Ltd v Waller [2006] 3 NZLR 629 (CA) | lessee rights in goods; perfected beats unregistered owner | analysis | draft | 2026-08-27 | |
+| gc-ppsa-004-bloodstock-jenkins | New Zealand Bloodstock Leasing Ltd v Jenkins [2007] 3 NZCCLR 811 (HC) | refinancing creates no purchase money security interest | analysis | draft | 2026-08-27 | |
+| gc-ppsa-005-marac-greer | Marac Finance Ltd v Greer [2012] 2 NZLR 497 (CA) | s 23(e)(ii) land-linked rent assignment outside the PPSA | analysis | draft | 2026-08-27 | |
+| gc-ppsa-006-stockco-gibson | Stockco Ltd v Gibson [2013] 2 NZCCLR 165 (CA) | s 53 ordinary course: sale-and-leaseback not protected | analysis | draft | 2026-08-27 | |
 | gc-ppsa-009-polymers-toon | Polymers International Ltd v Toon [2013] NZHC 1897 | financing statement seriously misleading: invalid registration | analysis | draft | 2026-08-27 |  |
 | gc-liq-001-madsen-ries | Madsen-Ries v Cooper [2020] NZSC 100 | | analysis | pending | | |
 | gc-liq-002-henderson-walker | Henderson v Walker [2019] NZHC 2184 | | analysis | pending | | |
@@ -33,5 +31,7 @@ S2 is complete when every row reads `approved` with a date.
 | gc-misc-004-camray-farms | Camray Farms Ltd (in liq) v BL (Nature Sunshine) Trustee Ltd [2019] NZHC 2536 | trustee right of indemnity/lien vs mortgage priority | analysis | draft | 2026-08-27 |  |
 | gc-misc-005-ranolf-bhana | Ranolf Company Limited (in liquidation) v Bhana [2017] NZHC 2872 | stay of enforcement pending appeal: undertakings | analysis | draft | 2026-08-27 |  |
 | gc-misc-006-h-investments | H Investments Limited (in liquidation) v Official Assignee [2018] NZCA 76 | proof of debt: standard of proof and onus | analysis | draft | 2026-08-27 |  |
+| gc-misc-007-mcintosh-fisk | McIntosh v Fisk [2017] 1 NZLR 863 (SC) | Ponzi payout clawback; value defence to capital only | analysis | draft | 2026-08-27 | reclustered from ppsa-priority |
+| gc-misc-008-grant-livestock | Grant v Independent Livestock 2010 Ltd [2012] NZHC 3458 | pooling needs related companies; phoenix claim fails | analysis | draft | 2026-08-27 | reclustered from ppsa-priority |
 | gc-recv-001-viacom-scene1 | Viacom Global (Netherlands) BV v Scene 1 Entertainment Ltd (in rec) [2009] NZCA 457 | | analysis | pending | | |
 | gc-recv-002-fisk-customs | Fisk v Attorney-General (Comptroller of Customs) [2016] NZHC 479 | | analysis | pending | | |

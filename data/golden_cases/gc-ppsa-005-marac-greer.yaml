@@ -1,0 +1,33 @@
+# source: Marac Finance Ltd v Greer — [2012] NZCA 45; [2012] 2 NZLR 497.pdf
+# citation: Marac Finance Ltd v Greer [2012] 2 NZLR 497 (CA)
+# pins: s 23(e)(ii) excludes from the PPSA an interest created or provided for by "a transfer
+#       of a right to payment that arises in connection with an interest in land, including a
+#       transfer of rental payments payable under a lease of or licence to occupy land"
+#       (s 23 quoted at [24], terms considered at [32]); absolute assignment by way of
+#       security in the memorandum of mortgage held within the exclusion ([26]-[27],
+#       [36]-[38], [50]-[51]); not narrow-construed; licence to the mortgagor to collect rent
+#       ends on default, and entry into possession or expiry of a s 119 Property Law Act 2007
+#       notice is not required ([40]-[45]); parties' concession that, were the PPSA to apply,
+#       Marac's earlier-registered interest would rank first (s 66) ([23], [25]); appeal
+#       dismissed, PPSA does not apply so priority falls to be determined outside the Act
+#       ([31], [54])
+# cluster: ppsa-priority  status: draft
+id: gc-ppsa-005-marac-greer
+matter_type: ppsa-priority
+task_class: analysis
+prompt: |
+  You act for a lender that on 11 July 2023 advanced $2.9m to a commercial property owner under
+  a general security deed over all its present and after-acquired personal property, registered
+  the same day. In 2024 the owner gave its existing bank first-ranking mortgages over two leased
+  buildings, each with an absolute assignment by way of security of the rent and a licence to
+  the owner to collect it until default. This month the owner defaulted and the bank appointed a
+  receiver of income without entering possession or serving a Property Law Act 2007 notice.
+  Advise which lender is entitled to the rents and whether the Personal Property Securities Act
+  1999 governs the dispute, citing the provision that excludes land-linked payments from it.
+expected_citations:
+  - "Personal Property Securities Act 1999, s 23"
+required_grounding:
+  - "transfer of a right to payment"
+  - "interest in land"
+persona_checks:
+  mortgagee: "mortgagee"

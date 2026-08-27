@@ -1,0 +1,36 @@
+# source: Goldcorp Exchange Ltd & Ors v Liggett & Ors [1994] UKPC 3 (25 May 1994).pdf
+# citation: Goldcorp Exchange Ltd v Liggett [1994] UKPC 3 (PC); also [1995] 1 AC 74
+# pins: contract for the sale of unascertained goods passes no property, legal or equitable -
+#       s 18 Sale of Goods Act 1908 (NZ) and Atkin LJ in In re Wait [1927] 1 Ch 606 (BAILII
+#       print is unnumbered; heading "III. Title to bullion: the sale contracts"); the
+#       collateral storage promises created no trust (no entitlement to separate and
+#       individual appropriation) and "there was never any bailment, and no identifiable
+#       property to which any trust could attach" (closing sentence of section III, heading
+#       "IV. Title to after-acquired bullion" follows); no proprietary interest in the
+#       purchase price - total failure of consideration arises only when delivery is demanded
+#       and refused (heading "V. Conclusion on property in bullion"); appeal allowed and
+#       Thorp J's judgment restored ("Their Lordships will accordingly humbly advise")
+# note: pre-PPSA judgment (receivership 1988); the Personal Property Securities Act 1999 is
+#       neither cited nor applied, so the common-law/Sale of Goods Act analysis supplies the
+#       pins and no PPSA section is pinned
+# cluster: ppsa-priority  status: draft
+id: gc-ppsa-001-goldcorp
+matter_type: ppsa-priority
+task_class: analysis
+prompt: |
+  You act for 14 investors in Kauri Bullion Ltd, a NZ gold dealer. Between March and August
+  1993 each paid $60,000 for metal on the dealer's "unallocated" terms: it promised to store
+  and insure metal of the contracted weight and issued certificates of ownership, but nothing
+  was ever set aside for any buyer and it stayed free to deal with its general stock. In
+  November 1993 the bank appointed receivers under a floating charge over all the dealer's
+  assets; the vault holds $420,000 against orders of $1.1m. Advise whether the investors have a
+  proprietary claim to that bullion ahead of the bank or only personal claims? Cite the Privy
+  Council authority on unallocated metal and the sale-of-goods provision on when property passes.
+expected_citations:
+  - "Goldcorp Exchange Ltd v Liggett [1994] UKPC 3"
+  - "Sale of Goods Act 1908, s 18"
+required_grounding:
+  - "unascertained goods"
+  - "proprietary interest"
+persona_checks:
+  unsecured: "unsecured"

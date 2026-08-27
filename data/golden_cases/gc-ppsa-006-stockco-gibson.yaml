@@ -1,0 +1,33 @@
+# source: Stockco Ltd v Gibson — [2012] NZCA 330.pdf
+# citation: Stockco Ltd v Gibson [2013] 2 NZCCLR 165 (CA)
+# pins: s 53(1) quoted at [40] - buyer of goods sold in the ordinary course of business of the
+#       seller takes them free of the seller's security interest; two-stage ORIX approach
+#       adopted at [51] (identify the seller's business, then ask whether the disposition was
+#       of a kind customarily made in it); sale held "a long way outside the ordinary course
+#       of Plateau's business", so "the Banks' security interest continued in the 4,000
+#       heifers" ([71]-[75], [79]); PMSI point recorded as background only - a sale and lease
+#       back to the vendor does not create a PMSI, hence the restructuring to substitute a
+#       different lessee ([35], [37]); the s 88 subordination and s 36(1) description issues
+#       are separate questions this case does not use here
+# cluster: ppsa-priority  status: draft
+id: gc-ppsa-006-stockco-gibson
+matter_type: ppsa-priority
+task_class: analysis
+prompt: |
+  You act for a livestock financier. In August 2024 it bought 3,200 rising-one-year heifers
+  from a dairy group for $1,150 a head against a market value of about $2,600, applied the
+  proceeds straight to a land settlement and immediately leased them back to a group company
+  for five years; they never left the group's farms. The group's banks hold a registered
+  all-assets charge and had refused consent to any sale, and your client registered a financing
+  statement on settlement day. The group is now in receivership. Advise whether your client
+  took the heifers free of the banks' security interest under the statutory buyer protection,
+  citing the provision and the leading authority on sales in the ordinary course of business.
+
+expected_citations:
+  - "Personal Property Securities Act 1999, s 53"
+  - "ORIX New Zealand Ltd v Milne [2007] 3 NZLR 637"
+required_grounding:
+  - "takes the goods free"
+  - "security interest continued"
+persona_checks:
+  ordinary course: "ordinary course"

@@ -1,0 +1,34 @@
+# source: New Zealand Bloodstock Leasing Ltd v Jenkins — [2007] 3 NZCCLR 811 (HC) — PMSI
+#         refinancing.pdf
+# citation: New Zealand Bloodstock Leasing Ltd v Jenkins [2007] 3 NZCCLR 811 (HC)
+# pins: PMSI defined in s 16(1) - seller securing the purchase price, or lender whose value
+#       enables the debtor to acquire rights in the collateral ([41]); refinancing is not a
+#       mere restructuring carrying the original PMSI across - Werner v Royal Bank of Canada
+#       considered but distinguished, the overall effect negatived any intention to retain it
+#       ([54]-[55]); a new PMSI is not created on a refinancing - Ilnicki and Unisource
+#       rejected as inconsistent with substance over form, the debtor gains no greater right
+#       to the collateral's economic value and the asset pool is not enlarged ([56]-[58]);
+#       s 73 super priority requires perfection not later than 10 working days after the
+#       debtor obtained possession, impossible where possession long predates the refinance
+#       ([59]); refinancing interest at best ordinary and unperfected ([60])
+# cluster: ppsa-priority  status: draft
+id: gc-ppsa-004-bloodstock-jenkins
+matter_type: ppsa-priority
+task_class: analysis
+prompt: |
+  You act for a lender that in March 2024 advanced $1.6m to a bloodstock breeder to pay out in
+  full the earlier lease-to-purchase facility under which the breeder acquired a stallion, and
+  took a general security agreement over the breeder's stock and its rights in the stallion.
+  Your client registered a financing statement two days later. The breeder has had the
+  stallion at its stables since acquiring it in 2021. A bank holding a 2019 all-assets charge,
+  registered in 2019, says its interest ranks first and that no advance-money super-priority
+  can arise on a refinance. Advise whether the new facility ranks ahead of the bank's charge
+  as a purchase money security interest, and by when it had to be perfected to do so.
+expected_citations:
+  - "Personal Property Securities Act 1999, s 16"
+  - "Personal Property Securities Act 1999, s 73"
+required_grounding:
+  - "purchase money security interest"
+  - "10 working days"
+persona_checks:
+  possession: "possession"

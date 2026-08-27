@@ -1,0 +1,38 @@
+# source: McIntosh v Fisk — [2017] NZSC 78; [2017] 1 NZLR 863.pdf
+# citation: McIntosh v Fisk [2017] 1 NZLR 863 (SC)
+# NOTE: this judgment contains NO Personal Property Securities Act content at all (zero
+#       occurrences); the filename hint ("s 59 sale of collateral / void charge") is not
+#       made out. It is a Ponzi-scheme clawback case under the Property Law Act 2007
+#       (ss 344-350) and the Companies Act 1993 (ss 292-296). Pins are taken from the
+#       judgment text.
+# pins: paying money is a "transaction" under Companies Act 1993, s 292(3)(e) whether or not
+#       the money was the company's own; payment from a co-mingled misappropriated trust fund
+#       still qualifies, the recipient being creditor as well as beneficiary ([53]-[60]);
+#       insolvent transaction under s 292(2), voidable and set aside under ss 294-295
+#       ([61]-[65]); Property Law Act 2007 s 349(1) valuable consideration and s 296(3) "gave
+#       value" construed alike, value must be real and substantial (Allied Concrete)
+#       ([81]-[84]); return of the $500,000 capital is value, the fictitious $454,047.62
+#       "profit" is not ([115]-[136]); change of position fails ([137]-[198]); result at
+#       [199] - appeal and cross-appeal dismissed, the $454,047.62 was correctly set aside
+# cluster: insolvency-general  status: draft
+id: gc-misc-007-mcintosh-fisk
+matter_type: insolvency-general
+task_class: analysis
+prompt: |
+  You act for an investor who managed a $780,000 portfolio through a NZ funds manager and asked
+  for it to be cashed up in October 2023. The manager paid him $1.26m in November 2023,
+  representing the reported but fictitious value, using other clients' money, and went into
+  liquidation in December 2024 with the fraud complete. The liquidators demand repayment of the
+  whole $1.26m under the Property Law Act 2007 and Companies Act 1993 clawback regimes. Advise
+  whether the payment can be recovered from him and, if so, how much, citing the clawback
+  provisions and the defences of value and changed circumstances.
+expected_citations:
+  - "Companies Act 1993, s 292"
+  - "Companies Act 1993, s 296"
+  - "Property Law Act 2007, s 349"
+required_grounding:
+  - "insolvent transaction"
+  - "gave value"
+persona_checks:
+  voidable: "voidable"
+  trust: "trust"

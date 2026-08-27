@@ -1,0 +1,34 @@
+# source: New Zealand Bloodstock Ltd v Waller — [2005] NZCA 254; [2006] 3 NZLR 629 — first
+#         CA decision on the PPSA.pdf
+# citation: New Zealand Bloodstock Ltd v Waller [2006] 3 NZLR 629 (CA)
+# pins: lease to purchase for more than one year made the owner's retention of title a
+#       "security interest" (s 17(1)(b)) ([51](a), [54]); s 40(3) gave the lessee "rights in
+#       goods" from 1 May 2002 which are after-acquired property captured by the pre-PPSA
+#       all-assets debenture ([37], [51](b), [64], [65]); enforceable against the owner as
+#       third party via s 36(1)(b)(ii) ([51](e), [65]); perfected by registration (s 41)
+#       ([38], [51](f)); s 66(1)(a) - unperfected owner's interest loses priority ([39],
+#       [51](g), [70]); nemo dat displacement ([52]-[53]); steps to conclusion summarised
+#       at [51], result "Lock's debenture takes priority over New Zealand Bloodstock's title
+#       to the stallion"
+# cluster: ppsa-priority  status: draft
+id: gc-ppsa-003-bloodstock-waller
+matter_type: ppsa-priority
+task_class: analysis
+prompt: |
+  You act for a NZ thoroughbred owner that leased a stallion to a stud farm on a
+  lease-to-purchase agreement running to 31 July 2005, title staying with your client until
+  the final payment. The stud's bank held a debenture signed by the stud charging all its
+  present and future assets and registered a financing statement on 20 May 2002, weeks after
+  the Personal Property Securities Act 1999 came into force; your client registered nothing.
+  The stud has now defaulted. Advise whether your client can recover the stallion ahead of the
+  bank, citing the provisions that treat the lease as a security interest, attach an interest
+  to goods leased by a debtor, and rank a registered interest against an unregistered one.
+expected_citations:
+  - "Personal Property Securities Act 1999, s 17"
+  - "Personal Property Securities Act 1999, s 40"
+  - "Personal Property Securities Act 1999, s 66"
+required_grounding:
+  - "rights in goods"
+  - "after-acquired property"
+persona_checks:
+  perfected: "perfected"

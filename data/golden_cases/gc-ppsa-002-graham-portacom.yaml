@@ -1,0 +1,31 @@
+# source: Graham v Portacom New Zealand Ltd — (2004) — first case on the PPSA (HC).pdf
+# citation: Graham v Portacom New Zealand Ltd [2004] 2 NZCCLR 288 (HC)
+# pins: Act in force from 1 May 2002, lessor never registered ([6]); s 17(1)(b) deems a lease
+#       for a term of more than 1 year a security interest, s 16 defines that term including
+#       an indefinite term and continuous possession beyond a year ([9]-[10]); s 66(1)(a)
+#       perfected beats unperfected ([15]-[16]); s 40(3) gives a lessee "rights in goods" so
+#       the all-assets debenture attached to the buildings themselves ([14], [18], [29],
+#       [33], [37]); debenture perfected on registration, receivers may sell ([38])
+# cluster: ppsa-priority  status: draft
+id: gc-ppsa-002-graham-portacom
+matter_type: ppsa-priority
+task_class: analysis
+prompt: |
+  You act for a NZ company that owns portable cold-store buildings. From June 2019 it leased
+  them to a food processor on an open-ended hire agreement and the processor has had continuous
+  possession for over two years. In 2020 a bank lent the processor $2.4m under a debenture
+  charging all its present and future property and registered a financing statement the next
+  day. Your client took no steps under the Personal Property Securities Act 1999, and the
+  processor is now in receivership. Advise which party is entitled to the buildings, citing the
+  provisions on when a lease of goods counts as a security interest and how competing interests
+  under that Act rank.
+expected_citations:
+  - "Personal Property Securities Act 1999, s 16"
+  - "Personal Property Securities Act 1999, s 17"
+  - "Personal Property Securities Act 1999, s 66"
+required_grounding:
+  - "deemed security interest"
+  - "perfected security interest"
+persona_checks:
+  unregistered: "unregistered"
+  priority: "priority"
