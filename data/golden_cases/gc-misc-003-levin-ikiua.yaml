@@ -1,0 +1,51 @@
+# source: Levin v Ikiua — [2010] NZCA 509; [2011] 1 NZLR 678 (HC decision Levin v Ikuia [2009] NZHC 879).pdf
+# citation: Levin v Ikiua [2011] 1 NZLR 678 (CA)
+# focus: corporate trading trust in liquidation — s 298(2) Companies Act 1993 does not apply
+#        to distributions of trading profits by a corporate trustee to the trust's
+#        beneficiaries; the trust property is not company property, the trustee's only
+#        retained interest is its right of indemnity (liquidators bore the onus on extent),
+#        and the section reaches only dispositions where the directors must obtain fair value
+#        NOTE: the PDF holds the CA judgment ONLY — no HC judgment is bundled; the HC decision
+#        cited in fn 1 is Levin v Ikiua [2010] 1 NZLR 400 (HC), and the filename's
+#        "[2009] NZHC 879" citation appears nowhere in the extracted text
+# pins: six issues framed ([3]); trading trust — OPC held its business undertaking on trust
+#       from January 2001 by conduct ([10], [43]); Milroy v Lord (1862) 4 De GF & J 264 at
+#       274-275 modes, and no conversion of an intended transfer into a declaration of trust
+#       ([25], [40]); Pagarani and Pennington v Waine considered ([27], [42], [44]); absence
+#       of director/shareholder resolutions not fatal — Re Duomatic Limited (1969) 2 Ch 365 as
+#       applied in Nicholson v Permakraft (NZ) Limited [1985] 1 NZLR 242 (CA) ([46]); s 298(2)
+#       text, insiders common ground, $927,538 claimed ([47]-[49]); trust property is not
+#       company property ([50], quoting Heath J at [85]-[86]); proprietary interest only to
+#       the extent of the right of indemnity, and it was for the liquidators to establish the
+#       extent — Octavo Investments Pty Ltd v Knight (1979) 27 ALR 129 (HCA) at fn 22
+#       ([51], [53]); s 298(2) "can only sensibly apply to transactions where the directors
+#       are duty bound in the Company's interests to obtain fair value" ([54]); directors'
+#       duties claims fail on the facts, distributions after knowledge of the claim a breach,
+#       $8,000.80 recoverable under s 301 ([57], [58], [66]-[73]); proof of the underlying
+#       debt not an element of the claims, issue estoppel finding unnecessary ([90], [94]);
+#       appeal and cross-appeal dismissed ([99])
+# real figures (prompt figures fictionalised): ACC payments >$3.4m; distributions $717,846.44
+#       / $742,507.06 / $144,070.51; s 298 claim $927,538; proved claim $386,909.91; judgment
+#       $8,000.80; costs $76,029.30; liquidation 26 January 2006
+# cluster: insolvency-general  status: draft
+id: gc-misc-003-levin-ikiua
+matter_type: insolvency-general
+task_class: analysis
+prompt: |
+  You act for the liquidators of a New Zealand company that contracted with a government agency. Its two directors, who
+  control the beneficiary trusts, paid the company's monthly trading profits to those trusts and left nothing in reserve;
+  the agency later alleged overpayment and has proved a large debt. The directors say the company held its business
+  undertaking on trust for those beneficiaries from when they resolved to trade as a trust, though the settlor never
+  transferred anything to it and no resolution records the arrangement. Advise whether the distributions can be recovered
+  from the trustees under s 298(2) of the Companies Act 1993, citing the provision, the classic authority on the modes by
+  which a settlement of personal property takes effect, and the authority on a trustee's entitlement to be indemnified for
+  expenses properly incurred.
+expected_citations:
+  - "Companies Act 1993, s 298"
+  - "Milroy v Lord"
+  - "Octavo Investments Pty Ltd v Knight (1979) 27 ALR 129"
+required_grounding:
+  - "declaration of trust"
+  - "right of indemnity"
+persona_checks:
+  does not apply: "does not apply"

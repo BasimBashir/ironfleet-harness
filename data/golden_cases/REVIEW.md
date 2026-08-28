@@ -25,13 +25,13 @@ S2 is complete when every row reads `approved` with a date.
 | gc-dir-003-mainzeal-sc | Yan v Mainzeal Property and Construction Limited (in liquidation) [2023] 1 NZLR 296 (SC) | s 136 standard: confident on reasonable grounds | analysis | draft | 2026-08-28 | hint wrong: "substantial risk of serious loss" is the s 135 test; pins the CA decision it adopts |
 | gc-dir-004-nicholson-permakraft | Nicholson v Permakraft (NZ) Ltd [1985] 1 NZLR 242 (CA) | duties to creditors when insolvent/near-insolvent | analysis | draft | 2026-08-27 |  |
 | gc-dir-005-kaikoura-freight | Kaikoura Freight Ltd (in liq) v Collins [2017] NZHC 1490 | s 301 compensation quantum: causation/culpability | analysis | draft | 2026-08-27 |  |
-| gc-misc-001-burns-cir | Burns v Commissioner of Inland Revenue [2011] NZHC 1363 | | analysis | pending | | |
-| gc-misc-002-police-rowland | Commissioner of Police v Rowland [2019] NZHC 3314 | | analysis | pending | | |
-| gc-misc-003-levin-ikiua | Levin v Ikiua [2011] 1 NZLR 678 (CA) | | analysis | pending | | |
+| gc-misc-001-burns-cir | Burns v Commissioner of Inland Revenue [2011] NZHC 1363 | accounts receivable not confined to book debts | analysis | draft | 2026-08-28 | second holding (Re Condon return of mistaken GST refund) not authored |
+| gc-misc-002-police-rowland | Commissioner of Police v Rowland [2019] NZHC 3314 | s 95 settlement approval; effective control forfeiture | analysis | draft | 2026-08-28 | not a company-insolvency judgment: Criminal Proceeds (Recovery) Act 2009 consent settlements; cluster tag kept per manifest |
+| gc-misc-003-levin-ikiua | Levin v Ikiua [2011] 1 NZLR 678 (CA) | s 298(2) does not catch trustee profit distributions | analysis | draft | 2026-08-28 | PDF is CA only; the HC decision it cites is [2010] 1 NZLR 400 (HC), not [2009] NZHC 879 as the filename says |
 | gc-misc-004-camray-farms | Camray Farms Ltd (in liq) v BL (Nature Sunshine) Trustee Ltd [2019] NZHC 2536 | trustee right of indemnity/lien vs mortgage priority | analysis | draft | 2026-08-27 |  |
 | gc-misc-005-ranolf-bhana | Ranolf Company Limited (in liquidation) v Bhana [2017] NZHC 2872 | stay of enforcement pending appeal: undertakings | analysis | draft | 2026-08-27 |  |
 | gc-misc-006-h-investments | H Investments Limited (in liquidation) v Official Assignee [2018] NZCA 76 | proof of debt: standard of proof and onus | analysis | draft | 2026-08-27 |  |
 | gc-misc-007-mcintosh-fisk | McIntosh v Fisk [2017] 1 NZLR 863 (SC) | Ponzi payout clawback; value defence to capital only | analysis | draft | 2026-08-27 | reclustered from ppsa-priority |
 | gc-misc-008-grant-livestock | Grant v Independent Livestock 2010 Ltd [2012] NZHC 3458 | pooling needs related companies; phoenix claim fails | analysis | draft | 2026-08-27 | reclustered from ppsa-priority |
-| gc-recv-001-viacom-scene1 | Viacom Global (Netherlands) BV v Scene 1 Entertainment Ltd (in rec) [2009] NZCA 457 | | analysis | pending | | |
-| gc-recv-002-fisk-customs | Fisk v Attorney-General (Comptroller of Customs) [2016] NZHC 479 | | analysis | pending | | |
+| gc-recv-001-viacom-scene1 | Viacom Global (Netherlands) BV v Scene 1 Entertainment Ltd (in rec) [2009] NZCA 457 | stay refused: receivers' prompt realisation for creditors | analysis | draft | 2026-08-28 | hint wrong: pure stay-pending-appeal reasons judgment; receivership powers only a stay factor |
+| gc-recv-002-fisk-customs | Fisk v Attorney-General (Comptroller of Customs) [2016] NZHC 479 | s 97 Customs charge outranks earlier perfected GSA | analysis | draft | 2026-08-28 | s 34 Receiverships Act 1993 directions; three section pins of one Act (no case authority with a neutral citation available) |

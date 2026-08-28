@@ -1,0 +1,46 @@
+# source: Commissioner of Police v Rowland — [2019] NZHC 3314.pdf
+# citation: Commissioner of Police v Rowland [2019] NZHC 3314
+# focus: NOT a corporate-insolvency judgment — consent settlements approved under s 95 of the
+#        Criminal Proceeds (Recovery) Act 2009; profit forfeiture on agreed unlawful benefit;
+#        property under a respondent's effective control treated as his (s 58); only the
+#        tainted interest in a partly legitimately-bought vehicle forfeited (s 5), balance
+#        returned to the innocent registered owner. Cluster tag kept as insolvency-general
+#        per the manifest (thin link: funds held in the NZ Insolvency & Trustee Service
+#        Proceeds of Crime Account, Official Assignee holding a refund)
+# pins: s 95 approval sought and granted ([2], [57], [60], [61], [65]); agreed unlawful
+#       benefit $1,750,000 = maximum recoverable amount under s 54 ([5]-[6], [55](b)-(c),
+#       [58](a)); s 58 grounds — property treated as though the respondent has an interest,
+#       and/or s 25 benefit from significant criminal activity ([64], [67]); property of a
+#       non-respondent registrant (mother, partner, associate) forfeited because under the
+#       respondent's effective control ([39]-[47], [67](xxviii)); partner's tainted interest
+#       only — $8,000 of a $23,000 car bought with a $15,000 parental loan plus an $8,000
+#       trade-in of a vehicle bought with her own drug money ([49]-[53], [59], [61], [63]);
+#       return of vehicle to innocent registered owner father who consents ([54], [63](b));
+#       sentimental jewellery released, valued ~$24,800 ([6], [58](c)); MACMA/POCA for UK
+#       assets ([27]-[28], [35]-[36]) — not part of the focus
+# real figures (prompt figures fictionalised): unlawful benefit $1,750,000; assets valued
+#       $1,640,000-$1,750,000; jewellery ~$24,800; car $23,000 ($15,000 loan / $8,000
+#       trade-in); laundered $219,489; settlement approved 13 December 2019 (Grice J)
+# cluster: insolvency-general  status: draft
+id: gc-misc-002-police-rowland
+matter_type: insolvency-general
+task_class: analysis
+prompt: |
+  You act for the New Zealand Police in High Court proceedings under the Criminal Proceeds (Recovery) Act 2009 against a man
+  convicted in 2017 of importing a controlled drug, with an agreed unlawful benefit of $1,320,000, and against his partner.
+  She disclaims any interest in his assets, saying he ran them throughout; she keeps only a car registered in her father's
+  name, bought for $34,500 with a $21,500 parental loan and the $13,000 trade-in of a car she bought with her own drug
+  proceeds. The settlement forfeits to the Crown everything the man owns or controls in satisfaction of that benefit, and she
+  pays $13,000 into the proceeds-of-crime account so the car returns to her father, who consents. Advise whether the High Court
+  will approve these settlements and on what statutory bases, citing the provision governing approval of a settlement, the
+  provision fixing the recoverable amount, and the provision treating property registered in another's name as his.
+expected_citations:
+  - "Criminal Proceeds (Recovery) Act 2009, s 95"
+  - "Criminal Proceeds (Recovery) Act 2009, s 53"
+  - "Criminal Proceeds (Recovery) Act 2009, s 58"
+required_grounding:
+  - "significant criminal activity"
+  - "effective control"
+persona_checks:
+  profit forfeiture order: "profit forfeiture order"
+  asset forfeiture order: "asset forfeiture order"

@@ -1,0 +1,44 @@
+# source: Burns v Commissioner of Inland Revenue — [2011] NZHC 1363.pdf
+# citation: Burns v Commissioner of Inland Revenue [2011] NZHC 1363
+# focus: liquidators' s 284(1)(a) directions — "accounts receivable" in Sch 7 cl 2(1)(b)
+#        Companies Act 1993 (PPSA s 16 meaning) is NOT confined to book debts, so the
+#        Commissioner's preferential claim beats the GSA secured creditor; the second,
+#        separate holding (return of the mistakenly paid GST refund under the rule in Re
+#        Condon / Ex parte James) is NOT the focus authored here
+# pins: issue one, Re Condon — liquidators as officers of the court must return the
+#       mistakenly released GST refund ([31]-[45]); issue two framed at [22]-[24]; s 312
+#       and Sch 7 cl 2(1)(b) preferential priority over security interests over accounts
+#       receivable and inventory ([19]-[21]); Sch 7 cl 2(2) adopts the PPSA s 16 meaning
+#       ([22]); CIR v Northshore Tavern Ltd (2008) 23 NZTC 22,074 — book debts only
+#       ([23], [76]-[78]); text and purpose, PPSA scheme integral to the meaning ([81]);
+#       co-ordinate jurisdiction may depart where wrong ([95]); broad reading, five
+#       counter-arguments rejected ([85]-[101]); classification assessed at date of
+#       liquidation ([108], [112]); restitution claim and solicitors' trust funds are
+#       monetary obligations ([105], [113]); directions — Commissioner paid the entire
+#       collected funds in priority to the secured creditor ([114]-[115]); liquidators'
+#       costs and disbursements first ([118], [121])
+# real figures (prompt figures fictionalised): collected funds $782,108.18; development
+#       contributions refund $451,176.94; GST refund paid in error $169,349.86; solicitors'
+#       funds $158,581.38; Strategic proof of debt $7,056,000; CIR preferential claim
+#       $3,625,493.51; liquidation 21 November 2008
+# cluster: insolvency-general  status: draft
+id: gc-misc-001-burns-cir
+matter_type: insolvency-general
+task_class: analysis
+prompt: |
+  You act for the liquidators of a New Zealand property company placed in liquidation by court order in 2023. You hold
+  $412,600: a $348,000 refund of infrastructure contributions the council repaid after correcting its charging policy, a
+  right that arose two years before liquidation, and $64,600 held in its solicitors' trust account. A trading bank holds a
+  registered general security agreement over all the company's assets; the Commissioner claims the whole $412,600 as
+  preferential creditor for GST arrears. Advise whether the Commissioner is payable ahead of the bank and on what the answer
+  turns, citing the Companies Act 1993 preference provisions, the definition adopted from the Personal Property Securities
+  Act 1999, and the earlier High Court decision holding the relevant term confined to book debts.
+expected_citations:
+  - "Companies Act 1993, s 312"
+  - "Personal Property Securities Act 1999, s 16"
+  - "Commissioner of Inland Revenue v Northshore Tavern Ltd (2008) 23 NZTC 22,074"
+required_grounding:
+  - "accounts receivable"
+  - "monetary obligation"
+persona_checks:
+  Schedule 7: "Schedule 7"

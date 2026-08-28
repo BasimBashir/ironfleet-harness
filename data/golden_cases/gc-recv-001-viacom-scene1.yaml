@@ -1,0 +1,40 @@
+# source: Viacom Global (Netherlands) BV v Scene 1 Entertainment Ltd (in rec) — [2009] NZCA 457.pdf
+# citation: Viacom Global (Netherlands) BV v Scene 1 Entertainment Ltd (in rec) [2009] NZCA 457
+# focus: pure stay-pending-appeal reasons judgment, not a receivership-powers holding (the
+#        hint was wrong); the receivership doctrine enters only as a stay factor
+# pins: stay application dismissed, reasons at [1], [40]; Dymocks Franchise Systems (NSW)
+#       Pty Ltd v Bilgola Enterprises Ltd (1999) 13 PRNZ 48 (HC) at [9] factors adopted
+#       ([23], [31]); New Zealand Insulators Ltd v ABB (CA215/506, 4 December 2006) at
+#       [21] adopting Minnesota Minining [sic] & Manufacturing Co v Johnson & Johnson Ltd
+#       [1976] RPC 671 (CA) — no premature determination of a genuinely arguable appeal,
+#       undertakings maintain a sensible and just balance ([31]); receivers' obligations to
+#       realise secured stock in a timely fashion for the benefit of creditors tilted the
+#       balance of convenience ([37]); proceeds to remain undisbursed pending appeal under
+#       the respondents' undertaking ([20], [35], [39]); claims sound in damages, cause of
+#       action novel ([33], [38]); statutory background only — licence not registered under
+#       the Personal Property Securities Act 1999 vs ASB's registered General Security Deed
+#       ([10], [16], [18]), Copyright Act 1994 ss 29/31/36 (not decided)
+# real figures (prompt figures fictionalised): ~500,000 DVDs; ~$6.8m owed ASB; proved
+#       creditors ~$13.9m; Paramount titles $34.95 -> under $10.00; costs Band B (formal
+#       orders) but band A at [41] — internal inconsistency, not relied on
+# cluster: receivership  status: draft
+id: gc-recv-001-viacom-scene1
+matter_type: receivership
+task_class: analysis
+prompt: |
+  You act for receivers appointed by a trading bank over a New Zealand importer of consumer electronics; the bank is owed
+  $7.9m and unsecured creditors $12.4m. The former exclusive licensor, an overseas studio whose supply agreement ended on
+  the receivership, says the 640,000 items of warehoused stock infringe its rights. After the High Court discharged its
+  injunction on 14 March 2025 it appealed, saying discount selling will permanently damage its brand and its appeal will be
+  futile if the stock goes. The receivers will sell now and hold the proceeds in their trust account until the appeal ends,
+  while $9,400 a month of warehousing costs accrues. Advise whether the appeal court should preserve the position pending
+  appeal, citing the authority setting out the factors for that application and the earlier authority followed on avoiding a
+  premature determination of an arguable appeal and on undertakings preserving a just balance.
+expected_citations:
+  - "Dymocks Franchise Systems (NSW) Pty Ltd v Bilgola Enterprises Ltd (1999) 13 PRNZ 48"
+  - "Minnesota Mining & Manufacturing Co v Johnson & Johnson Ltd [1976] RPC 671"
+required_grounding:
+  - "balance of convenience"
+  - "rendered nugatory"
+persona_checks:
+  dismissed: "dismissed"
