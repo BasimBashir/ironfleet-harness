@@ -1,0 +1,35 @@
+# source: Yan v Mainzeal Property and Construction Ltd (in liq) [2021] NZCA 99; [2021] 3 NZLR 598 (31 March 2021).pdf
+# citation: Yan v Mainzeal Property and Construction Ltd (in liq) [2021] NZCA 99 (CA, Kós P, Miller and Goddard JJ)
+# pins: s 135 breach confirmed ([441]-[452]) but s 135 compensation fails - no net deterioration
+#       ([414]-[418], [510]-[518]) and the "entire deficiency" approach neither pleaded nor supported
+#       by the evidence ([484]-[508]); s 136 breach established for the four major projects and all
+#       obligations from 5 July 2012 ([459]-[480]); new debt approach available for breach of s 136,
+#       following Debut Homes ([530]-[531], fn 64 Madsen-Ries v Cooper [2020] NZSC 100); s 136 not
+#       confined to capital account or to specific obligations ([274]-[283]); only the net deficit to
+#       the relevant creditors recoverable ([536]); referred back to the High Court, s 301 discretion
+#       and apportionment between directors left to it ([538]-[540])
+# note: plan focus hint ("apportionment of loss among directors / deemed solvency counterfactual") is
+#       not what the CA decides - it declines to apportion, referring that back ([539]), and the
+#       counterfactual appears only in the s 135 analysis. Authored on the CA's true holding:
+#       s 136 compensation on a new debt basis, net of dividends.
+# cluster: directors-duties  status: draft
+id: gc-dir-002-mainzeal-ca
+matter_type: directors-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Torbreck Build Ltd, a New Zealand commercial fit-out company wound
+  up on 3 June 2014. Judgment has been entered that its four directors breached s 136 of the
+  Companies Act 1993 by agreeing from 1 April 2011 that it should keep trading and by signing three
+  new construction contracts when they had no proper basis for believing its obligations would be
+  met. Unsecured creditors are owed $87.5 million. Debt of $61.2 million was incurred after that
+  date and remains unpaid, although several of those creditors have since received dividends from
+  other recoveries in the liquidation. Advise how the compensation payable by the directors is to
+  be assessed, citing the Supreme Court authority on how debts incurred in breach are treated.
+expected_citations:
+  - "Companies Act 1993, s 136"
+  - "Madsen-Ries v Cooper [2020] NZSC 100"
+required_grounding:
+  - "new debt approach"
+  - "net deficit"
+persona_checks:
+  recoverable: "recoverable"

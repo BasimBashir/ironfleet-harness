@@ -1,0 +1,35 @@
+# source: Mainzeal Property and Construction Limited (in liquidation) v Yan [2019] NZHC 255 (26 February 2019).pdf
+# citation: Mainzeal Property and Construction Limited (in liquidation) v Yan [2019] NZHC 255 (HC, Cooke J)
+# pins: three cumulative s 135 considerations ([187]-[188]: trading while balance sheet insolvent;
+#       no assurance of group support on which the directors could reasonably rely; poor trading
+#       performance prone to significant one-off losses); reliance on informal support was "a mere
+#       assumption of support" ([280]); creditors' funds as working capital ([203], [280], [282]);
+#       pillars of s 135 quoted from Mason v Lewis [2006] 3 NZLR 225 (CA) ([157]-[159], fn 11) and
+#       the Mason v Lewis approach adopted for quantum ([392], [414]-[427]); s 135 not limited to
+#       trading a company hopelessly insolvent in a cash flow sense ([281]); breach by no later
+#       than 31 January 2011 ([288]-[293]); s 136 claim dismissed ([294]-[311]); quantum assessed on
+#       the Mason v Lewis counterfactual ([392]-[427]) and $36,000,000 fixed under s 301 at [450]
+# note: plan focus hint ("breach of ss 135/136 and relief quantum under s 302") is wrong on the
+#       read - Cooke J dismissed the s 136 claim, and the relief provision throughout is s 301
+#       (quantification is gc-dir-005's focus). Authored on the true s 135 holding.
+# cluster: directors-duties  status: draft
+id: gc-dir-001-mainzeal-hc
+matter_type: directors-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Halcrow Construction Ltd, a New Zealand commercial construction
+  company placed in liquidation on 14 February 2013 owing $98.4 million to unsecured creditors. From
+  1 March 2010 its four directors knew its liabilities exceeded its assets and that it was financing
+  day-to-day operations with money owed to subcontractors and suppliers, yet they let it trade on
+  until collapse, relying on verbal assurances of support from its parent that were never formalised,
+  never legally binding and were later withdrawn. They say there is no liability because the company
+  was not hopelessly insolvent in a cash flow sense. Advise whether they are in breach of s 135 of
+  the Companies Act 1993, citing the authority that sets out the essential pillars of that provision.
+expected_citations:
+  - "Companies Act 1993, s 135"
+  - "Mason v Lewis [2006] 3 NZLR 225"
+required_grounding:
+  - "balance sheet insolvent"
+  - "creditors' funds as working capital"
+persona_checks:
+  liable: "liable"

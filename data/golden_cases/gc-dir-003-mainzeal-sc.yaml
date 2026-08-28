@@ -1,0 +1,37 @@
+# source: Yan v Mainzeal Property and Construction Limited (in liquidation) [2023] NZSC 113; 1 NZLR 296 (25 August 2023).pdf
+# citation: Yan v Mainzeal Property and Construction Limited (in liquidation) [2023] NZSC 113 (SC, Winkelmann CJ and William Young J)
+# pins: s 136 operates on the premise that directors should not agree to a company incurring
+#       obligations unless confident on reasonable grounds that they will be honoured ([244]-[245],
+#       [364]); "believes on reasonable grounds" means more than hope, less than conviction, tested
+#       against the grounds the directors actually had ([243]-[244], [364]); s 136 not confined to
+#       obligations of a particular kind, agreement to continue trading extends to the inevitable
+#       corollary obligations, and it may be invoked in relation to a course of trading
+#       ([247]-[249], [364]); in conformity with the Court of Appeal's approach ([249], [256]);
+#       Goatlands Ltd (in liq) v Borrell (2006) 3 NZCCLR 726 (HC) relied on for the "degree of
+#       certainty" required (fn 165); directors' appeals dismissed, liquidators' cross-appeal
+#       allowed, $39.8 million ordered (result B)
+# note: plan focus hint (the s 136 "substantial risk of serious loss" test) is wrong - that phrase
+#       is the s 135 test. Authored on the SC's true s 136 holding: standard of belief and scope.
+#       The instant citation is deliberately NOT pinned (rule b): the ask cues the CA decision the
+#       judgment adopts, which is a genuine relied-on authority ([249], fn 4).
+# cluster: directors-duties  status: draft
+id: gc-dir-003-mainzeal-sc
+matter_type: directors-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Kestrel Marine Ltd, a New Zealand boatbuilder wound up on
+  8 September 2015 owing $42.7 million to trade creditors. From mid-2012 its three directors knew
+  the company could not pay its debts as they fell due, but they agreed it should keep operating as
+  usual; the resulting obligations to suppliers were incurred by managers under delegated authority
+  rather than by board resolution. The directors say the section catches only a specific major
+  commitment the board itself approved, not obligations that follow from a decision to keep the
+  business running. Advise whether they are liable under s 136 of the Companies Act 1993, citing
+  the Court of Appeal decision on whether that provision is confined to specific obligations.
+expected_citations:
+  - "Companies Act 1993, s 136"
+  - "Yan v Mainzeal [2021] NZCA 99"
+required_grounding:
+  - "confident on reasonable grounds"
+  - "course of trading"
+persona_checks:
+  breached s 136: "breached s 136"

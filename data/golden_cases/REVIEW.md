@@ -20,9 +20,9 @@ S2 is complete when every row reads `approved` with a date.
 | gc-liq-006-cryptopia | Ruscoe v Cryptopia Ltd (in liq) [2020] 2 NZLR 809 (HC) | crypto is property; held on trust for accountholders | analysis | draft | 2026-08-27 | |
 | gc-liq-007-national-finance | National Finance 2000 Limited (in rec and in liq) v William Buck New Zealand Limited [2011] NZHC 1862 | debenture trustee owes issuer contract and tort duties | analysis | draft | 2026-08-27 | Securities Act 1978 regime, not Companies Act |
 | gc-liq-008-hedley-albany | Hedley v Albany Power Centre Ltd (in liq) [2006] 2 NZCCLR 1148 | s 284 directions: informed shareholder majority | analysis | draft | 2026-08-27 |  |
-| gc-dir-001-mainzeal-hc | Mainzeal Property and Construction Limited (in liquidation) v Yan [2019] NZHC 255 | | analysis | pending | | |
-| gc-dir-002-mainzeal-ca | Yan v Mainzeal Property and Construction Ltd (in liq) [2021] 3 NZLR 598 (CA) | | analysis | pending | | |
-| gc-dir-003-mainzeal-sc | Yan v Mainzeal Property and Construction Limited (in liquidation) [2023] 1 NZLR 296 (SC) | | analysis | pending | | |
+| gc-dir-001-mainzeal-hc | Mainzeal Property and Construction Limited (in liquidation) v Yan [2019] NZHC 255 | s 135: balance-sheet insolvency, uncommitted group support | analysis | draft | 2026-08-28 | hint wrong: s 136 claim dismissed at first instance; relief provision is s 301 not s 302 |
+| gc-dir-002-mainzeal-ca | Yan v Mainzeal Property and Construction Ltd (in liq) [2021] 3 NZLR 598 (CA) | s 136 compensation: new debt approach, net deficit | analysis | draft | 2026-08-28 | hint wrong: CA declines to apportion (refers back); no deemed-solvency counterfactual |
+| gc-dir-003-mainzeal-sc | Yan v Mainzeal Property and Construction Limited (in liquidation) [2023] 1 NZLR 296 (SC) | s 136 standard: confident on reasonable grounds | analysis | draft | 2026-08-28 | hint wrong: "substantial risk of serious loss" is the s 135 test; pins the CA decision it adopts |
 | gc-dir-004-nicholson-permakraft | Nicholson v Permakraft (NZ) Ltd [1985] 1 NZLR 242 (CA) | duties to creditors when insolvent/near-insolvent | analysis | draft | 2026-08-27 |  |
 | gc-dir-005-kaikoura-freight | Kaikoura Freight Ltd (in liq) v Collins [2017] NZHC 1490 | s 301 compensation quantum: causation/culpability | analysis | draft | 2026-08-27 |  |
 | gc-misc-001-burns-cir | Burns v Commissioner of Inland Revenue [2011] NZHC 1363 | | analysis | pending | | |
