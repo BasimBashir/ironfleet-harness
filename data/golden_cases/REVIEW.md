@@ -12,13 +12,13 @@ S2 is complete when every row reads `approved` with a date.
 | gc-ppsa-005-marac-greer | Marac Finance Ltd v Greer [2012] 2 NZLR 497 (CA) | s 23(e)(ii) land-linked rent assignment outside the PPSA | analysis | draft | 2026-08-27 | |
 | gc-ppsa-006-stockco-gibson | Stockco Ltd v Gibson [2013] 2 NZCCLR 165 (CA) | s 53 ordinary course: sale-and-leaseback not protected | analysis | draft | 2026-08-27 | |
 | gc-ppsa-009-polymers-toon | Polymers International Ltd v Toon [2013] NZHC 1897 | financing statement seriously misleading: invalid registration | analysis | draft | 2026-08-27 |  |
-| gc-liq-001-madsen-ries | Madsen-Ries v Cooper [2020] NZSC 100 | | analysis | pending | | |
-| gc-liq-002-henderson-walker | Henderson v Walker [2019] NZHC 2184 | | analysis | pending | | |
-| gc-liq-003-finnigan-yuanfu | Finnigan v Yuan Fu Capital Markets Ltd (in liq) [2013] NZHC 2899 | | analysis | pending | | |
-| gc-liq-004-lsf-footsteps | LSF Trustees Ltd v Footsteps Trustee Company Ltd (in liq) [2017] NZHC 2619 | | analysis | pending | | |
-| gc-liq-005-shaw-owens | Shaw v Owens [2017] NZCA 315 | | analysis | pending | | |
-| gc-liq-006-cryptopia | Ruscoe v Cryptopia Ltd (in liq) [2020] 2 NZLR 809 (HC) | | analysis | pending | | |
-| gc-liq-007-national-finance | National Finance 2000 Limited (in rec and in liq) v William Buck New Zealand Limited [2011] NZHC 1862 | | analysis | pending | | |
+| gc-liq-001-madsen-ries | Madsen-Ries v Cooper [2020] NZSC 100 | s 135 reckless trading when shortfall certain | analysis | draft | 2026-08-27 | delivery hint (liquidators' powers) wrong: a directors' duties holding |
+| gc-liq-002-henderson-walker | Henderson v Walker [2019] NZHC 2184 | liquidator liable for misusing confidential liquidation documents | detection | draft | 2026-08-27 | no statute pin: Act supplies no cause of action |
+| gc-liq-003-finnigan-yuanfu | Finnigan v Yuan Fu Capital Markets Ltd (in liq) [2013] NZHC 2899 | mixed trust funds: pari passu, not Clayton's Case | analysis | draft | 2026-08-27 | |
+| gc-liq-004-lsf-footsteps | LSF Trustees Ltd v Footsteps Trustee Company Ltd (in liq) [2017] NZHC 2619 | equitable lien: judicial process only, no debt claim | analysis | draft | 2026-08-27 | |
+| gc-liq-005-shaw-owens | Shaw v Owens [2017] NZCA 315 | s 301: liquidators' costs only partly recoverable | analysis | draft | 2026-08-27 | |
+| gc-liq-006-cryptopia | Ruscoe v Cryptopia Ltd (in liq) [2020] 2 NZLR 809 (HC) | crypto is property; held on trust for accountholders | analysis | draft | 2026-08-27 | |
+| gc-liq-007-national-finance | National Finance 2000 Limited (in rec and in liq) v William Buck New Zealand Limited [2011] NZHC 1862 | debenture trustee owes issuer contract and tort duties | analysis | draft | 2026-08-27 | Securities Act 1978 regime, not Companies Act |
 | gc-liq-008-hedley-albany | Hedley v Albany Power Centre Ltd (in liq) [2006] 2 NZCCLR 1148 | s 284 directions: informed shareholder majority | analysis | draft | 2026-08-27 |  |
 | gc-dir-001-mainzeal-hc | Mainzeal Property and Construction Limited (in liquidation) v Yan [2019] NZHC 255 | | analysis | pending | | |
 | gc-dir-002-mainzeal-ca | Yan v Mainzeal Property and Construction Ltd (in liq) [2021] 3 NZLR 598 (CA) | | analysis | pending | | |

@@ -1,0 +1,37 @@
+# source: National Finance 2000 Limited (in rec and in liq) v William Buck New Zealand Limited HC Auckland CIV-2010-404-7157 [2011] NZHC 1862 (7 December 2011).pdf
+# citation: National Finance 2000 Limited (in rec and in liq) v William Buck New Zealand Limited [2011] NZHC 1862
+# pins: key question whether a trustee for debt securities owes reasonable diligence duties to
+#       the issuer as well as investors ([1]); the reasonable diligence duties (Securities
+#       Regulations 1983, sch 5 cl 1, inserted by s 46) are directed at investor protection and
+#       are "exclusively for the protection of investors", so the issuer "cannot sue for breach
+#       of statutory duty" ([37]-[42]); but the trust deed is a contract, so the trustee owed
+#       the issuer a contractual duty of reasonable diligence ([48]); and a concurrent duty of
+#       care in tort, the basis being "the assumption of responsibility in a contractual
+#       relationship, a source of liability saved under s 65" ([45], [49]-[51], [70],
+#       Henderson v Merrett Syndicates Ltd [1995] 2 AC 145 (HL)); "author of its own misfortune"
+#       objection irrelevant ([53]-[57], [69]); policy considerations support the duty
+#       ([58]-[68]); result: breach-of-statutory-duty cause of action struck out, negligence
+#       claim remains on foot ([75], [77](a)); era note: the Securities Trustees and Statutory
+#       Supervisors Act 2011 (in force 1 October 2011) is discussed at [64]-[66] but did not
+#       alter this private-law analysis
+# cluster: liquidators-duties  status: draft
+id: gc-liq-007-national-finance
+matter_type: liquidators-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Aotea Lending Ltd, a NZ lender that raised money from the public by issuing
+  debentures secured under a trust deed and went into receivership in 2007 and liquidation in 2009. The
+  liquidators sue the former auditors for negligence in failing to detect breaches of the deed's lending
+  limits. The auditors have joined the trustee, alleging it failed to exercise reasonable diligence to
+  ascertain and remedy those breaches and should share liability for the losses. The trustee replies that
+  such duties are owed to investors only and that the claim founded on the duties inserted in the deed by
+  statute cannot stand. Advise which heads of liability the trustee owes the company, citing the provision
+  preserving liabilities under other rules of law and the authority on concurrent contractual and tortious duties.
+expected_citations:
+  - "Securities Act 1978, s 65"
+  - "Henderson v Merrett Syndicates Ltd [1995] 2 AC 145"
+required_grounding:
+  - "assumption of responsibility"
+  - "exclusively for the protection of investors"
+persona_checks:
+  breach of statutory duty: "breach of statutory duty"

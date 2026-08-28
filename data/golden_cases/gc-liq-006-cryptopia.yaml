@@ -1,0 +1,40 @@
+# source: Ruscoe v Cryptopia Ltd (in liq) [2020] NZHC 728; [2020] 2 NZLR 809 (8 April 2020).pdf
+# citation: Ruscoe v Cryptopia Ltd (in liq) [2020] 2 NZLR 809 (HC)
+# pins: s 284(1)(a) directions application ([3], [43]-[46]); cryptocurrencies are "property"
+#       within s 2 of the Companies Act 1993 - the width of that definition confirmed by the
+#       Supreme Court in McIntosh v Fisk [2017] NZSC 78, [2017] 1 NZLR 863 ([73]); Lord
+#       Wilberforce's criteria in National Provincial Bank Ltd v Ainsworth [1965] 1 AC 1175
+#       (HL) at 1247-1248: definable subject matter, identifiable by third parties, capable in
+#       its nature of assumption by third parties, some degree of permanence or stability
+#       ([75], [114]-[120]); "all of the
+#       various cryptocurrencies are 'property' ... and ... capable of forming the subject
+#       matter of a trust" ([133]); express trusts, one for each cryptocurrency type, with all
+#       accountholders of that type as beneficiaries, company as bare trustee ([192], [196]-[198]);
+#       consequence: had they not been trust property they would have been company assets under
+#       ss 253 and 313 distributable under pt 16 with accountholders ranking as unsecured
+#       creditors, but "that is not the case here" ([191]); unidentifiable accountholders dealt
+#       with under Trustee Act 1956, s 76 ([200]-[202])
+# note: the judgment is NOT pinned by its own citation - the client is fictionalised, so a
+#       bare-prompted model is not asked to name the case it is based on (rule b)
+# cluster: liquidators-duties  status: draft
+id: gc-liq-006-cryptopia
+matter_type: liquidators-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Alpine Coin Ltd, a NZ cryptocurrency exchange placed in liquidation in
+  May 2024 after a hack. It holds cryptocurrencies in online and offline wallets and alone controls the
+  private keys; about 60,000 account holders have positive coin balances, and the company separately owes
+  $1.4m to trade creditors. Its terms said account holders retained ownership of their coins and could
+  withdraw them at any time, and it charged trading and withdrawal fees. The trade creditors say every
+  coin in the wallets is an asset of the company for distribution in the liquidation. Advise whether that
+  is right, citing the statutory definition you apply, the Supreme Court decision confirming how wide that
+  definition is, the classic test of what the law treats as ownable, and the arrangement the coins are held under.
+expected_citations:
+  - "Companies Act 1993, s 2"
+  - "National Provincial Bank Ltd v Ainsworth [1965] 1 AC 1175"
+  - "McIntosh v Fisk [2017] NZSC 78"
+required_grounding:
+  - "capable of assumption by third parties"
+  - "held on trust for the accountholders"
+persona_checks:
+  property: "property"

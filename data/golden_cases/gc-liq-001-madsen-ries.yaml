@@ -1,0 +1,37 @@
+# source: Madsen-Ries v Cooper — [2020] NZSC 100.pdf
+# citation: Madsen-Ries v Cooper [2020] NZSC 100
+# pins: s 135 quoted at [55]; where continued trading will result in a shortfall to
+#       creditors and the company is not salvageable, continued trading breaches s 135
+#       ([174]); loss there was a certainty, $300,000 is a "serious loss" ([70]); no
+#       comparative exercise between immediate liquidation and continued trading ([73]);
+#       no answer that some creditors would be better off ([72], [178]); formal/informal
+#       mechanisms (Parts 14, 15A) must be used, else liquidation ([75]-[76], [184]);
+#       s 136 breach where debts incurred knowing they will not be paid ([175], [186]);
+#       s 131 no breach on honest belief, but breach where directors fail to consider all
+#       creditors ([177], [187]); s 301 relief must respond to the duty breached,
+#       compensatory or restitutionary, not punitive ([182], [188]); result appeal allowed,
+#       HC orders restored ([189]-[190])
+# note: the delivery hint ("liquidators' powers") is not made out - the liquidators are only
+#       the plaintiffs. The judgment squarely decides directors' duties in insolvency, so the
+#       case is authored on its true s 135 holding (see task 5 report).
+# cluster: liquidators-duties  status: draft
+id: gc-liq-001-madsen-ries
+matter_type: liquidators-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Harbourline Homes Ltd, a NZ residential building company placed in
+  liquidation in March 2021. From November 2019 its sole director knew the company could not pay its
+  debts and that finishing and selling its six partly completed houses would leave $415,000 of GST
+  unpaid, but he completed and sold them anyway: the two bank lenders were repaid in full and the
+  unpaid GST fell on the Commissioner of Inland Revenue. No compromise or other formal procedure was
+  ever proposed and the company had no prospect of salvage. Advise whether the director is liable in
+  reckless trading, citing the provision and the Supreme Court authority on when continued trading
+  crosses the line.
+expected_citations:
+  - "Companies Act 1993, s 135"
+  - "Madsen-Ries v Cooper [2020] NZSC 100"
+required_grounding:
+  - "substantial risk of serious loss"
+  - "shortfall to creditors"
+persona_checks:
+  should have stopped trading: "should have stopped trading"

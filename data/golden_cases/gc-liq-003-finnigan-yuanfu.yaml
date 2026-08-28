@@ -1,0 +1,33 @@
+# source: Finnigan v Yuan Fu Capital Markets Ltd (in liq) — [2013] NZHC 2899.pdf
+# pins: funds accepted on website terms were held on trust for investors; investors retained
+#       beneficial interest, the company was trustee ([43]-[44]); under Re Hallett's Estate
+#       the company cannot claim a beneficial interest in a mixed fund, so assets held at
+#       liquidation "are not available for other creditors" ([45]-[46]); rule in Clayton's
+#       Case rejected for a mixed fund (Re Registered Securities Ltd (in liq) [1991] 1 NZLR
+#       545 (CA) at 553-555; Eaton v LDC Finance Ltd at [61]) ([49]-[52]); North American
+#       rolling-charge method inappropriate given no adequate records ([53]); tracing
+#       displaced ([67]); pari passu distribution of funds and share proceeds, subject to
+#       settled claims and individual tracing ([68]); liquidators remunerated out of trust
+#       assets in the court's inherent jurisdiction, apportioned by face value of claims
+#       ([70]-[73]); s 284 directions application ([1], heading)
+# cluster: liquidators-duties  status: draft
+id: gc-liq-003-finnigan-yuanfu
+matter_type: liquidators-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Meridian Futures Ltd, a NZ online trading platform operator wound up
+  in June 2020. Its client agreement said the company would hold client money on trust and that each
+  client directed how the money was traded, but the money was pooled in two bank accounts with the
+  company's own fee income and the books are too poor to trace any individual client's money.
+  Unsecured creditors unrelated to the trading business are owed $620,000 and 340 clients are owed
+  $1.85m in total. Advise whether the pooled money is available to those other creditors and how the
+  fund is to be divided among the clients, citing the provision under which directions are sought and
+  the Court of Appeal authority on distributing a mixed fund.
+expected_citations:
+  - "Companies Act 1993, s 284"
+  - "Re Registered Securities Ltd (in liq) [1991] 1 NZLR 545"
+required_grounding:
+  - "not available for other creditors"
+  - "rule in Clayton's Case"
+persona_checks:
+  pari passu: "pari passu"

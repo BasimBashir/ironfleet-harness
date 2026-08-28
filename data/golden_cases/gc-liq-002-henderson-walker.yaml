@@ -1,0 +1,36 @@
+# source: Henderson v Walker — [2019] NZHC 2184.pdf
+# pins: Coco v AN Clarke (Engineers) Ltd [1969] RPC 41 at 46 supplies the three elements
+#       ([146]): necessary quality of confidence ([163]), imparted in circumstances importing
+#       an obligation of confidence ([170]-[173]), unauthorised use ([184]-[195]); liquidator
+#       liable in breach of confidence for distributions of the director's private documents
+#       outside the liquidation, $5,000 damages ([196]-[198], [316]-[317]); a liquidator is
+#       process internal to a company's affairs, and "cannot be considered a public office"
+#       for that tort ([290], [292], [295]); the persona needle "not a public officer" is the
+#       phrasing of the supporting Queensland authority Henderson v McCafferty, quoted at
+#       [296]; no proof of damage ([297]),
+#       so that cause of action fails ([298]); no breach of statutory duty - the Act
+#       imposes positive powers and duties only ([301]-[305]); invasion of privacy declared
+#       ([318]); conversion, misfeasance, breach of statutory duty and contempt dismissed
+#       ([319]); note "part 16" of the Companies Act 1993 is engaged but no section is pinned,
+#       the holding being that the Act supplies no cause of action
+# cluster: liquidators-duties  status: draft
+id: gc-liq-002-henderson-walker
+matter_type: liquidators-duties
+task_class: detection
+prompt: |
+  You act for a former director of a NZ company now in liquidation. The liquidator took the company
+  laptop and a backup drive holding the director's personal emails and tax records alongside company
+  papers, and has since given those personal files to a commercial investigator engaged by a creditor
+  and disclosed the director's financial affairs to a government department in an unrelated
+  proceeding, in neither case for any purpose of the liquidation. Identify which causes of action the
+  director has against the liquidator and which he does not, with your conclusion and authority: in
+  particular whether he can be sued for misfeasance in public office, and the elements of breach of
+  confidence, citing the leading NZ case on a liquidator's misuse of documents obtained in a liquidation.
+expected_citations:
+  - "Henderson v Walker [2019] NZHC 2184"
+  - "Coco v AN Clarke (Engineers) Ltd [1969] RPC 41"
+required_grounding:
+  - "necessary quality of confidence"
+  - "unauthorised use"
+persona_checks:
+  not a public officer: "not a public officer"

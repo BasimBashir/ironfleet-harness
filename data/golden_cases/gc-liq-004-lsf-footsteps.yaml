@@ -1,0 +1,31 @@
+# source: LSF Trustees Ltd v Footsteps Trustee Company Ltd (in liq) — [2017] NZHC 2619.pdf
+# pins: statutory demands under s 289 set aside under s 290; s 290(4)(a) ground ([1], [34]-[35]);
+#       a trustee's right of indemnity survives removal and vests in its liquidator, secured by
+#       an equitable lien over the trust assets ([14] Brereton J in Lemery Holdings Pty Ltd v
+#       Reliance Financial Services Pty Ltd [2008] NSWSC 1344, (2008) 74 NSWLR 550 at 553-554;
+#       Trustee Act 1956, s 38(2) quoted); the lien is enforceable only by judicial process -
+#       court-ordered sale or receiver ([15]-[20]); no personal liability in the new trustee
+#       absent a contractual indemnity, so "There is no debtor-creditor relationship" ([20],
+#       [24], [33]); "good grounds for disputing whether Footsteps is a creditor", so the debt
+#       claims are "genuinely disputable under s 290(4)(a)" and both demands set aside ([34]-[35])
+# cluster: liquidators-duties  status: draft
+id: gc-liq-004-lsf-footsteps
+matter_type: liquidators-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Ferngrove Trustees Ltd (in liq), a former corporate trustee of
+  a NZ family trust, removed as trustee in April 2024 under a deed of removal containing no
+  indemnity covenant. The company went into liquidation in February 2025 owing $280,000 of rates
+  and body corporate levies it incurred as trustee on the trust's 25 units, which now vest in the
+  new corporate trustee. You have served a statutory demand on the new trustee for the $280,000;
+  its solicitors deny any liability. Advise the liquidators whether the company can recover that
+  money from the new trustee as a debt and, if not, what remedy remains, citing the provision
+  under which the demand can be set aside and the statutory source of the trustee's indemnity.
+expected_citations:
+  - "Companies Act 1993, s 290"
+  - "Trustee Act 1956, s 38"
+required_grounding:
+  - "equitable lien"
+  - "judicial process"
+persona_checks:
+  genuine dispute: "genuine dispute"

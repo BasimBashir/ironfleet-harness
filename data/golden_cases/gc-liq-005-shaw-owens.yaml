@@ -1,0 +1,35 @@
+# source: Shaw v Owens (liquidators of Aluminium Plus Wellington Ltd) — [2017] NZCA 315.pdf
+# pins: liability under s 137 upheld - releasing the company's sole funder from its obligation
+#       to pay for materials, with insolvency its "inevitable and immediate consequence", was
+#       negligent and "not saved simply because of a prospective or contingent right of
+#       counterclaim" ([12]-[15]); s 301 quantum guided by Mason v Lewis [2006] 3 NZLR 225
+#       (CA) at [109]-[110]: deterioration in the company's position, then causation,
+#       culpability and the duration of the trading ([17]); liquidation administration costs
+#       are "generally incurred regardless of whether the company's directors are liable"
+#       ([18]); liquidators cannot necessarily recover more than ordinary legal costs ([22]),
+#       only a proportion of their costs where necessarily incurred as a consequence of the
+#       breach, and "care is required to ensure that the award is truly proportionate to the
+#       company's actual loss" ([22]-[23]); award reduced $125,884.59 to $106,505.03, allowing
+#       $7,500 of costs ([23]-[24]); note the s 136 claim was dismissed at first instance and
+#       not cross-appealed ([7])
+# cluster: liquidators-duties  status: draft
+id: gc-liq-005-shaw-owens
+matter_type: liquidators-duties
+task_class: analysis
+prompt: |
+  You act for the liquidators of Ashline Glazing Ltd, wound up in March 2021. Judgment has been entered
+  that its two directors breached ss 135 and 137 of the Companies Act 1993 by releasing the company's
+  sole funder from its obligation to pay for materials, which made the company insolvent; the court must
+  now fix compensation under s 301. The company's core loss is $210,000. Your fees of $95,000 for
+  administering the liquidation were mostly incurred investigating an unsuccessful claim that the
+  directors had set the company up to defeat creditors, and that claim has been dismissed. Advise how
+  much of the award the company will actually recover and why, citing the provision and the Court of
+  Appeal authority on whether the cost of administering a liquidation forms part of the award.
+expected_citations:
+  - "Companies Act 1993, s 301"
+  - "Shaw v Owens [2017] NZCA 315"
+required_grounding:
+  - "causation, culpability"
+  - "proportionate to the company's actual loss"
+persona_checks:
+  liquidators' costs: "liquidators' costs"
