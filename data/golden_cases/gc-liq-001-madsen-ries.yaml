@@ -14,7 +14,7 @@
 # note: the delivery hint ("liquidators' powers") is not made out - the liquidators are only
 #       the plaintiffs. The judgment squarely decides directors' duties in insolvency, so the
 #       case is authored on its true s 135 holding (see task 5 report).
-# cluster: liquidators-duties  status: draft
+# cluster: liquidators-duties  status: approved
 id: gc-liq-001-madsen-ries
 matter_type: liquidators-duties
 task_class: analysis

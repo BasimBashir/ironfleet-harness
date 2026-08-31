@@ -13,7 +13,7 @@
 # note: pre-PPSA judgment (receivership 1988); the Personal Property Securities Act 1999 is
 #       neither cited nor applied, so the common-law/Sale of Goods Act analysis supplies the
 #       pins and no PPSA section is pinned
-# cluster: ppsa-priority  status: draft
+# cluster: ppsa-priority  status: approved
 id: gc-ppsa-001-goldcorp
 matter_type: ppsa-priority
 task_class: analysis

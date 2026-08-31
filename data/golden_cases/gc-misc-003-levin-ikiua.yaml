@@ -27,7 +27,7 @@
 # real figures (prompt figures fictionalised): ACC payments >$3.4m; distributions $717,846.44
 #       / $742,507.06 / $144,070.51; s 298 claim $927,538; proved claim $386,909.91; judgment
 #       $8,000.80; costs $76,029.30; liquidation 26 January 2006
-# cluster: insolvency-general  status: draft
+# cluster: insolvency-general  status: approved
 id: gc-misc-003-levin-ikiua
 matter_type: insolvency-general
 task_class: analysis

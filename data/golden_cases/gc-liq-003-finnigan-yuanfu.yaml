@@ -10,7 +10,7 @@
 #       settled claims and individual tracing ([68]); liquidators remunerated out of trust
 #       assets in the court's inherent jurisdiction, apportioned by face value of claims
 #       ([70]-[73]); s 284 directions application ([1], heading)
-# cluster: liquidators-duties  status: draft
+# cluster: liquidators-duties  status: approved
 id: gc-liq-003-finnigan-yuanfu
 matter_type: liquidators-duties
 task_class: analysis

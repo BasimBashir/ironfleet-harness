@@ -9,7 +9,7 @@
 #       back to the vendor does not create a PMSI, hence the restructuring to substitute a
 #       different lessee ([35], [37]); the s 88 subordination and s 36(1) description issues
 #       are separate questions this case does not use here
-# cluster: ppsa-priority  status: draft
+# cluster: ppsa-priority  status: approved
 id: gc-ppsa-006-stockco-gibson
 matter_type: ppsa-priority
 task_class: analysis

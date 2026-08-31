@@ -11,7 +11,7 @@
 #       s 73 super priority requires perfection not later than 10 working days after the
 #       debtor obtained possession, impossible where possession long predates the refinance
 #       ([59]); refinancing interest at best ordinary and unperfected ([60])
-# cluster: ppsa-priority  status: draft
+# cluster: ppsa-priority  status: approved
 id: gc-ppsa-004-bloodstock-jenkins
 matter_type: ppsa-priority
 task_class: analysis

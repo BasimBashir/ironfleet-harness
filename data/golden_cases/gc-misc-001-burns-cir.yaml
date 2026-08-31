@@ -21,7 +21,7 @@
 #       contributions refund $451,176.94; GST refund paid in error $169,349.86; solicitors'
 #       funds $158,581.38; Strategic proof of debt $7,056,000; CIR preferential claim
 #       $3,625,493.51; liquidation 21 November 2008
-# cluster: insolvency-general  status: draft
+# cluster: insolvency-general  status: approved
 id: gc-misc-001-burns-cir
 matter_type: insolvency-general
 task_class: analysis

@@ -16,7 +16,7 @@
 #       with under Trustee Act 1956, s 76 ([200]-[202])
 # note: the judgment is NOT pinned by its own citation - the client is fictionalised, so a
 #       bare-prompted model is not asked to name the case it is based on (rule b)
-# cluster: liquidators-duties  status: draft
+# cluster: liquidators-duties  status: approved
 id: gc-liq-006-cryptopia
 matter_type: liquidators-duties
 task_class: analysis

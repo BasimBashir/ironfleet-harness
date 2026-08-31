@@ -5,7 +5,7 @@
 #       errors in debtor name/serial number; s 151 no need to prove actual misleading);
 #       s 172 search criteria ([9]); failure to classify debtor as a company and to enter
 #       its company number held seriously misleading ([26]-[29]); relief declined [29]-[30]
-# cluster: ppsa-priority  status: draft
+# cluster: ppsa-priority  status: approved
 id: gc-ppsa-009-polymers-toon
 matter_type: ppsa-priority
 task_class: analysis

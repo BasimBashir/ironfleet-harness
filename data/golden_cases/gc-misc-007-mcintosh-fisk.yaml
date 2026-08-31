@@ -14,7 +14,7 @@
 #       ([81]-[84]); return of the $500,000 capital is value, the fictitious $454,047.62
 #       "profit" is not ([115]-[136]); change of position fails ([137]-[198]); result at
 #       [199] - appeal and cross-appeal dismissed, the $454,047.62 was correctly set aside
-# cluster: insolvency-general  status: draft
+# cluster: insolvency-general  status: approved
 id: gc-misc-007-mcintosh-fisk
 matter_type: insolvency-general
 task_class: analysis

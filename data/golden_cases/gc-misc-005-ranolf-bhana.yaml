@@ -15,7 +15,7 @@
 #       The payment-into-court and undertakings course is the stay judgment's own ([21]-[23]).
 #       Rule pin is version-neutral: the caption says High Court Rules 2008, current law says 2016.
 #       Client name and amounts in the prompt are fictionalised.
-# cluster: insolvency-general  status: draft
+# cluster: insolvency-general  status: approved
 id: gc-misc-005-ranolf-bhana
 matter_type: insolvency-general
 task_class: analysis

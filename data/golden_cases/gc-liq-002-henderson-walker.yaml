@@ -13,7 +13,7 @@
 #       ([318]); conversion, misfeasance, breach of statutory duty and contempt dismissed
 #       ([319]); note "part 16" of the Companies Act 1993 is engaged but no section is pinned,
 #       the holding being that the Act supplies no cause of action
-# cluster: liquidators-duties  status: draft
+# cluster: liquidators-duties  status: approved
 id: gc-liq-002-henderson-walker
 matter_type: liquidators-duties
 task_class: detection
