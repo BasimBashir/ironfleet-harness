@@ -1,12 +1,19 @@
 # source: Ranolf Company Limited (in liquidation) v Bhana [2017] NZHC 2872 (22 November 2017).pdf
 # citation: Ranolf Company Limited (in liquidation) v Bhana [2017] NZHC 2872
-# pins: judgment sum $287,948.91 charged over trust property by Gilbert J,
-#       Ranolf Company Ltd (in liq) v Bhana [2017] NZHC 1183 ([1] fn 1); auction cancelled once
+# pins: judgment sum $287,948.91 charged over trust property by Gilbert J; auction cancelled once
 #       $306,337.20 paid into court unconditionally ([6]-[7]); sole issue disbursement or retention
 #       pending appeal ([7]); application brought under Part 20, Subpart 3 of the High Court Rules
-#       2008 (caption); liquidators' undertakings to repay if appeal succeeds and to remove caveats
+#       (caption); liquidators' undertakings to repay if appeal succeeds and to remove caveats
 #       on transfer, funds disbursed on the recorded undertakings ([21]-[23]); no order terminating
 #       the liquidation without formal Companies Act 1993 application ([23]).
+# pin provenance: instrument pins only. The judgment's case authorities are not producible from the
+#       bare prompt — the client and amounts are fictionalised, and none is a leading authority:
+#       Ranolf Company Ltd (in liq) v Bhana [2017] NZHC 1183; [2017] NZAR 1047 at [50]-[51] is an
+#       obscure interlocutory decision supplying only the charging/sale orders (cited at [1] fn 1,
+#       fn 2), and Dymocks Franchise Systems (NSW) Pty Ltd v Bilgola Enterprises Ltd (1999) 13 PRNZ
+#       48 (HC) and Keung v GBR Investment Ltd [2010] NZCA 396 (fn 3) are equally unproducible.
+#       The payment-into-court and undertakings course is the stay judgment's own ([21]-[23]).
+#       Rule pin is version-neutral: the caption says High Court Rules 2008, current law says 2016.
 #       Client name and amounts in the prompt are fictionalised.
 # cluster: insolvency-general  status: draft
 id: gc-misc-005-ranolf-bhana
@@ -14,15 +21,15 @@ matter_type: insolvency-general
 task_class: analysis
 prompt: |
   You act for the liquidators of Bellamy Holdings Ltd. The trustees who own its former
-  property have paid $298,500 into court unconditionally while they appeal a charging order
+  property have lodged $298,500 in court unconditionally while they appeal a charging order
   totalling $312,450, and their auction sale has been cancelled. The trustees also want the
   liquidation terminated now so the appeal falls away. Advise whether the funds should be
   released to you, on what terms, and what can be done about termination of the liquidation
-  pending the appeal, citing the authority governing funds paid into court and the rules under
-  which a stay application of this kind is brought.
+  pending the appeal, citing the rules under which a stay application of this kind is brought
+  and the statute under which an application to end a liquidation must be made.
 expected_citations:
-  - "Ranolf Company Ltd (in liq) v Bhana [2017] NZHC 1183"
-  - "High Court Rules 2008"
+  - "High Court Rules"
+  - "Companies Act 1993"
 required_grounding:
   - "paid into court"
   - "undertakings"

@@ -23,9 +23,11 @@ prompt: |
   the owner to collect it until default. This month the owner defaulted and the bank appointed a
   receiver of income without entering possession or serving a Property Law Act 2007 notice.
   Advise which lender is entitled to the rents and whether the Personal Property Securities Act
-  1999 governs the dispute, citing the provision that excludes land-linked payments from it.
+  1999 governs the dispute, citing the provision that excludes land-linked payments from it and
+  the priority provision that falls away as a result.
 expected_citations:
   - "Personal Property Securities Act 1999, s 23"
+  - "Personal Property Securities Act 1999, s 66"
 required_grounding:
   - "transfer of a right to payment"
   - "interest in land"
