@@ -160,7 +160,8 @@ def annotate_event(obj, tag: str, log) -> None:
     if not changed:
         log(record)
         return
-    # 1) single string attrs; 2) llm_message.content (str or list of parts)
+    # 1) single string attrs; 2) observation.content (ObservationEvent: parts list);
+    # 3) llm_message.content (str or list of parts)
     for attr in ("observation", "content", "text", "result"):
         if getattr(obj, attr, None) is not None and not hasattr(getattr(obj, attr), "to_llm_content"):
             try:
@@ -173,6 +174,36 @@ def annotate_event(obj, tag: str, log) -> None:
                 record.update(annotated=False, error=f"{type(ex).__name__}: {ex}")
                 log(record)
                 return
+    obs = getattr(obj, "observation", None)
+    if obs is not None and not isinstance(obs, str):
+        content = getattr(obs, "content", None)
+        try:
+            if isinstance(content, str):
+                setattr(obs, "content", mutated["observation"])
+                record.update(annotated=True, path="observation.content[str]")
+            elif isinstance(content, list):
+                wrote = False
+                for part in content:
+                    if isinstance(part, dict) and "text" in part:
+                        part["text"] = mutated["observation"]
+                        wrote = True
+                        break
+                    if hasattr(part, "text"):
+                        try:
+                            setattr(part, "text", mutated["observation"])
+                            wrote = True
+                            break
+                        except Exception:                # noqa: BLE001 — frozen part
+                            pass
+                record.update(annotated=wrote,
+                              path="observation.content[list]" if wrote
+                              else "observation.content[list]-UNWRITABLE")
+            else:
+                record.update(annotated=False, error=f"observation.content {type(content).__name__}")
+        except Exception as ex:                          # noqa: BLE001
+            record.update(annotated=False, error=f"{type(ex).__name__}: {ex}")
+        log(record)
+        return
     llm_message = getattr(obj, "llm_message", None)
     if llm_message is not None:
         content = getattr(llm_message, "content", None)
@@ -281,7 +312,7 @@ def run_conversation(agent, prompt: str, log, dump_path: Path | None = None) -> 
         except Exception:                                # noqa: BLE001
             pass
         cls = type(event).__name__
-        if cls in ("ObservationEvent", "MessageEvent"):
+        if cls in ("ObservationEvent", "MessageEvent", "ActionEvent"):
             annotate_event(event, cls, log)
 
     conv = Conversation(agent=agent, workspace=str(WS), callbacks=[callback],
@@ -291,34 +322,57 @@ def run_conversation(agent, prompt: str, log, dump_path: Path | None = None) -> 
     final = ""
     try:
         events = list(conv.get_events())
+        # The final answer is the agent's MessageEvent when one exists; OpenHands' agent
+        # loop otherwise routes the conclusion through the finish TOOL, whose observation
+        # carries the text (observed live 2026-09-01: ActionEvent -> ObservationEvent,
+        # no agent MessageEvent at all). NEVER fall back to the user's message.
         for ev in reversed(events):
             if type(ev).__name__ == "MessageEvent" and getattr(ev, "source", "") == "agent":
                 final = text_of(ev)
                 if final:
                     break
+        if not final:
+            for ev in reversed(events):
+                if type(ev).__name__ == "ObservationEvent":
+                    final = text_of(ev)
+                    if final:
+                        break
     except Exception as ex:                              # noqa: BLE001 — fall back to dump
         print(f"[warn ] get_events failed ({type(ex).__name__}: {ex}); using callback dump")
-        for ev in reversed(dump):
-            if ev["cls"] == "MessageEvent":
-                pass                                     # dump is a snapshot copy, not live text
+        final = text_of_from_dump(dump)
     if dump_path is not None:
         dump_path.write_text(json.dumps(dump, indent=1, default=str), encoding="utf-8")
     try:
         conv.close()
     except Exception:                                    # noqa: BLE001
         pass
-    return final or text_of_from_dump(dump)
+    return final
 
 
 def text_of_from_dump(dump: list) -> str:
-    """Last-resort extraction from the callback snapshot (attribute copies, not the live
-    object) — used only when get_events() is unavailable."""
+    """Last-resort extraction from the callback snapshot: the agent's MessageEvent if any,
+    else the last ObservationEvent's content (finish-tool conclusion). The user's message
+    is never returned — an early parity attempt scored a case against the echoed PROMPT
+    before this was pinned (found 2026-09-01)."""
     for ev in reversed(dump):
         if ev["cls"] != "MessageEvent":
             continue
         data = ev.get("data") or {}
+        if data.get("source") != "agent":
+            continue
         llm = data.get("llm_message") or {}
         content = llm.get("content") if isinstance(llm, dict) else None
+        if isinstance(content, str) and content.strip():
+            return content
+        if isinstance(content, list):
+            joined = "".join(_part_text(p) for p in content)
+            if joined.strip():
+                return joined
+    for ev in reversed(dump):
+        if ev["cls"] != "ObservationEvent":
+            continue
+        obs = (ev.get("data") or {}).get("observation") or {}
+        content = obs.get("content") if isinstance(obs, dict) else None
         if isinstance(content, str) and content.strip():
             return content
         if isinstance(content, list):
