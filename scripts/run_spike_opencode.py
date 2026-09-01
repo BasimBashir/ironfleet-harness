@@ -131,12 +131,25 @@ def run_opencode(ws: Path, args: list[str], timeout: int = RUN_TIMEOUT_S) -> tup
     """Run opencode in the workspace; return (exit code, combined stdout+stderr text).
     PWD must be scrubbed: opencode reads the env's PWD for project/instance resolution and
     an inherited PWD pointing elsewhere (e.g. harness-core) steers the session into THAT
-    repo's instance — observed live 2026-09-01 (ProviderModelNotFound despite cwd=ws)."""
+    repo's instance — observed live 2026-09-01 (ProviderModelNotFound despite cwd=ws).
+    Timeout uses a TREE kill: killing only the direct child (cmd.exe) leaves opencode.exe
+    holding the stdout pipe, and communicate() then blocks forever despite the timeout —
+    observed live 2026-09-01 (driver hung >1 h on a dead case)."""
     import os
     env = {**os.environ, "PWD": str(ws)}
-    proc = subprocess.run(opencode_cmd() + args, cwd=str(ws), capture_output=True,
-                          text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
-    return proc.returncode, (proc.stdout or "") + ("\n--stderr--\n" + proc.stderr if proc.stderr else "")
+    proc = subprocess.Popen(opencode_cmd() + args, cwd=str(ws),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, encoding="utf-8", errors="replace", env=env)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+        try:
+            out, err = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            out, err = "", ""
+        return 124, (out or "") + f"\n--timeout: tree-killed after {timeout}s--\n"
+    return proc.returncode, (out or "") + ("\n--stderr--\n" + (err or "") if err else "")
 
 
 def flatten_prompt(prompt: str) -> str:
