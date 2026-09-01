@@ -76,17 +76,23 @@ def render_guard_plugin(template: str, ws: str, python: str, guard_cli: str) -> 
                     .replace("__GUARD_CLI__", guard_cli.replace("\\", "/")))
 
 
-def hunter_agent_md(persona: str, model: str) -> str:
+def hunter_agent_md(persona: str, model: str, mode: str = "subagent") -> str:
     """hunter agent file per PERSONA_PORT['configs']['opencode']: frontmatter + persona verbatim.
     ZERO tools for parity cases: the in-house comparator mounts the persona on a plain chat
     call, and any enabled tool (read/glob/grep/task/…) makes the model behave agentively
     instead of answering — observed live 2026-09-01 ('let me pull the exact statutory
     text', 131-char non-answer). The persona fragment's corpus tools are exercised by the
     injection/delegate runs instead. Temperature deliberately NOT pinned: the in-house
-    gate sends no temperature field (server default applies)."""
+    gate sends no temperature field (server default applies).
+
+    mode=subagent is the protocol's MOUNT (delegate run drives it via the task tool);
+    mode=primary is the parity DRIVE twin — `opencode run --agent <subagent>` wraps a
+    default primary around the subagent which then flails with its own tools (observed
+    live: 'Web results are being garbled…'), so parity cases drive a primary-mode agent
+    carrying the IDENTICAL verbatim persona."""
     return ( "---\n"
              f"description: NZ legal research specialist (spike port of @HUNTER)\n"
-             "mode: subagent\n"
+             f"mode: {mode}\n"
              f"model: {model}\n"
              "tools:\n"
              "  read: false\n"
@@ -117,6 +123,8 @@ def sync_workspace(ws: Path) -> list[Path]:
             ws=str(ws), python=python, guard_cli=guard_cli),
         ws / ".opencode" / "agent" / "hunter.md": hunter_agent_md(
             PERSONA_PORT["system_prompt"], model=MODEL),
+        ws / ".opencode" / "agent" / "hunter-drive.md": hunter_agent_md(
+            PERSONA_PORT["system_prompt"], model=MODEL, mode="primary"),
         ws / "allowed.json": json.dumps({"allowed": [], "block": False}),
     }
     for path, content in files.items():
@@ -330,7 +338,7 @@ def parity_run(ws: Path, cases: list[GoldenCase], out_arg: str) -> int:
             write_allowed(ws, allowed=allowed_for(case))
             t0 = time.monotonic()
             try:
-                code, raw = run_opencode(ws, ["run", "--agent", "hunter", "--model", MODEL,
+                code, raw = run_opencode(ws, ["run", "--agent", "hunter-drive", "--model", MODEL,
                                               "--format", "json", flatten_prompt(case.prompt)])
                 latency = int((time.monotonic() - t0) * 1000)
                 (ws / "transcripts" / f"{case.id}.jsonl").write_text(raw, encoding="utf-8")
