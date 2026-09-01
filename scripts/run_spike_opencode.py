@@ -62,9 +62,12 @@ DEFAULT_WS = Path.home() / "spike-ws" / "opencode"
 MODEL = "ollama-local/qwen3.8:27b"     # NOT "ollama/..." — collides with opencode's builtin cloud provider
 RUN_TIMEOUT_S = 5400          # 90 min ceiling per case (parity cap 8192 tok @ ~4.3 tok/s + overhead)
 DEVIATION = ("DEVIATION (spike parity run, agent-recorded 2026-09-01): parity subset 5 cases "
-             "(one per matter cluster, first by id); max_tokens/limit.output 8192 identical to "
-             "the in-house persona reference; temperature NOT pinned (candidate default applies) "
-             "— see the S4 spike report.")
+             "(one per matter cluster, first by id); in-house cap 8192, opencode limit.output "
+             "RAISED to 16384 after live measurement showed opencode injects ~8k tokens of "
+             "request scaffolding regardless of the custom agent prompt (input 9279 vs 1104 "
+             "in-house), inflating the model's thinking past the shared 8192 cap so cases "
+             "ended reason=length with NO content emitted; temperature NOT pinned — see the "
+             "S4 spike report for both the scaffolding tax and the cap accommodation.")
 
 
 def render_guard_plugin(template: str, ws: str, python: str, guard_cli: str) -> str:
