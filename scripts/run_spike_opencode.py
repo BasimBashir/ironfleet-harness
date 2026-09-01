@@ -198,6 +198,20 @@ def extract_tool_texts(events: list[dict]) -> list[str]:
     return out
 
 
+def allowed_for(case: GoldenCase) -> list[str]:
+    """Authorities the guard may pass for this case: the expected citations PLUS the
+    bracket envelopes they contain ("[2006]" inside "Mason v Lewis [2006] 3 NZLR 225").
+    Without the envelopes the guard annotates INSIDE an expected citation — appending
+    after "[2006]" breaks the scorer's exact-substring needle and fabricates a citation
+    failure that the in-house reference (which runs unguarded) cannot show. The adapter
+    itself (guard_port.py) is untouched — only this list construction."""
+    from harness.spike.guard_port import _citations
+    out = list(case.expected_citations)
+    for cite in case.expected_citations:
+        out.extend(_citations(cite))
+    return out
+
+
 def write_allowed(ws: Path, allowed: list[str], block: bool = False) -> None:
     (ws / "allowed.json").write_text(json.dumps({"allowed": allowed, "block": block}),
                                      encoding="utf-8")
@@ -246,7 +260,7 @@ def delegate_run(ws: Path, case: GoldenCase) -> int:
     """Primary agent TASKS the hunter subagent — seam evidence for the subagent invocation
     path (the parity runs drive hunter directly with --agent hunter)."""
     print(f"[delegate] {case.id}: primary -> task(hunter)")
-    write_allowed(ws, allowed=case.expected_citations)
+    write_allowed(ws, allowed=allowed_for(case))
     t0 = time.monotonic()
     code, raw = run_opencode(ws, ["run", "--model", MODEL, "--auto", "--format", "json",
                                   "Use the task tool to delegate this to the 'hunter' "
@@ -278,7 +292,7 @@ def parity_run(ws: Path, cases: list[GoldenCase], out_arg: str) -> int:
         for case in cases:
             failure = ""
             text = ""
-            write_allowed(ws, allowed=case.expected_citations)
+            write_allowed(ws, allowed=allowed_for(case))
             t0 = time.monotonic()
             try:
                 code, raw = run_opencode(ws, ["run", "--agent", "hunter", "--model", MODEL,

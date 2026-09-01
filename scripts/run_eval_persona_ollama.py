@@ -88,6 +88,9 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     p.add_argument("--base-url", default="http://127.0.0.1:11434/v1",
                    help="OpenAI-compatible Ollama endpoint (default: %(default)s)")
+    p.add_argument("--model", default="", metavar="ID",
+                   help="explicit model id (default: auto-detect, preferring qwen — "
+                        "used for the legal-model comparison runs)")
     p.add_argument("--max-tokens", type=int, default=8192, metavar="N",
                    help="output cap, identical on every parity run (default: %(default)s)")
     p.add_argument("--all", action="store_true",
@@ -102,7 +105,7 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run(args: argparse.Namespace) -> int:
-    model = await _base.detect_model(args.base_url)
+    model = args.model or await _base.detect_model(args.base_url)
     print(f"[setup] using model: {model}")
 
     # 1-2. Real probe, then the inherited recorded override (verbatim pattern from the baseline).
