@@ -97,4 +97,4 @@ def test_guard_cli_file_transport(tmp_path):
     res = json.loads(outfile.read_text(encoding="utf-8"))
     assert res["decision"] == "block"
     assert "[UNGROUNDED — not confirmed]" in res["output"]
-    assert res["ungrounded"] == ["[Imaginary Act 2026, s 9]"]
+    assert "[Imaginary Act 2026, s 9]" in res["reason"]     # adapter carries ungrounded in reason
