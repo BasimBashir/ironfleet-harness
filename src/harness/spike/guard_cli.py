@@ -1,13 +1,18 @@
 # src/harness/spike/guard_cli.py
 """CLI shim so non-Python spike mounts (OpenCode plugins run under Bun/JS) can call the
 REAL guard — `portable_grounding_guard` via `OpenCodeHookAdapter` — instead of a JS
-re-implementation. stdin: one JSON object `{"output": str, "allowed": [str, ...]}`;
-stdout: the adapter's decision JSON `{"decision", "reason", "output"}` (annotated text
-in `output`). Exit 0 on a handled call; exit 2 on malformed stdin (fail loud, never
-silently pass text through unguarded).
+re-implementation. A JS re-implementation would not be a port of the guard and would
+break spike parity.
 
-S4 mount detail: candidates that are Python-native (OpenHands) import guard_port
-directly; this shim exists for the JS side only.
+Two transports:
+  stdin  : one JSON object `{"output": str, "allowed": [str, ...]}` on stdin; the
+           adapter's decision JSON on stdout. Fine for small texts (tests, smoke).
+  files  : `guard_cli.py <in.json> <out.json>` — payload read from / written to files.
+           REQUIRED for model outputs: Bun's spawnSync on Windows deadlocks once stdin
+           exceeds the pipe buffer (~64 KB; observed live 2026-09-01 — status=null,
+           empty stderr, hook timeout, subagent killed). Long completions ride this mode.
+
+Both fail loud (non-zero exit / error decision) rather than passing text through unguarded.
 """
 from __future__ import annotations
 
@@ -20,18 +25,29 @@ def handle(payload: dict) -> dict:
     return OpenCodeHookAdapter().handle(payload)
 
 
-def main() -> int:
-    raw = sys.stdin.read()
-    try:
-        payload = json.loads(raw)
-        if not isinstance(payload, dict) or "output" not in payload:
-            raise ValueError("stdin JSON must be an object with at least an 'output' field")
-    except Exception as ex:                                  # noqa: BLE001 — one loud failure mode
-        json.dump({"decision": "error", "reason": f"guard_cli bad stdin ({type(ex).__name__}): "
-                                                  f"{ex}", "output": ""}, sys.stdout)
+def _run(payload: dict) -> int:
+    if not isinstance(payload, dict) or "output" not in payload:
+        json.dump({"decision": "error", "reason": "stdin JSON must be an object with at "
+                                                  "least an 'output' field", "output": ""},
+                  sys.stdout)
         return 2
     json.dump(handle(payload), sys.stdout, ensure_ascii=False)
     return 0
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    if len(args) == 2:                       # file mode: <in.json> <out.json>
+        with open(args[0], "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        with open(args[1], "w", encoding="utf-8") as f:
+            if not isinstance(payload, dict) or "output" not in payload:
+                json.dump({"decision": "error", "reason": "input JSON must be an object "
+                                                          "with an 'output' field", "output": ""}, f)
+                return 2
+            json.dump(handle(payload), f, ensure_ascii=False)
+        return 0
+    return _run(json.loads(sys.stdin.read()))
 
 
 if __name__ == "__main__":

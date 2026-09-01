@@ -78,3 +78,23 @@ def test_extract_tool_texts_from_run_mode_events():
         {"type": "text", "part": {"messageID": "m1", "type": "text", "text": "done"}},
     ]
     assert mod.extract_tool_texts(events) == [" Authority check: [Imaginary Act 2026, s 9] threshold "]
+
+
+def test_guard_cli_file_transport(tmp_path):
+    """File mode exists because Bun spawnSync deadlocks on >64KB stdin (observed live);
+    it must produce the same decision JSON as the stdin mode."""
+    import json
+    import subprocess
+    root = Path(__file__).resolve().parents[1]
+    cli = root / "src" / "harness" / "spike" / "guard_cli.py"
+    py = root / ".venv" / "Scripts" / "python.exe"
+    payload = {"output": "Per [Imaginary Act 2026, s 9] it applies.", "allowed": []}
+    infile, outfile = tmp_path / "in.json", tmp_path / "out.json"
+    infile.write_text(json.dumps(payload), encoding="utf-8")
+    proc = subprocess.run([str(py), str(cli), str(infile), str(outfile)],
+                          capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    res = json.loads(outfile.read_text(encoding="utf-8"))
+    assert res["decision"] == "block"
+    assert "[UNGROUNDED — not confirmed]" in res["output"]
+    assert res["ungrounded"] == ["[Imaginary Act 2026, s 9]"]

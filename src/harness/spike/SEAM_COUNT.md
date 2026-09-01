@@ -28,13 +28,15 @@
 | persona subagent | `.opencode/agent/hunter.md` (mode: subagent; body = PERSONA_PORT verbatim, driver-generated) + `--agent hunter` direct drive | no |
 | provider wiring | `opencode.json` custom provider `ollama-local` (npm `@ai-sdk/openai-compatible`, auto-installed into `~/.config/opencode`); provider id must NOT collide with builtin `ollama` (cloud) | no |
 | workspace isolation | workspace must be its own git repo, else opencode adopts a sibling repo's instance; driver must scrub inherited `PWD` env (steers instance resolution) — both observed live | no |
+| CLI prompt transport | `opencode run` via cmd.exe TRUNCATES the message at the first newline — multi-line prompts must be flattened (observed live: hunter answered "your message looks cut off") | no |
+| run supervision (Windows) | killing the direct child (cmd.exe) orphans opencode.exe holding the stdout pipe — driver hangs despite subprocess timeouts; needs tree-kill (`taskkill /T /F`) supervision — observed live | no |
 | subagent invocation via task delegation | primary agent → task(hunter) | no (pending delegate run) |
 
 ## OpenHands (openhands-sdk 1.44.1, pinned; **openhands-tools NOT installable on this Windows box** — Rust-building sdist in dep tree, wheels-only ResolutionImpossible)
 
 | seam | file/hook touched | core-fork? |
 |---|---|---|
-| guard — conversation callback on event-append path (ObservationEvent = tool results, MessageEvent = assistant output) | `scripts/run_spike_openhands.py` callbacks → `OpenHandsHandlerAdapter` (annotate-in-place; event immutability is the open empirical question — smoke) | no (pending smoke) |
+| guard — conversation callback on event-append path (ObservationEvent = tool results, MessageEvent = assistant output, ActionEvent = model-authored tool arguments — the agent loop routes its CONCLUSION through the finish tool, so the finish ObservationEvent IS the final-answer carrier, observed live) | `scripts/run_spike_openhands.py` callbacks → `OpenHandsHandlerAdapter` (annotate-in-place) | no (write-back verdict pending chain) |
 | persona subagent | `Agent(system_prompt=PERSONA_PORT verbatim)` + `register_agent("hunter", …)` registry mount | no |
 | task delegation (subagent invocation) | `TaskToolSet` lives in `openhands-tools` → **blocked: package unresolvable on Windows** (installability datum for M0) | n/a — blocked |
 | LLM wiring | litellm model `openai/qwen3.8:27b` + base_url → Ollama /v1; SDK-only install path exists (no Docker needed for tools=[] agents) | no |

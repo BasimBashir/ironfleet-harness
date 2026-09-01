@@ -15,7 +15,7 @@
 // Per-case authorities: <ws>/allowed.json  {"allowed": [..], "block": bool} (annotate-only
 // for parity runs; block=true demonstrates the deny decision on the tool path).
 import { spawnSync } from "node:child_process"
-import { readFileSync, appendFileSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 
 const WS = "__SPIKE_WS__"
@@ -38,19 +38,26 @@ function guard(text: unknown, tag: string): GuardDecision {
   if (typeof text !== "string" || text.length === 0)
     return { decision: "approve", reason: "no text", output: typeof text === "string" ? text : "" }
   const { allowed, block } = authorities()
-  const proc = spawnSync(PYTHON, [GUARD_CLI], {
-    input: JSON.stringify({ output: text, allowed }),
-    encoding: "utf8",
-    timeout: 60_000,
-  })
-  if (proc.status !== 0 || !proc.stdout)
-    throw new Error(`ironfleet-guard: guard_cli failed (${tag}) status=${proc.status} stderr=${proc.stderr}`)
-  const res: GuardDecision = JSON.parse(proc.stdout)
-  appendFileSync(
-    join(WS, "guard-log.jsonl"),
-    JSON.stringify({ tag, decision: res.decision, reason: res.reason, block_armed: block }) + "\n",
-  )
-  return res
+  // FILE transport: Bun's spawnSync on Windows deadlocks when stdin exceeds the pipe
+  // buffer (~64 KB) — status=null, empty stderr, hook timeout (observed live with long
+  // completions). Payload and result ride temp files instead; only short paths use argv.
+  const seq = Date.now() + "-" + Math.floor(Math.random() * 1e9)
+  const inFile = join(WS, `guard-in-${seq}.json`)
+  const outFile = join(WS, `guard-out-${seq}.json`)
+  writeFileSync(inFile, JSON.stringify({ output: text, allowed }), "utf8")
+  try {
+    const proc = spawnSync(PYTHON, [GUARD_CLI, inFile, outFile], { timeout: 60_000 })
+    if (proc.status !== 0)
+      throw new Error(`ironfleet-guard: guard_cli failed (${tag}) status=${proc.status} stderr=${proc.stderr}`)
+    const res: GuardDecision = JSON.parse(readFileSync(outFile, "utf8"))
+    appendFileSync(
+      join(WS, "guard-log.jsonl"),
+      JSON.stringify({ tag, decision: res.decision, reason: res.reason, block_armed: block }) + "\n",
+    )
+    return res
+  } finally {
+    for (const f of [inFile, outFile]) { try { rmSync(f) } catch { /* best effort */ } }
+  }
 }
 
 const eventCounts = new Map<string, number>()
