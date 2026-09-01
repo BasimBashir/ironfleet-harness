@@ -75,17 +75,27 @@ def render_guard_plugin(template: str, ws: str, python: str, guard_cli: str) -> 
 
 def hunter_agent_md(persona: str, model: str) -> str:
     """hunter agent file per PERSONA_PORT['configs']['opencode']: frontmatter + persona verbatim.
-    Permissions deny the mutating tools so parity cases single-shot like the in-house mount.
-    Temperature deliberately NOT pinned: the in-house gate sends no temperature field (server
-    default applies), so the candidate side records whatever default it sends instead."""
+    ZERO tools for parity cases: the in-house comparator mounts the persona on a plain chat
+    call, and any enabled tool (read/glob/grep/task/…) makes the model behave agentively
+    instead of answering — observed live 2026-09-01 ('let me pull the exact statutory
+    text', 131-char non-answer). The persona fragment's corpus tools are exercised by the
+    injection/delegate runs instead. Temperature deliberately NOT pinned: the in-house
+    gate sends no temperature field (server default applies)."""
     return ( "---\n"
              f"description: NZ legal research specialist (spike port of @HUNTER)\n"
              "mode: subagent\n"
              f"model: {model}\n"
-             "permission:\n"
-             "  edit: deny\n"
-             "  bash: deny\n"
-             "  webfetch: deny\n"
+             "tools:\n"
+             "  read: false\n"
+             "  glob: false\n"
+             "  grep: false\n"
+             "  task: false\n"
+             "  todowrite: false\n"
+             "  skill: false\n"
+             "  bash: false\n"
+             "  edit: false\n"
+             "  write: false\n"
+             "  webfetch: false\n"
              "---\n"
              f"{persona}\n")
 
