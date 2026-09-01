@@ -26,9 +26,13 @@ def test_guard_annotate_uses_handler_adapter_shape():
     mod = _load()
     event = {"observation": "Threshold per [Imaginary Act 2026, s 9] applies.",
              "allowed": ["Real Authority Act 1908"]}
+    original = event["observation"]
     out = mod.guard_annotate(event)
     assert "[UNGROUNDED — not confirmed]" in out["observation"]
     assert out["_spike"]["guard_blocked"] == ["[Imaginary Act 2026, s 9]"]
+    # aliasing regression: the adapter returns the SAME dict mutated in place, so any
+    # changed-detection must compare against the ORIGINAL text, never the payload dict
+    assert out["observation"] != original
     grounded = {"observation": "Per [Real Authority Act 1908] it applies.",
                 "allowed": ["Real Authority Act 1908"]}
     assert mod.guard_annotate(grounded)["observation"] == grounded["observation"]

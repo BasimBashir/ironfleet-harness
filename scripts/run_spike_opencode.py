@@ -139,6 +139,14 @@ def run_opencode(ws: Path, args: list[str], timeout: int = RUN_TIMEOUT_S) -> tup
     return proc.returncode, (proc.stdout or "") + ("\n--stderr--\n" + proc.stderr if proc.stderr else "")
 
 
+def flatten_prompt(prompt: str) -> str:
+    """cmd.exe ends the command line at the first embedded newline — a multi-line prompt
+    passed as one argv element arrives TRUNCATED (observed live 2026-09-01: hunter answered
+    'Your message looks cut off'). Flatten newlines to single spaces; the persona cases'
+    prompts are plain prose so meaning is unchanged, and scorer needles live in OUTPUTS."""
+    return " ".join(line.strip() for line in prompt.splitlines() if line.strip())
+
+
 def parse_events(raw: str) -> list[dict]:
     events = []
     for line in raw.splitlines():
@@ -264,7 +272,8 @@ def delegate_run(ws: Path, case: GoldenCase) -> int:
     t0 = time.monotonic()
     code, raw = run_opencode(ws, ["run", "--model", MODEL, "--auto", "--format", "json",
                                   "Use the task tool to delegate this to the 'hunter' "
-                                  f"subagent verbatim, then relay its final answer only:\n\n{case.prompt}"])
+                                  "subagent verbatim, then relay its final answer only: "
+                                  + flatten_prompt(case.prompt)])
     latency = int((time.monotonic() - t0) * 1000)
     (ws / "transcripts" / f"{case.id}-delegate.jsonl").write_text(raw, encoding="utf-8")
     text = extract_final_text(parse_events(raw))
@@ -296,7 +305,7 @@ def parity_run(ws: Path, cases: list[GoldenCase], out_arg: str) -> int:
             t0 = time.monotonic()
             try:
                 code, raw = run_opencode(ws, ["run", "--agent", "hunter", "--model", MODEL,
-                                              "--format", "json", case.prompt])
+                                              "--format", "json", flatten_prompt(case.prompt)])
                 latency = int((time.monotonic() - t0) * 1000)
                 (ws / "transcripts" / f"{case.id}.jsonl").write_text(raw, encoding="utf-8")
                 text = extract_final_text(parse_events(raw))

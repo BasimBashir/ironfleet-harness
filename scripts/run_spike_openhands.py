@@ -151,7 +151,10 @@ def annotate_event(obj, tag: str, log) -> None:
         return
     payload = {"observation": text, "allowed": read_allowed()["allowed"]}
     mutated = guard_annotate(payload)
-    changed = mutated["observation"] != payload["observation"]
+    # guard_annotate mutates and RETURNS the same dict — comparing it to itself is always
+    # equal (aliasing bug, found 2026-09-01: every check logged changed=false and no
+    # annotation was ever written). Compare against the ORIGINAL text instead.
+    changed = mutated["observation"] != text
     record: dict = {"tag": tag, "checked": True, "ungrounded": mutated.get("_spike", {}).get(
         "guard_blocked", []), "changed": changed}
     if not changed:
