@@ -58,6 +58,9 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     p.add_argument("--base-url", default="http://127.0.0.1:11434/v1",
                    help="OpenAI-compatible Ollama endpoint (default: %(default)s)")
+    p.add_argument("--model", default="", metavar="ID",
+                   help="explicit model id (default: auto-detect, preferring the system "
+                        "base model thomson1, then qwen)")
     p.add_argument("--limit", type=int, default=0, metavar="N",
                    help="run only the first N cases after filtering (0 = all)")
     p.add_argument("--only", action="append", default=[], metavar="ID-SUBSTR",
@@ -68,10 +71,13 @@ def parse_args() -> argparse.Namespace:
 
 
 async def detect_model(base_url: str) -> str:
-    """Like scripts/live_ollama_smoke.py: /models, prefer any qwen — but never auto-pick a
+    """Like scripts/live_ollama_smoke.py: /models, prefer the system BASE MODEL —
+    thomson1 (Thomson-1.0-Small) since 2026-09-02, qwen3.8 before that; never auto-pick a
     model that would be useless or unsafe here: embedding models cannot answer, and a
     cloud-proxied id would let this provider (force-admitted as tier=local, in-memory) egress
-    the case prompts to the internet."""
+    the case prompts to the internet. NOTE thomson1 needs a >=16k output cap (3k+ reasoning
+    tokens precede content) — the default cap here is generous enough, but pass --model to
+    override if ever needed."""
     payload = await openai_fetch(f"{base_url.rstrip('/')}/models", {})
     if not payload:
         print(f"FAIL: cannot reach {base_url}/models — is Ollama running?")
@@ -80,8 +86,10 @@ async def detect_model(base_url: str) -> str:
     print(f"[probe] models on {base_url}: {models}")
     candidates = [m for m in models
                   if not any(bad in m.lower() for bad in ("embed", "bge", "cloud"))]
-    qwen = [m for m in candidates if "qwen" in m.lower()]
-    model = qwen[0] if qwen else (candidates[0] if candidates else "")
+    preferred = [m for m in candidates if "thomson" in m.lower()]
+    if not preferred:
+        preferred = [m for m in candidates if "qwen" in m.lower()]
+    model = preferred[0] if preferred else (candidates[0] if candidates else "")
     if not model:
         print(f"FAIL: no usable local LLM among {models} — auto-pick excludes ids containing "
               f"embed/bge/cloud and will not guess a cloud or embedding model")
@@ -132,7 +140,7 @@ def case_record(case_id: str, *, model: str = "", content: str | None = None,
 
 
 async def run(args: argparse.Namespace) -> int:
-    model = await detect_model(args.base_url)
+    model = args.model or await detect_model(args.base_url)
     print(f"[setup] using model: {model}")
 
     # 1. Register through the REAL probe — the honest verdict, unchanged.

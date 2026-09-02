@@ -38,8 +38,11 @@ async def detect_model() -> str:
         sys.exit(1)
     models = [m.get("id", "") for m in payload.get("data", [])]
     print(f"[probe] models on {BASE_URL}: {models}")
-    qwen = [m for m in models if "qwen" in m.lower()]
-    model = qwen[0] if qwen else (models[0] if models else "")
+    # system base model = thomson1 since 2026-09-02 (qwen3.8:27b before); qwen fallback
+    preferred = [m for m in models if "thomson" in m.lower()]
+    if not preferred:
+        preferred = [m for m in models if "qwen" in m.lower()]
+    model = preferred[0] if preferred else (models[0] if models else "")
     if not model:
         print("FAIL: no models served by Ollama")
         sys.exit(1)

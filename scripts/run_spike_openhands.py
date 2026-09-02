@@ -57,9 +57,12 @@ _oc = importlib.util.module_from_spec(_oc_spec)
 _oc_spec.loader.exec_module(_oc)
 
 WS = Path.home() / "spike-ws" / "openhands"
-MODEL_ID = "qwen3.8:27b"
+# System base model = thomson1 since 2026-09-02 (user direction, post-spike); needs a
+# >=16k output cap (3k+ reasoning tokens precede content). The qwen3.8 parity runs of
+# 2026-09-01 used 8192 and are labelled with their model in report/sidecars.
+MODEL_ID = "thomson1:latest"
 BASE_URL = "http://127.0.0.1:11434/v1"
-MAX_OUTPUT_TOKENS = 8192
+MAX_OUTPUT_TOKENS = 16384
 DEVIATION = ("DEVIATION (spike parity run, agent-recorded 2026-09-01): parity subset 5 cases "
              "(one per matter cluster, first by id); max_output_tokens 8192 identical to every "
              "other parity run; hunter driven directly (task-delegation seam blocked — see "

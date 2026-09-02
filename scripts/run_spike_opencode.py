@@ -60,7 +60,9 @@ MOUNTS = ROOT / "src" / "harness" / "spike" / "candidates" / "opencode"
 # ~ there are no sibling repos to adopt; ws is its own git repo regardless (isolation seam).
 DEFAULT_WS = Path.home() / "spike-ws" / "opencode"
 # NOT "ollama/..." as provider prefix — collides with opencode's builtin cloud provider.
-DEFAULT_MODEL_ID = "qwen3.8:27b"
+# System base model = thomson1 since 2026-09-02 (user direction, post-spike); the qwen3.8
+# parity runs of 2026-09-01 predate the switch and are labelled with their model in report/sidecars.
+DEFAULT_MODEL_ID = "thomson1:latest"
 MODEL = f"ollama-local/{DEFAULT_MODEL_ID}"          # re-derived when --model is passed
 RUN_TIMEOUT_S = 5400          # 90 min ceiling per case (parity cap 8192 tok @ ~4.3 tok/s + overhead)
 DEVIATION = ("DEVIATION (spike parity run, agent-recorded 2026-09-01): parity subset 5 cases "
