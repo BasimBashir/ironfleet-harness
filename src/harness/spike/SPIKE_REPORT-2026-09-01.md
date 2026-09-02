@@ -119,30 +119,51 @@ Reports: [in-house](../../data/eval/spike-persona-ref-ollama.md) ·
    allocation and offload change). In-house latency figures (18–30 min/case) predate
    the change; candidate latencies (2–4 min/case) postdate it.
 
-## Extra datum — legal-domain model (user-requested): Thomson-1.0-Small
+## Extra datum — legal-domain model (user-requested): Thomson-1.0-Small, full 2×3 matrix
 
 `thomson1:latest` = Thomson Reuters **Thomson-1.0-Small** (Qwen3.6-35B-A3B MoE base,
-21 GB local import), run on the identical 5-case persona eval with a 16,384 cap
-(the model burns 3k+ tokens on reasoning before content; at 8,192 the content channel
-came back empty on all 5 — first run inconclusive, rerun with headroom):
+21 GB local import), run on the identical 5-case persona eval across ALL THREE mounts
+(in-house persona runner, OpenCode hunter, OpenHands hunter) with a 16,384 output cap
+(the model burns 3k+ reasoning tokens before content; at 8,192 the content channel
+comes back empty — first in-house attempt inconclusive, all runs below use headroom):
 
-| case | thomson1 c/g | in-house qwen3.8 c/g |
-|---|---|---|
-| gc-dir-001 | 0.50 / 0.00 | 0.50 / 0.00 |
-| gc-liq-001 | **0.50** / 0.00 | 0.00 / 0.00 |
-| gc-misc-001 | 0.00 / 0.00 | 0.00 / 0.00 |
-| gc-ppsa-001 | 0.00 / 1.00 | 0.00 / 1.00 |
-| gc-recv-001 | 0.00 / 0.50 | 0.00 / 0.50 |
-| **mean** | **0.200 / 0.300** | **0.100 / 0.300** |
+| case | in-house | OpenCode | OpenHands | in-house-T | OpenCode-T | OpenHands-T |
+|---|---|---|---|---|---|---|
+| gc-dir-001-mainzeal-hc | 0.50/0.00 | 0.50/0.00 | 0.00/0.00 | 0.50/0.00 | 0.50/0.00 | 0.00/0.00 |
+| gc-liq-001-madsen-ries | 0.00/0.00 | 0.00/0.00 | 0.00/0.00 | 0.50/0.00 | 0.50/0.00 | 0.50/0.00 |
+| gc-misc-001-burns-cir | 0.00/0.00 | 0.00/0.50 | 0.00/0.00 | 0.00/0.00 | 0.00/0.00 | 0.00/0.00 |
+| gc-ppsa-001-goldcorp | 0.00/1.00 | 0.00/1.00 | 0.00/1.00 | 0.00/1.00 | 0.00/0.00 | 0.00/1.00 |
+| gc-recv-001-viacom-scene1 | 0.00/0.50 | 0.00/0.50 | 0.00/0.50 | 0.00/0.50 | 0.00/0.50 | 0.00/0.50 |
+| **mean (c/g)** | **0.100/0.300** | **0.100/0.400** | **0.000/0.300** | **0.200/0.300** | **0.200/0.100** | **0.100/0.300** |
+| mean answer chars | 9,720 | 26,007 | 1,105 | 3,475 | 5,810 | 4,299 |
 
-**Double the exact-citation accuracy at identical grounding** (and 4–8× more compact
-answers, 2.4–4.3k chars, ~80–90 s/case) — see
-[spike-persona-thomson1.md](../../data/eval/spike-persona-thomson1.md) + sidecar.
-Nonzero citations where qwen3.8 scored zero: early signal that a legal-domain model
-lifts exact-citation form, exactly the axis the persona parity harness measures.
-Model choice is ORTHOGONAL to adopt-vs-build; this datum feeds Path A/B sizing, not
-the M0 tie-break. A `thomson1-chat` variant (proper qwen renderer) was built and
-probed — neutral on the thinking-budget behaviour; original model id used for the datum.
+(cells = citation_accuracy / grounding_score; `-T` = thomson1; non-`-T` = qwen3.8:27b.
+Sidecars: `spike-persona-{ref,thomson1}` , `spike-{opencode,openhands}-parity{-thomson1}`.)
+
+**Readings:**
+- **The model effect is consistent across every mount**: thomson1 lifts exact-citation
+  accuracy in-house (0.100→0.200), on OpenCode (0.100→0.200) and on OpenHands
+  (0.000→0.100) — doubling it wherever it runs, at equal grounding (0.300 on 5 of 6
+  columns). The legal-domain training (citation-pattern rewards) shows up exactly on
+  the axis the persona-parity harness measures. It is also 4–8× more compact and
+  ~2× faster per case (~60–165 s vs ~90–240 s post-ctx-fix).
+- **The mount effect stays small under both models** — each candidate tracks its
+  in-house comparator within a needle or two, for BOTH models: criterion (b) parity
+  is model-robust, not a qwen artifact. One systematic per-mount quirk: OpenHands
+  misses the dir-001 citation needle ("Mason v Lewis [2006] 3 NZLR 225") under BOTH
+  models while every other mount hits it — worth a look in S6 normaliser work.
+- Model choice is ORTHOGONAL to adopt-vs-build: this feeds Path A/B sizing (and the
+  eval engine choice going forward), not the M0 tie-break.
+
+**Thomson1-under-candidates incident trail (recorded for Module E):** getting
+thomson1 through OpenCode surfaced one more real defect on our side and one candidate
+quirk — (i) the serialized guard returned a Promise whose `.output` the hooks assigned
+into opencode parts (undefined text → SchemaError; all pre-serialization OpenCode
+evidence predates it and stands; fixed + relaunch clean), and (ii) thomson1's
+reasoning-phase streaming produces empty text parts that opencode's part-cleanup
+rejects if touched — the guard hook is now defensive about them. A `thomson1-chat`
+variant (proper qwen renderer in the Modelfile) was built and probed — neutral on the
+thinking-budget behaviour; the original model id is used for all data above.
 
 ## Seam-count → Module E repricing input
 
