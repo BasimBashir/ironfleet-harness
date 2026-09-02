@@ -84,12 +84,12 @@ export const IronFleetGuard = async (_ctx: unknown) => {
   return {
     "tool.execute.before": async (input: { tool: string; sessionID: string; callID: string },
                                    output: { args: unknown }) => {
-      const res = guard(JSON.stringify(output.args ?? {}), `tool.execute.before:${input.tool}`)
+      const res = await guard(JSON.stringify(output.args ?? {}), `tool.execute.before:${input.tool}`)
       if (authorities().block && res.decision === "block") throw new Error(res.reason)
     },
     "tool.execute.after": async (input: { tool: string; sessionID: string; callID: string },
                                   output: { title: string; output: string; metadata: unknown }) => {
-      const res = guard(output.output, `tool.execute.after:${input.tool}`)
+      const res = await guard(output.output, `tool.execute.after:${input.tool}`)
       output.output = res.output                     // annotation rides the result text
       if (authorities().block && res.decision === "block") throw new Error(res.reason)
     },
@@ -99,7 +99,7 @@ export const IronFleetGuard = async (_ctx: unknown) => {
       // them feeds opencode's part-cleanup a shape it rejects (SchemaError at
       // part.text). Only annotate when a non-empty string is actually present.
       if (typeof output.text !== "string" || output.text.length === 0) return
-      const res = guard(output.text, "text.complete")
+      const res = await guard(output.text, "text.complete")
       output.text = res.output                       // annotation rides the model output
     },
     event: async ({ event }: { event: { type: string } }) => {
