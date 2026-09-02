@@ -303,6 +303,12 @@ def build_llm():
                       max_output_tokens=MAX_OUTPUT_TOKENS, timeout=10_800)
 
 
+def set_run_model(model_id: str, max_output_tokens: int) -> None:
+    """--model/--max-tokens switch (thomson1 needs >=16k: reasoning precedes content)."""
+    global MODEL_ID, MAX_OUTPUT_TOKENS
+    MODEL_ID, MAX_OUTPUT_TOKENS = model_id, max_output_tokens
+
+
 def register_corpus_search() -> str:
     """Synthetic retrieval tool — the shape Module E would mount for real. For the
     criterion-(a) injection run its observation carries [Imaginary Act 2026, s 9]."""
@@ -591,6 +597,10 @@ def parity(cases: list[GoldenCase], out_arg: str) -> int:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="S4 spike driver — OpenHands candidate (SDK-only).")
     p.add_argument("--out", default="data/eval/spike-openhands-parity.md")
+    p.add_argument("--model", default=MODEL_ID, metavar="ID",
+                   help="ollama model id (default: %(default)s); e.g. thomson1:latest")
+    p.add_argument("--max-tokens", type=int, default=MAX_OUTPUT_TOKENS, metavar="N",
+                   help="output cap (default: %(default)s; thomson1 needs >=16384)")
     p.add_argument("--only", action="append", default=[], metavar="ID-SUBSTR")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--all", action="store_true")
@@ -602,6 +612,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     args = parse_args()
+    set_run_model(args.model, args.max_tokens)
     if args.smoke:
         sys.exit(smoke())
     if args.inject:

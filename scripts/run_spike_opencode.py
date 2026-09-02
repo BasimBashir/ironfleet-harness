@@ -59,7 +59,9 @@ MOUNTS = ROOT / "src" / "harness" / "spike" / "candidates" / "opencode"
 # (observed 2026-09-01: session directory=harness-core despite cwd=spike-ws). Under
 # ~ there are no sibling repos to adopt; ws is its own git repo regardless (isolation seam).
 DEFAULT_WS = Path.home() / "spike-ws" / "opencode"
-MODEL = "ollama-local/qwen3.8:27b"     # NOT "ollama/..." — collides with opencode's builtin cloud provider
+# NOT "ollama/..." as provider prefix — collides with opencode's builtin cloud provider.
+DEFAULT_MODEL_ID = "qwen3.8:27b"
+MODEL = f"ollama-local/{DEFAULT_MODEL_ID}"          # re-derived when --model is passed
 RUN_TIMEOUT_S = 5400          # 90 min ceiling per case (parity cap 8192 tok @ ~4.3 tok/s + overhead)
 DEVIATION = ("DEVIATION (spike parity run, agent-recorded 2026-09-01): parity subset 5 cases "
              "(one per matter cluster, first by id); in-house cap 8192, opencode limit.output "
@@ -403,6 +405,8 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="S4 spike driver — OpenCode candidate.",
                                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     p.add_argument("--ws", default=str(DEFAULT_WS), help="workspace dir (default: %(default)s)")
+    p.add_argument("--model", default=DEFAULT_MODEL_ID, metavar="ID",
+                   help="ollama-local model id (default: %(default)s); e.g. thomson1:latest")
     p.add_argument("--out", default="data/eval/spike-opencode-parity.md")
     p.add_argument("--only", action="append", default=[], metavar="ID-SUBSTR")
     p.add_argument("--limit", type=int, default=0)
@@ -418,6 +422,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     args = parse_args()
+    global MODEL
+    MODEL = f"ollama-local/{args.model}"             # hunter agent + --model flag re-derived
     ws = Path(args.ws)
     if not args.no_sync:
         synced = sync_workspace(ws)

@@ -18,6 +18,13 @@
             "context": 32768,
             "output": 16384
           }
+        },
+        "thomson1:latest": {
+          "name": "Thomson-1.0-Small (legal-domain comparison model)",
+          "limit": {
+            "context": 32768,
+            "output": 16384
+          }
         }
       }
     }

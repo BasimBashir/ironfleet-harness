@@ -94,6 +94,11 @@ export const IronFleetGuard = async (_ctx: unknown) => {
       if (authorities().block && res.decision === "block") throw new Error(res.reason)
     },
     "experimental.text.complete": async (_input: unknown, output: { text: string }) => {
+      // DEFENSIVE: with some models (thomson1 observed 2026-09-02) text parts can arrive
+      // with an undefined/empty text field during reasoning-phase streaming — touching
+      // them feeds opencode's part-cleanup a shape it rejects (SchemaError at
+      // part.text). Only annotate when a non-empty string is actually present.
+      if (typeof output.text !== "string" || output.text.length === 0) return
       const res = guard(output.text, "text.complete")
       output.text = res.output                       // annotation rides the model output
     },
