@@ -195,8 +195,20 @@ def annotate_event(obj, tag: str, log) -> None:
                             break
                         except Exception:                # noqa: BLE001 — frozen part
                             pass
+                if not wrote:
+                    # parts frozen — attempt to REPLACE the whole observation with a
+                    # rebuilt one carrying the annotated text (event field may itself
+                    # be immutable; either way the outcome is logged as evidence)
+                    try:
+                        obj.observation = obs.model_validate(
+                            {**obs.model_dump(exclude={"content"}),
+                             "content": [{"type": "text", "text": mutated["observation"]}]})
+                        wrote = True
+                        record.update(path="observation.content[list]-REPLACED")
+                    except Exception as ex:              # noqa: BLE001
+                        record.update(error=f"replacement: {type(ex).__name__}: {ex}")
                 record.update(annotated=wrote,
-                              path="observation.content[list]" if wrote
+                              path=record.get("path", "observation.content[list]") if wrote
                               else "observation.content[list]-UNWRITABLE")
             else:
                 record.update(annotated=False, error=f"observation.content {type(content).__name__}")

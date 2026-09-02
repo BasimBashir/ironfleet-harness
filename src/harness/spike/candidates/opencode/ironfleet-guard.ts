@@ -34,10 +34,12 @@ function authorities(): { allowed: string[]; block: boolean } {
   }
 }
 
-function guard(text: unknown, tag: string): GuardDecision {
-  if (typeof text !== "string" || text.length === 0)
-    return { decision: "approve", reason: "no text", output: typeof text === "string" ? text : "" }
-  const { allowed, block } = authorities()
+// Guard calls are SERIALIZED: during task delegation the primary and subagent streams
+// interleave and hooks can fire concurrently — concurrent python spawns were observed
+// failing (status=null) where serialized calls succeed (2026-09-01).
+let guardChain: Promise<unknown> = Promise.resolve()
+
+function guardOnce(text: string, allowed: string[], tag: string): GuardDecision {
   // FILE transport: Bun's spawnSync on Windows deadlocks when stdin exceeds the pipe
   // buffer (~64 KB) — status=null, empty stderr, hook timeout (observed live with long
   // completions). Payload and result ride temp files instead; only short paths use argv.
@@ -48,16 +50,32 @@ function guard(text: unknown, tag: string): GuardDecision {
   try {
     const proc = spawnSync(PYTHON, [GUARD_CLI, inFile, outFile], { timeout: 60_000 })
     if (proc.status !== 0)
-      throw new Error(`ironfleet-guard: guard_cli failed (${tag}) status=${proc.status} stderr=${proc.stderr}`)
-    const res: GuardDecision = JSON.parse(readFileSync(outFile, "utf8"))
-    appendFileSync(
-      join(WS, "guard-log.jsonl"),
-      JSON.stringify({ tag, decision: res.decision, reason: res.reason, block_armed: block }) + "\n",
-    )
-    return res
+      throw new Error(`ironfleet-guard: guard_cli failed (${tag}) status=${proc.status} `
+        + `signal=${proc.signal} error=${JSON.stringify(proc.error ?? null)} `
+        + `stderr=${proc.stderr}`)
+    return JSON.parse(readFileSync(outFile, "utf8"))
   } finally {
     for (const f of [inFile, outFile]) { try { rmSync(f) } catch { /* best effort */ } }
   }
+}
+
+function guard(text: unknown, tag: string): GuardDecision {
+  if (typeof text !== "string" || text.length === 0)
+    return { decision: "approve", reason: "no text", output: typeof text === "string" ? text : "" }
+  const { allowed, block } = authorities()
+  const work = guardChain.then(async (): Promise<GuardDecision> => {
+    try {
+      return guardOnce(text, allowed, tag)
+    } catch (first) {
+      // One logged retry: transient spawn contention (observed on the subagent path).
+      await new Promise((r) => setTimeout(r, 250))
+      appendFileSync(join(WS, "guard-log.jsonl"),
+        JSON.stringify({ tag, retry: true, first_error: String(first).slice(0, 300) }) + "\n")
+      return guardOnce(text, allowed, tag)
+    }
+  })
+  guardChain = work.catch(() => {})            // never break the chain on a failed call
+  return work as unknown as GuardDecision     // hooks await the returned value
 }
 
 const eventCounts = new Map<string, number>()

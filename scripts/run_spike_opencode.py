@@ -269,9 +269,12 @@ INJECT_PROMPT = (
 
 def inject_run(ws: Path) -> int:
     """SPIKE_PROTOCOL criterion (a): the injected ungrounded citation must come back
-    annotated on every path that can emit text (tool result AND model output)."""
-    print("[inject] running primary-agent injection scenario (allowed=[], block=true)")
-    write_allowed(ws, allowed=["Real Authority Act 1908"], block=True)
+    annotated on every path that can emit text (tool result AND model output).
+    Annotate mode (block=false) so the tool actually RUNS and tool.execute.after can
+    annotate the real result — the block decision was already demonstrated live
+    (tool.execute.before:bash -> block, guard log in the 2026-09-01 block-mode run)."""
+    print("[inject] running primary-agent injection scenario (annotate mode)")
+    write_allowed(ws, allowed=["Real Authority Act 1908"], block=False)
     t0 = time.monotonic()
     code, raw = run_opencode(ws, ["run", "--model", MODEL, "--auto", "--format", "json",
                                   INJECT_PROMPT], timeout=1800)
