@@ -86,7 +86,9 @@ async def detect_model(base_url: str) -> str:
     print(f"[probe] models on {base_url}: {models}")
     candidates = [m for m in models
                   if not any(bad in m.lower() for bad in ("embed", "bge", "cloud"))]
-    preferred = [m for m in candidates if "thomson" in m.lower()]
+    preferred = [m for m in candidates if m == "thomson1:latest"]   # exact base model first
+    if not preferred:
+        preferred = [m for m in candidates if "thomson" in m.lower()]
     if not preferred:
         preferred = [m for m in candidates if "qwen" in m.lower()]
     model = preferred[0] if preferred else (candidates[0] if candidates else "")
