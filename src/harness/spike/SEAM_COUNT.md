@@ -18,7 +18,7 @@
 > (persona system message through the production gate path). Deviations recorded in the
 > S4 spike report.
 
-## OpenCode (1.18.25, pinned via npm `opencode-ai`)
+## OpenCode (1.18.25, pinned via npm `opencode-ai`) — verdict: (a) PASS w/ 1 costed hazard, (b) PASS, no fork
 
 | seam | file/hook touched | core-fork? |
 |---|---|---|
@@ -32,7 +32,7 @@
 | run supervision (Windows) | killing the direct child (cmd.exe) orphans opencode.exe holding the stdout pipe — driver hangs despite subprocess timeouts; needs tree-kill (`taskkill /T /F`) supervision — observed live | no |
 | subagent invocation via task delegation | primary agent → task(hunter) | no (pending delegate run) |
 
-## OpenHands (openhands-sdk 1.44.1, pinned; **openhands-tools NOT installable on this Windows box** — Rust-building sdist in dep tree, wheels-only ResolutionImpossible)
+## OpenHands (openhands-sdk 1.44.1, pinned; **openhands-tools NOT installable on this Windows box** — Rust-building sdist in dep tree, wheels-only ResolutionImpossible) — verdict: (a) PARTIAL FAIL (detection everywhere; annotation blocked on immutable finish-observation/tool carriers), (b) PASS, no fork
 
 | seam | file/hook touched | core-fork? |
 |---|---|---|

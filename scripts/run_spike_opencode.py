@@ -227,12 +227,17 @@ def extract_final_text(events: list[dict]) -> str:
 
 
 def extract_tool_texts(events: list[dict]) -> list[str]:
-    """Every tool-result text seen in run-mode events (tool parts carry their result in a
-    string field — 'output' observed; 'text'/'content' accepted defensively)."""
+    """Every tool-result text seen in run-mode events. Observed shape: tool parts carry
+    state.output (opencode-internal JSON envelope for built-in tools) and/or top-level
+    output/text/content; all are collected — the inject verifier scans them for the
+    annotation marker wherever it lands."""
     out = []
     for ev in events:
         part = ev.get("part")
         if isinstance(part, dict) and part.get("type") == "tool":
+            state = part.get("state") or {}
+            if isinstance(state.get("output"), str):
+                out.append(state["output"])
             for key in ("output", "text", "content"):
                 if isinstance(part.get(key), str):
                     out.append(part[key])

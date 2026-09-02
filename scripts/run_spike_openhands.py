@@ -88,11 +88,20 @@ def read_allowed() -> dict:
         return {"allowed": [], "block": False}
 
 
+_GUARD_LOG: "GuardLog | None" = None
+
+
 class GuardLog:
+    """Per-process singleton: first construction truncates, later ones append (the LLM
+    wrapper constructs loggers mid-flight and must never wipe the run's evidence)."""
+
     def __init__(self) -> None:
+        global _GUARD_LOG
         WS.mkdir(parents=True, exist_ok=True)
         self.path = WS / "guard-log.jsonl"
-        self.path.write_text("", encoding="utf-8")
+        if _GUARD_LOG is None:
+            self.path.write_text("", encoding="utf-8")
+            _GUARD_LOG = self
 
     def __call__(self, record: dict) -> None:
         with self.path.open("a", encoding="utf-8") as f:
@@ -245,10 +254,53 @@ def annotate_event(obj, tag: str, log) -> None:
 
 
 def build_llm():
+    """GuardedLLM: the model-output mount that actually covers OpenHands' finish-tool
+    answer carrier. The callback seam annotates intermediate MessageEvents in place
+    (proven live), but the FINAL answer travels as the finish TOOL's observation, whose
+    content parts are immutable (frozen pydantic) — so the guard also wraps the LLM
+    completion itself: content AND tool-call arguments are annotated before the event
+    stream is built, which means the annotation lands in whatever carrier the answer
+    takes. Composition only — no SDK source edits (a seam, not a fork)."""
     from openhands.sdk import LLM
     from pydantic import SecretStr
-    return LLM(model=f"openai/{MODEL_ID}", api_key=SecretStr("ollama"), base_url=BASE_URL,
-               max_output_tokens=MAX_OUTPUT_TOKENS, timeout=10_800)
+
+    class GuardedLLM(LLM):
+        def completion(self, *args, **kwargs):
+            resp = super().completion(*args, **kwargs)
+            try:
+                for choice in getattr(resp, "choices", []) or []:
+                    msg = getattr(choice, "message", None)
+                    if msg is None:
+                        continue
+                    content = getattr(msg, "content", None)
+                    if isinstance(content, str) and content:
+                        res = guard_annotate({"observation": content,
+                                              "allowed": read_allowed()["allowed"]})
+                        try:
+                            setattr(msg, "content", res["observation"])
+                            GuardLog()({"tag": "llm-wrap.content", "annotated":
+                                        res["observation"] != content})
+                        except Exception as ex:              # noqa: BLE001
+                            GuardLog()({"tag": "llm-wrap.content", "error": f"{type(ex).__name__}: {ex}"})
+                    for tc in getattr(msg, "tool_calls", None) or []:
+                        fn = getattr(tc, "function", None)
+                        args_json = getattr(fn, "arguments", None) if fn else None
+                        if isinstance(args_json, str) and args_json:
+                            res = guard_annotate({"observation": args_json,
+                                                  "allowed": read_allowed()["allowed"]})
+                            try:
+                                setattr(fn, "arguments", res["observation"])
+                                GuardLog()({"tag": "llm-wrap.tool_args", "annotated":
+                                            res["observation"] != args_json})
+                            except Exception as ex:                          # noqa: BLE001
+                                GuardLog()({"tag": "llm-wrap.tool_args",
+                                            "error": f"{type(ex).__name__}: {ex}"})
+            except Exception as ex:                                          # noqa: BLE001 — never kill the turn
+                GuardLog()({"tag": "llm-wrap", "error": f"{type(ex).__name__}: {ex}"})
+            return resp
+
+    return GuardedLLM(model=f"openai/{MODEL_ID}", api_key=SecretStr("ollama"), base_url=BASE_URL,
+                      max_output_tokens=MAX_OUTPUT_TOKENS, timeout=10_800)
 
 
 def register_corpus_search() -> str:

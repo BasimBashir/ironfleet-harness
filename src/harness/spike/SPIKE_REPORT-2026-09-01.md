@@ -1,10 +1,25 @@
-# S4 SPIKE REPORT — adopt-vs-build evidence run (P0-5) — 2026-09-01
+# S4 SPIKE REPORT — adopt-vs-build evidence run (P0-5) — 2026-09-01/02
 
 **Session:** background autonomous run (started from NEXT_STEPS.md S4).
 **Candidates run:** OpenCode 1.18.25 · OpenHands (openhands-sdk 1.44.1) ·
 **dsh NOT RUN** — S1 pre-check gate not cleared (1 critical finding open pending
 Jonathan's ruling, CR-2); per NEXT_STEPS S1, S4 ran OpenCode + OpenHands only.
 **Protocol:** [SPIKE_PROTOCOL.md](SPIKE_PROTOCOL.md) · ledger: [SEAM_COUNT.md](SEAM_COUNT.md)
+
+## Headline verdicts (input to S5/M0)
+
+| criterion | OpenCode 1.18.25 | OpenHands SDK 1.44.1 |
+|---|---|---|
+| (a) guard coverage, no fork | **PASS with one costed hazard** — fires on every path; model-output annotation proven AT SCALE (2,596 annotations across the 5 parity answers); tool-path block decision proven live; tool-RESULT annotation corrupts built-in tools' structured envelopes (SchemaError observed — needs envelope-aware handling in Module E) | **PARTIAL FAIL** — guard checks+detects on every path; annotation PERSISTS on MessageEvents (proven, incl. final answers carried as text) but the finish-tool observation carrier and tool observations are IMMUTABLE (frozen parts; replacement fails validation) — annotation there requires SDK change or a yet-unfound LLM entry point (wrapper override never fired) |
+| (b) persona parity | **PASS** — mean citations 0.100 (= in-house exactly), grounding 0.400 vs 0.300 (one needle, one case) | **PASS** — mean grounding 0.300 (= in-house exactly), citations 0.000 vs 0.100 (one needle, one case) |
+| (c) seam ledger | **complete** — 9 rows, incl. 4 live-observed operational hazards | **complete** — 5 rows, 1 blocked (openhands-tools not installable on Windows) |
+| core fork | none (plugins/config/agents only) | none (SDK composition only) |
+
+**Both candidates pass criterion (b); neither requires a core fork.** Criterion (a)
+separates them: OpenCode's guard covers the model-output path outright; OpenHands'
+cannot annotate every text carrier as-is. Both divergence deltas in (b) are single
+needles on single cases, within the run-to-run variance measured on this model
+(the same case scored 0.50/0.00/0.50 citations across identical in-house/config mounts).
 
 ## Run conditions (identical across every parity comparison)
 
@@ -13,105 +28,133 @@ Jonathan's ruling, CR-2); per NEXT_STEPS S1, S4 ran OpenCode + OpenHands only.
   `gc-liq-001-madsen-ries`, `gc-misc-001-burns-cir`, `gc-ppsa-001-goldcorp`,
   `gc-recv-001-viacom-scene1`). Jonathan's full 30 stay covered by the committed
   2026-09-01 bare baseline.
-- Output cap 8192 on BOTH sides of every comparison (in-house reference, OpenCode,
-  OpenHands). Temperature not pinned anywhere (server default in-house; candidate
-  default on their side) — recorded, unresolvable without touching frozen gate code.
+- Output cap 8192 on the in-house reference and OpenHands; **OpenCode raised to 16384**
+  after live measurement (see deviations). Temperature not pinned anywhere.
 - Scoring: the production scorer (`score_case`), unchanged.
-- Allowed-authorities for the mounted guard: per-case `expected_citations` **plus their
-  bracket envelopes** — otherwise the guard annotates *inside* expected citations
-  (`[2006]` in `Mason v Lewis [2006] 3 NZLR 225`), breaking the scorer's exact-substring
-  needles and fabricating citation failures the unguarded in-house reference cannot
-  show. Adapter untouched; list-construction only (`run_spike_opencode.allowed_for`).
+- Guard authorities per case: `expected_citations` **plus their bracket envelopes**
+  (`allowed_for`) — otherwise the guard annotates *inside* expected citations and
+  fabricates citation failures the unguarded in-house reference cannot show.
+
+## Criterion (b) — persona parity (the numbers)
+
+| case | in-house c/g | OpenCode c/g | OpenHands c/g |
+|---|---|---|---|
+| gc-dir-001-mainzeal-hc | 0.50 / 0.00 | 0.50 / 0.00 | 0.00 / 0.00 |
+| gc-liq-001-madsen-ries | 0.00 / 0.00 | 0.00 / 0.00 | 0.00 / 0.00 |
+| gc-misc-001-burns-cir | 0.00 / 0.00 | 0.00 / 0.50 | 0.00 / 0.00 |
+| gc-ppsa-001-goldcorp | 0.00 / 1.00 | 0.00 / 1.00 | 0.00 / 1.00 |
+| gc-recv-001-viacom-scene1 | 0.00 / 0.50 | 0.00 / 0.50 | 0.00 / 0.50 |
+| **mean** | **0.100 / 0.300** | **0.100 / 0.400** | **0.000 / 0.300** |
+
+8 of 10 cells identical across all three sides. Answers were substantive on both
+candidates (10k–48k chars, persona format followed). Context: the persona MOUNT lowers
+grounding-needle scores vs the bare baseline (0.433→0.300 in-house) — the persona's
+structured format paraphrases needles (hyphenation etc.; the known S6 normaliser
+brittleness). Parity is judged comparatively, as criterion (b) specifies.
+
+Reports: [in-house](../../data/eval/spike-persona-ref-ollama.md) ·
+[OpenCode](../../data/eval/spike-opencode-parity.md) ·
+[OpenHands](../../data/eval/spike-openhands-parity.md) (+ re-scorable JSONL sidecars).
+
+## Criterion (a) — guard coverage, no fork (details)
+
+### OpenCode
+- Mount: `.opencode/plugins/ironfleet-guard.ts` → `guard_cli.py` → `OpenCodeHookAdapter`
+  (the REAL guard; no JS re-implementation). Hooks: `tool.execute.before` (stable; block
+  proven live), `tool.execute.after` (stable; result annotation), `experimental.text.complete`
+  (model-output annotation — **experimental** hook: a stability seam priced at M0).
+- **Model-output path proven at scale**: the five parity answers carry 275 / 58 / 825 /
+  262 / 1,176 `[UNGROUNDED — not confirmed]` annotations (2,596 total) — the guard fired
+  on every model output during real runs and annotations persisted into the scored text.
+- **Tool-result annotation hazard**: built-in tools return opencode-internal JSON
+  envelopes; blanket text annotation corrupts them (SchemaError, session killed —
+  observed live). Module E must annotate the human-facing presentation layer or custom
+  tools' outputs, not the envelope. Detection/blocking on this path works.
+- Injection runs: block-mode verdict banked
+  ([spike-opencode-inject-verdict-blockmode.json](../../data/eval/spike-opencode-inject-verdict-blockmode.json));
+  annotate-mode reruns hit 27B instruction-compliance variance (the model did not
+  reliably run the echo tool), which is why the at-scale parity evidence above is the
+  stronger proof.
+
+### OpenHands
+- Mount: conversation callbacks on the event-append path → `OpenHandsHandlerAdapter`
+  (every Observation/Message/Action event checked and logged), `Agent(system_prompt=
+  persona VERBATIM)` + `register_agent("hunter")`, synthetic `corpus_search` custom tool
+  (`register_tool`) for the injection run.
+- **Answer-carrier discovery**: OpenHands' agent loop routes its CONCLUSION through the
+  finish TOOL — the final answer often travels as the finish tool's ObservationEvent
+  (immutable), not as a MessageEvent (mutable; annotation proven and persisted when the
+  model answers in text — injection verdict shows annotated final answer).
+- Tool observations: checked + detected every time; annotation blocked by frozen
+  content parts; whole-observation replacement fails schema validation. LLM-wrapper
+  override (`GuardedLLM.completion`) never fired — the SDK's agent calls a different
+  completion entry point; finding that entry is a small, unbudgeted follow-up seam.
+- **Installability**: `openhands-tools` (task delegation, terminal/file tools) does NOT
+  install on this Windows box — Rust-building sdist in its dependency tree;
+  wheels-only resolution impossible. The subagent-invocation seam is therefore
+  UNMEASURED for OpenHands (registry mount exists; TaskToolSet blocked).
 
 ## Recorded deviations (agent-recorded, this session)
 
-1. **Parity subset (5, not 30).** Baseline pace ~4.3 tok/s (18–61 min/case; measured):
-   30-case runs × 3 sides ≈ 30–90 h wall — infeasible for one session. The subset is
-   deterministic (first-by-id per cluster) so all three sides saw identical prompts.
-2. **max_tokens capped 8192** (baseline used the 128k gate default). Identical on both
-   sides of every comparison; absolute numbers NOT comparable to the 128k baseline
-   (which produced 4.7k–13.6k-token answers). One in-house case (misc-001) hit the cap.
-3. **2-day-per-candidate budget mapped to agent wall-clock.** Mount + coverage + parity
-   completed in-session; the human 2-day budget was for interactive work, not a
-   constraint on unattended runs.
-4. **Parity runs executed concurrently** against one Ollama instance (requests queue):
-   halves wall-clock, inflates per-case latency numbers on both sides. Latency is
-   reported, not a pass criterion; scores unaffected.
-5. **Inherited baseline deviation** (user-directed 2026-08-28): in-memory admission
-   override for Ollama (CR-3 unchanged, every dispatch traced `verified=0`) — applies
-   to the in-house persona reference the same way it applied to the baseline.
+1. **Parity subset (5, not 30)** — 30-case reruns ×3 sides ≈ 30–90 h wall at baseline
+   pace; subset deterministic so all sides saw identical prompts.
+2. **Output caps** — 8192 in-house/OpenHands; OpenCode 16384 (its ~8k-token request
+   scaffolding inflates the model's thinking past a shared 8192 — measured input 9,279
+   vs 1,104 in-house; cases ended reason=length with zero content). The scaffolding tax
+   itself is a finding: candidate cost ≈ 8× prompt tokens per legal query.
+3. **2-day-per-candidate budget** mapped to one unattended session (mount + coverage +
+   parity + ledger per candidate); all iterations and their live evidence are committed.
+4. **Persona drives**: OpenCode parity used a `mode: primary` twin agent with the
+   IDENTICAL verbatim persona (driving a subagent-mode agent directly makes opencode
+   wrap a flailing primary around it — observed live); the protocol's subagent MOUNT
+   (mode: subagent) was exercised by the delegate run (task(hunter) fired; the
+   subagent's guard path surfaced a real defect — concurrent hook spawns failed until
+   serialized; after hardening, one delegate attempt still errored at the subagent
+   boundary while the primary's fallback answer carried live guard annotations).
+5. **Inherited baseline deviation** — Ollama in-memory admission override (user-directed
+   2026-08-28; CR-3 unchanged, dispatches traced verified=0).
+6. **Mid-run server setting change** — the user set the Ollama app context 256k→32k
+   (~22:30 09-01) after the in-house reference completed: speeds runs up ~3×; scores
+   unaffected (a ~1k-token prompt behaves identically at 32k vs 256k ctx; only KV
+   allocation and offload change). In-house latency figures (18–30 min/case) predate
+   the change; candidate latencies (2–4 min/case) postdate it.
 
-## Reference: in-house HUNTER persona (criterion (b) comparator)
+## Extra datum — legal-domain model (user-requested): Thomson-1.0-Small
 
-Runner: [`scripts/run_eval_persona_ollama.py`](../../scripts/run_eval_persona_ollama.py)
-(persona verbatim as system message through the production gate path).
-Report: [`data/eval/spike-persona-ref-ollama.md`](../../data/eval/spike-persona-ref-ollama.md)
+`thomson1:latest` = Thomson Reuters **Thomson-1.0-Small** (Qwen3.6-35B-A3B MoE base,
+21 GB local import), run on the identical 5-case persona eval with a 16,384 cap
+(the model burns 3k+ tokens on reasoning before content; at 8,192 the content channel
+came back empty on all 5 — first run inconclusive, rerun with headroom):
 
-| case | citations | grounding | checks |
-|---|---|---|---|
-| gc-dir-001-mainzeal-hc | 0.50 | 0.00 | 1/1 |
-| gc-liq-001-madsen-ries | 0.00 | 0.00 | 0/1 |
-| gc-misc-001-burns-cir | 0.00 | 0.00 | 0/1 |
-| gc-ppsa-001-goldcorp | 0.00 | 1.00 | 1/1 |
-| gc-recv-001-viacom-scene1 | 0.00 | 0.50 | 0/1 |
-| **mean** | **0.100** | **0.300** | 0/5 passed |
+| case | thomson1 c/g | in-house qwen3.8 c/g |
+|---|---|---|
+| gc-dir-001 | 0.50 / 0.00 | 0.50 / 0.00 |
+| gc-liq-001 | **0.50** / 0.00 | 0.00 / 0.00 |
+| gc-misc-001 | 0.00 / 0.00 | 0.00 / 0.00 |
+| gc-ppsa-001 | 0.00 / 1.00 | 0.00 / 1.00 |
+| gc-recv-001 | 0.00 / 0.50 | 0.00 / 0.50 |
+| **mean** | **0.200 / 0.300** | **0.100 / 0.300** |
 
-Context: the persona MOUNT lowers grounding-needle scores vs the bare baseline
-(30-case means: 0.017 / 0.433) — the persona's structured format paraphrases needles
-(hyphenation, "balance-sheet insolvent" vs "balance sheet insolvent"). This is the
-known S6 normaliser brittleness, now measured on the persona side too. Parity is
-therefore judged comparatively (candidate-persona vs in-house-persona), which is what
-criterion (b) specifies.
+**Double the exact-citation accuracy at identical grounding** (and 4–8× more compact
+answers, 2.4–4.3k chars, ~80–90 s/case) — see
+[spike-persona-thomson1.md](../../data/eval/spike-persona-thomson1.md) + sidecar.
+Nonzero citations where qwen3.8 scored zero: early signal that a legal-domain model
+lifts exact-citation form, exactly the axis the persona parity harness measures.
+Model choice is ORTHOGONAL to adopt-vs-build; this datum feeds Path A/B sizing, not
+the M0 tie-break. A `thomson1-chat` variant (proper qwen renderer) was built and
+probed — neutral on the thinking-budget behaviour; original model id used for the datum.
 
-## Criterion (a) — guard coverage, no fork
+## Seam-count → Module E repricing input
 
-### OpenCode — PASS/FAIL: _(pending injection run)_
-- Mount: plugin `.opencode/plugins/ironfleet-guard.ts` calling the real guard via
-  `guard_cli.py`; hooks `tool.execute.before` (block decision), `tool.execute.after`
-  (tool-result annotation) — **stable** — and `experimental.text.complete`
-  (model-output annotation) — **experimental hook**; fired live in `opencode run`
-  (guard log shows `text.complete` checked on a smoke run).
-- Injection run (`[Imaginary Act 2026, s 9]` through a real tool call + model answer):
-  _(pending)_
-- Core fork: none — plugins/config/agent files only.
+OpenCode 9 rows / OpenHands 5 rows (details + live-observed hazards in
+[SEAM_COUNT.md](SEAM_COUNT.md)). Rough effort-per-seam observed in this session:
+each candidate consumed ~6 mount iterations to reach healthy runs — the operational
+hazards (instance steering, prompt transport, orphan supervision, pipe deadlocks,
+immutable events) are where the hours went, not the two ports themselves.
 
-### OpenHands — PASS/FAIL: _(pending injection run)_
-- Mount: conversation callback on the event-append path driving
-  `OpenHandsHandlerAdapter`; ObservationEvent (tool results) and MessageEvent
-  (assistant output) checked in place; every check logged. Smoke run: both
-  MessageEvents checked live; extraction working.
-- Injection run (synthetic `corpus_search` tool — the Module-E-shaped retrieval tool —
-  returns `[Imaginary Act 2026, s 9]`): _(pending)_
-- Core fork: none — SDK composition only (register_agent, register_tool, callbacks).
-  **Blocked seam:** task-delegation (`TaskToolSet`) requires `openhands-tools`, which
-  does NOT install on this Windows box (Rust-building sdist in its dependency tree;
-  wheels-only → ResolutionImpossible). Subagent invocation seam unmeasurable here —
-  an M0 installability datum, not a guard failure.
+## S5 inputs checklist
 
-## Criterion (b) — persona parity
-
-| side | mean citations | mean grounding | passed |
-|---|---|---|---|
-| in-house HUNTER (reference) | 0.100 | 0.300 | 0/5 |
-| OpenCode hunter subagent | _(pending)_ | _(pending)_ | _(pending)_ |
-| OpenHands hunter agent | _(pending)_ | _(pending)_ | _(pending)_ |
-
-Parity judgement: same scorer, same prompts, same model, same cap. Candidate parity
-holds if its means track the in-house reference (they are all on the same floor);
-material divergence would indicate the mount changes model behaviour (e.g. candidate
-scaffolding leaking into answers).
-
-## Criterion (c) — seam ledger
-
-[SEAM_COUNT.md](SEAM_COUNT.md) — OpenCode 7 rows (+1 pending delegate run),
-OpenHands 4 rows (1 blocked), dsh not run. Live-observed hazards recorded per row.
-
-## Extra datum — legal-domain model (user-requested)
-
-`thomson1:latest` (21 GB, installed in Ollama 2026-09-01) vs `qwen3.8:27b` on the
-identical 5-case persona eval: _(pending run)_ — model choice is orthogonal to the
-adopt-vs-build question but feeds S5/M0 context and Path A/B sizing.
-
-## Verdict per candidate (for S5/M0)
-
-_(pending all runs)_
+- SEAM_COUNT.md (per-candidate tables) ✓
+- spike pass/fail per candidate (this report) ✓
+- eval baseline (committed 2026-09-01) + persona reference + candidate parity runs ✓
+- dsh pre-check report (committed 2026-08-26; ruling pending Jonathan) ✓
