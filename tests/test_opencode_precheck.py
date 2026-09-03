@@ -71,3 +71,31 @@ def test_opencode_json_provider_npm_refs():
         ("provider.ollama-local.npm", "(none)"),
         ("provider.float.npm", "^3.0.41")]
     assert scan_opencode_json("t", "p", '{"provider": []}') == []
+
+
+from pathlib import Path
+
+from harness.security.opencode_precheck import (
+    inventory_native_binaries, write_manifest, ScanResult)
+
+
+def test_inventory_native_binaries_hashes_and_skips_others(tmp_path):
+    pkg = tmp_path / "node_modules" / "opencode-windows-x64" / "bin"
+    pkg.mkdir(parents=True)
+    exe = pkg / "opencode.exe"
+    exe.write_bytes(b"MZfake")
+    (tmp_path / "readme.txt").write_text("skip")
+    bins = inventory_native_binaries("t1", tmp_path)
+    assert len(bins) == 1
+    assert bins[0].sha256 == hashlib.sha256(b"MZfake").hexdigest()
+    assert bins[0].size == 6
+    assert bins[0].relpath == "node_modules/opencode-windows-x64/bin/opencode.exe"
+
+
+def test_write_manifest_lines(tmp_path):
+    from harness.security.opencode_precheck import NativeBinary
+    res = ScanResult()
+    res.native_binaries.append(NativeBinary(tree="t1", relpath="a.exe", sha256="ab" * 32, size=1))
+    out = tmp_path / "manifest.txt"
+    write_manifest(res, out)
+    assert out.read_text() == f"{'ab' * 32}  t1/a.exe\n"

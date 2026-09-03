@@ -151,3 +151,20 @@ def scan_opencode_json(tree: str, path: str, text: str) -> list[FloatingRange]:
                                          field=f"provider.{pid}.npm",
                                          spec=spec or "(none)"))
     return out
+
+
+def inventory_native_binaries(tree: str, root: Path) -> list[NativeBinary]:
+    out: list[NativeBinary] = []
+    for p in sorted(root.rglob("*")):
+        if p.is_file() and p.suffix.lower() in NATIVE_SUFFIXES:
+            data = p.read_bytes()
+            out.append(NativeBinary(tree=tree,
+                                    relpath=str(p.relative_to(root)).replace("\\", "/"),
+                                    sha256=hashlib.sha256(data).hexdigest(),
+                                    size=len(data)))
+    return out
+
+
+def write_manifest(res: ScanResult, path: Path) -> None:
+    lines = [f"{b.sha256}  {b.tree}/{b.relpath}" for b in res.native_binaries]
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
