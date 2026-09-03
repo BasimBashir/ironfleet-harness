@@ -103,7 +103,7 @@ def is_floating(spec: str) -> bool:
     s = (spec or "").strip()
     if not s or s in ("*", "latest", "x"):
         return True
-    return s[0] in "^~" or s.startswith(">=")
+    return s[0] in "^~><" or ".x" in s or ".*" in s
 
 
 def _npm_spec(npm: str) -> str:
@@ -117,9 +117,14 @@ def scan_runtime_manifest(tree: str, path: str, text: str) -> list[FloatingRange
         doc = json.loads(text)
     except ValueError:
         return []
+    if not isinstance(doc, dict):
+        return []
     out: list[FloatingRange] = []
     for field in DEP_FIELDS:
-        for name, spec in (doc.get(field) or {}).items():
+        deps = doc.get(field)
+        if not isinstance(deps, dict):
+            continue
+        for name, spec in deps.items():
             if is_floating(str(spec)):
                 out.append(FloatingRange(tree=tree, file=path,
                                          field=f"{field}.{name}", spec=str(spec)))
@@ -131,8 +136,13 @@ def scan_opencode_json(tree: str, path: str, text: str) -> list[FloatingRange]:
         doc = json.loads(text)
     except ValueError:
         return []
+    if not isinstance(doc, dict):
+        return []
     out: list[FloatingRange] = []
-    for pid, prov in (doc.get("provider") or {}).items():
+    providers = doc.get("provider")
+    if not isinstance(providers, dict):
+        return []
+    for pid, prov in providers.items():
         npm = prov.get("npm") if isinstance(prov, dict) else None
         if isinstance(npm, str):
             spec = _npm_spec(npm)

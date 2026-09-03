@@ -42,7 +42,8 @@ from harness.security.opencode_precheck import (
 
 
 def test_is_floating():
-    for s in ("^3.0.41", "~1.2.3", ">=2.0.0", "", "*", "latest", "x"):
+    for s in ("^3.0.41", "~1.2.3", ">=2.0.0", "", "*", "latest", "x",
+              "1.x", "1.2.x", ">1.0.0", "<2"):
         assert is_floating(s), s
     for s in ("1.18.25", "file:../x"):
         assert not is_floating(s), s
@@ -55,6 +56,9 @@ def test_runtime_manifest_floating_deps_flagged_pinned_ignored():
     fs = scan_runtime_manifest("t2", "~/.config/opencode/package.json", text)
     assert [(f.field, f.spec) for f in fs] == [
         ("dependencies.@ai-sdk/openai-compatible", "^3.0.41")]
+    assert scan_runtime_manifest("t", "p", "[]") == []
+    assert scan_runtime_manifest("t", "p", "null") == []
+    assert scan_runtime_manifest("t", "p", '{"dependencies": "1.0"}') == []
 
 
 def test_opencode_json_provider_npm_refs():
@@ -66,3 +70,4 @@ def test_opencode_json_provider_npm_refs():
     assert [(f.field, f.spec) for f in fs] == [
         ("provider.ollama-local.npm", "(none)"),
         ("provider.float.npm", "^3.0.41")]
+    assert scan_opencode_json("t", "p", '{"provider": []}') == []
