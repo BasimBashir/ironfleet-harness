@@ -97,3 +97,20 @@ async def test_default_transport_omits_auth_header_when_no_key(monkeypatch, tmp_
     monkeypatch.setattr("harness.keychain._kv", {"mini1": "sk-real"})
     await gate._default_transport(gate.registry.get("mini1"), {"model": "qwen-30b"})
     assert captured["headers"].get("Authorization") == "Bearer sk-real"
+
+@pytest.mark.asyncio
+async def test_provider_output_cap_clamps_max_tokens(tmp_path):
+    # S6-4: strict APIs 400 on the generous 128k default. A provider carrying its own
+    # output cap gets the request clamped to it before dispatch (ceiling, not floor).
+    seen: list[int] = []
+    async def transport(provider, payload):
+        seen.append(payload["max_tokens"])
+        return {"model": payload["model"], "choices": [{"message": {"content": "ans"}}]}
+    gate = _gate(tmp_path, transport)
+    capped = gate.registry.get("mini1").model_copy(update={"max_output_tokens": 4096})
+    gate.registry.upsert(capped)
+    await gate.dispatch(LLMRequest(matter_ref="M-5", task_class="drafting",
+                                   messages=[{"role": "user", "content": "x"}]))   # default 128k
+    await gate.dispatch(LLMRequest(matter_ref="M-5", task_class="drafting",
+                                   messages=[{"role": "user", "content": "x"}], max_tokens=2048))
+    assert seen == [4096, 2048]                       # clamped down / request below cap unchanged

@@ -91,6 +91,8 @@ class EgressGate:
                     status="refused", error=f"no model specified for provider {cfg.name}"))
                 raise GateRefusal(f"no model specified for provider {cfg.name}")
             payload = {"model": model, "messages": request.messages, "max_tokens": request.max_tokens}
+            if cfg.max_output_tokens is not None:          # S6-4: clamp, never raise
+                payload["max_tokens"] = min(payload["max_tokens"], cfg.max_output_tokens)
             t0 = time.monotonic()
             try:
                 result = await self._transport(cfg, payload)
