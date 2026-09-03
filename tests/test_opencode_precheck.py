@@ -25,6 +25,7 @@ def test_non_lifecycle_scripts_and_bad_json_ignored():
     files = {
         "package.json": '{"name":"r","license":"MIT","scripts":{"test":"pytest","start":"node ."}}',
         "broken/package.json": "not json",
+        "weird/package.json": "[]",
     }
     ts = scan_install_tree("t1", "/x", files)
     assert ts.lifecycle == [] and ts.packages == 1

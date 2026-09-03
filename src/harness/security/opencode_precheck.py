@@ -84,6 +84,8 @@ def scan_install_tree(tree: str, root: str, files: dict[str, str]) -> TreeScan:
             doc = json.loads(text)
         except ValueError:
             continue
+        if not isinstance(doc, dict):
+            continue
         ts.packages += 1
         name = doc.get("name") or owning_package(path) or path
         for script in (doc.get("scripts") or {}):
