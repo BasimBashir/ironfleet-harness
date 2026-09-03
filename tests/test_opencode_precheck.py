@@ -35,3 +35,34 @@ def test_owning_package_scopes_and_root():
     assert owning_package("node_modules/@scope/pkg/dist/x.node") == "@scope/pkg"
     assert owning_package("node_modules/foo/a.exe") == "foo"
     assert owning_package("bin/opencode.exe") == "(root)"
+
+
+from harness.security.opencode_precheck import (
+    is_floating, scan_runtime_manifest, scan_opencode_json)
+
+
+def test_is_floating():
+    for s in ("^3.0.41", "~1.2.3", ">=2.0.0", "", "*", "latest", "x"):
+        assert is_floating(s), s
+    for s in ("1.18.25", "file:../x"):
+        assert not is_floating(s), s
+
+
+def test_runtime_manifest_floating_deps_flagged_pinned_ignored():
+    text = json.dumps({"dependencies": {
+        "@ai-sdk/openai-compatible": "^3.0.41",
+        "@opencode-ai/plugin": "1.18.25"}})
+    fs = scan_runtime_manifest("t2", "~/.config/opencode/package.json", text)
+    assert [(f.field, f.spec) for f in fs] == [
+        ("dependencies.@ai-sdk/openai-compatible", "^3.0.41")]
+
+
+def test_opencode_json_provider_npm_refs():
+    text = json.dumps({"provider": {
+        "ollama-local": {"npm": "@ai-sdk/openai-compatible", "options": {}},
+        "pinned": {"npm": "@scope/pkg@1.18.25"},
+        "float": {"npm": "pkg@^3.0.41"}}})
+    fs = scan_opencode_json("t4", "opencode.json", text)
+    assert [(f.field, f.spec) for f in fs] == [
+        ("provider.ollama-local.npm", "(none)"),
+        ("provider.float.npm", "^3.0.41")]

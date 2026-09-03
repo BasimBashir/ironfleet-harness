@@ -97,3 +97,47 @@ def scan_install_tree(tree: str, root: str, files: dict[str, str]) -> TreeScan:
         if "vendor/" in path.replace("\\", "/"):
             ts.vendored += 1
     return ts
+
+
+def is_floating(spec: str) -> bool:
+    s = (spec or "").strip()
+    if not s or s in ("*", "latest", "x"):
+        return True
+    return s[0] in "^~" or s.startswith(">=")
+
+
+def _npm_spec(npm: str) -> str:
+    rest = npm[1:] if npm.startswith("@") else npm
+    _, _, spec = rest.partition("@")
+    return spec
+
+
+def scan_runtime_manifest(tree: str, path: str, text: str) -> list[FloatingRange]:
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return []
+    out: list[FloatingRange] = []
+    for field in DEP_FIELDS:
+        for name, spec in (doc.get(field) or {}).items():
+            if is_floating(str(spec)):
+                out.append(FloatingRange(tree=tree, file=path,
+                                         field=f"{field}.{name}", spec=str(spec)))
+    return out
+
+
+def scan_opencode_json(tree: str, path: str, text: str) -> list[FloatingRange]:
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return []
+    out: list[FloatingRange] = []
+    for pid, prov in (doc.get("provider") or {}).items():
+        npm = prov.get("npm") if isinstance(prov, dict) else None
+        if isinstance(npm, str):
+            spec = _npm_spec(npm)
+            if is_floating(spec):
+                out.append(FloatingRange(tree=tree, file=path,
+                                         field=f"provider.{pid}.npm",
+                                         spec=spec or "(none)"))
+    return out
