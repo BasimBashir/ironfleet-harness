@@ -1,0 +1,8 @@
+21c366f53283d5b5e1cdbbec2aafc98286b4c1075a4c3d5afd5ce1f5c9bf46dd  t1/opencode-ai/bin/opencode.exe
+ef06e41a35795066e95acde276a42fbbf85d7a683c2787f6a19ed20bcde9b6ff  t1/opencode-windows-x64/bin/opencode.exe
+954f2869f9cc2131b03cb6aa7ee50c70601c1a56811fb5bcf749b827c970d290  t1/opencode-windows-x64-baseline/bin/opencode.exe
+300b188fb8c997214cb65bf1b00729da293176c7d57035e40c2f432ea384dd89  t2/node_modules/@msgpackr-extract/msgpackr-extract-win32-x64/node.abi115.node
+6958541c624784dfcebfc4f3c360c57f71cfeedd0530c2393845061729081a08  t2/node_modules/@msgpackr-extract/msgpackr-extract-win32-x64/node.napi.node
+ef06e41a35795066e95acde276a42fbbf85d7a683c2787f6a19ed20bcde9b6ff  t3/bin/opencode.exe
+ef06e41a35795066e95acde276a42fbbf85d7a683c2787f6a19ed20bcde9b6ff  t3/node_modules/opencode-windows-x64/bin/opencode.exe
+954f2869f9cc2131b03cb6aa7ee50c70601c1a56811fb5bcf749b827c970d290  t3/node_modules/opencode-windows-x64-baseline/bin/opencode.exe

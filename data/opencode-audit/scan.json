@@ -1,0 +1,149 @@
+{
+  "trees": [
+    {
+      "tree": "t1",
+      "root": "C:\\Users\\mianx\\OneDrive\\Desktop\\opencode-audit\\fresh\\node_modules",
+      "packages": 3,
+      "missing_licence": 2,
+      "vendored": 0,
+      "lifecycle": [
+        {
+          "tree": "t1",
+          "path": "opencode-ai/package.json",
+          "package": "opencode-ai",
+          "script": "postinstall"
+        }
+      ],
+      "floating": []
+    },
+    {
+      "tree": "t2",
+      "root": "C:\\Users\\mianx\\.config\\opencode",
+      "packages": 50,
+      "missing_licence": 16,
+      "vendored": 0,
+      "lifecycle": [
+        {
+          "tree": "t2",
+          "path": "node_modules/msgpackr/package.json",
+          "package": "msgpackr",
+          "script": "prepare"
+        },
+        {
+          "tree": "t2",
+          "path": "node_modules/msgpackr-extract/package.json",
+          "package": "msgpackr-extract",
+          "script": "install"
+        },
+        {
+          "tree": "t2",
+          "path": "node_modules/undici/package.json",
+          "package": "undici",
+          "script": "prepare"
+        },
+        {
+          "tree": "t2",
+          "path": "node_modules/uuid/package.json",
+          "package": "uuid",
+          "script": "prepare"
+        },
+        {
+          "tree": "t2",
+          "path": "node_modules/which/package.json",
+          "package": "which",
+          "script": "prepublish"
+        }
+      ],
+      "floating": [
+        {
+          "tree": "t2",
+          "file": "C:\\Users\\mianx\\.config\\opencode\\package.json",
+          "field": "dependencies.@ai-sdk/openai-compatible",
+          "spec": "^3.0.41"
+        }
+      ]
+    },
+    {
+      "tree": "t3",
+      "root": "C:\\Users\\mianx\\AppData\\Roaming\\npm\\node_modules\\opencode-ai",
+      "packages": 3,
+      "missing_licence": 2,
+      "vendored": 0,
+      "lifecycle": [
+        {
+          "tree": "t3",
+          "path": "package.json",
+          "package": "opencode-ai",
+          "script": "postinstall"
+        }
+      ],
+      "floating": []
+    },
+    {
+      "tree": "spike",
+      "root": "src\\harness\\spike\\candidates\\opencode",
+      "packages": 0,
+      "missing_licence": 0,
+      "vendored": 0,
+      "lifecycle": [],
+      "floating": [
+        {
+          "tree": "spike",
+          "file": "src\\harness\\spike\\candidates\\opencode\\opencode.json",
+          "field": "provider.ollama-local.npm",
+          "spec": "(none)"
+        }
+      ]
+    }
+  ],
+  "native_binaries": [
+    {
+      "tree": "t1",
+      "relpath": "opencode-ai/bin/opencode.exe",
+      "sha256": "21c366f53283d5b5e1cdbbec2aafc98286b4c1075a4c3d5afd5ce1f5c9bf46dd",
+      "size": 479
+    },
+    {
+      "tree": "t1",
+      "relpath": "opencode-windows-x64/bin/opencode.exe",
+      "sha256": "ef06e41a35795066e95acde276a42fbbf85d7a683c2787f6a19ed20bcde9b6ff",
+      "size": 179651624
+    },
+    {
+      "tree": "t1",
+      "relpath": "opencode-windows-x64-baseline/bin/opencode.exe",
+      "sha256": "954f2869f9cc2131b03cb6aa7ee50c70601c1a56811fb5bcf749b827c970d290",
+      "size": 179651624
+    },
+    {
+      "tree": "t2",
+      "relpath": "node_modules/@msgpackr-extract/msgpackr-extract-win32-x64/node.abi115.node",
+      "sha256": "300b188fb8c997214cb65bf1b00729da293176c7d57035e40c2f432ea384dd89",
+      "size": 112640
+    },
+    {
+      "tree": "t2",
+      "relpath": "node_modules/@msgpackr-extract/msgpackr-extract-win32-x64/node.napi.node",
+      "sha256": "6958541c624784dfcebfc4f3c360c57f71cfeedd0530c2393845061729081a08",
+      "size": 112640
+    },
+    {
+      "tree": "t3",
+      "relpath": "bin/opencode.exe",
+      "sha256": "ef06e41a35795066e95acde276a42fbbf85d7a683c2787f6a19ed20bcde9b6ff",
+      "size": 179651624
+    },
+    {
+      "tree": "t3",
+      "relpath": "node_modules/opencode-windows-x64/bin/opencode.exe",
+      "sha256": "ef06e41a35795066e95acde276a42fbbf85d7a683c2787f6a19ed20bcde9b6ff",
+      "size": 179651624
+    },
+    {
+      "tree": "t3",
+      "relpath": "node_modules/opencode-windows-x64-baseline/bin/opencode.exe",
+      "sha256": "954f2869f9cc2131b03cb6aa7ee50c70601c1a56811fb5bcf749b827c970d290",
+      "size": 179651624
+    }
+  ]
+}
