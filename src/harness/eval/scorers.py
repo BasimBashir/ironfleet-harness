@@ -10,6 +10,8 @@ class CaseScore(BaseModel):
     grounding_score: float
     checks: dict[str, bool]
     passed: bool
+    status: str = "scored"              # scored | refused (S6-3: refusal still reports)
+    error: str = ""                     # refusal reason when status == "refused"
 
 def citation_accuracy(output: str, expected: list[str]) -> float:
     if not expected:
@@ -33,8 +35,15 @@ def score_case(output: str, case: GoldenCase, pass_threshold: float = 0.999) -> 
                      checks=checks, passed=passed)
 
 def write_report(scores: list[CaseScore], path: Path) -> None:
-    lines = ["# Eval report", "", "| case | citations | grounding | checks | passed |", "|---|---|---|---|---|"]
+    lines = ["# Eval report", "",
+             "| case | citations | grounding | checks | status | passed |",
+             "|---|---|---|---|---|---|"]
     for s in scores:
         lines.append(f"| {s.case_id} | {s.citation_accuracy:.2f} | {s.grounding_score:.2f} "
-                     f"| {sum(s.checks.values())}/{len(s.checks)} | {'✅' if s.passed else '❌'} |")
+                     f"| {sum(s.checks.values())}/{len(s.checks)} | {s.status} "
+                     f"| {'✅' if s.passed else '❌'} |")
+    refused = [s for s in scores if s.status == "refused"]
+    if refused:                                            # S6-3: reasons below the table
+        lines += ["", "## Refused cases", ""]
+        lines += [f"- {s.case_id}: {s.error}" for s in refused]
     Path(path).write_text("\n".join(lines), encoding="utf-8")
