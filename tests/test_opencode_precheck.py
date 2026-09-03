@@ -98,4 +98,25 @@ def test_write_manifest_lines(tmp_path):
     res.native_binaries.append(NativeBinary(tree="t1", relpath="a.exe", sha256="ab" * 32, size=1))
     out = tmp_path / "manifest.txt"
     write_manifest(res, out)
-    assert out.read_text() == f"{'ab' * 32}  t1/a.exe\n"
+    assert out.read_bytes() == f"{'ab' * 32}  t1/a.exe\n".encode()
+
+
+def test_inventory_skips_unreadable_entries(tmp_path, monkeypatch):
+    pkg = tmp_path / "node_modules" / "opencode-windows-x64" / "bin"
+    pkg.mkdir(parents=True)
+    good = pkg / "opencode.exe"
+    good.write_bytes(b"MZok")
+    trap = pkg / "locked.node"
+    trap.write_bytes(b"trap")
+    real_read_bytes = Path.read_bytes
+
+    def boom(self):
+        if self.name == "locked.node":
+            raise OSError("permission denied")
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", boom)
+    bins = inventory_native_binaries("t1", tmp_path)
+    assert [(b.relpath, b.sha256) for b in bins] == [
+        ("node_modules/opencode-windows-x64/bin/opencode.exe",
+         hashlib.sha256(b"MZok").hexdigest())]
