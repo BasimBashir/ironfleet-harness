@@ -120,3 +120,30 @@ def test_inventory_skips_unreadable_entries(tmp_path, monkeypatch):
     assert [(b.relpath, b.sha256) for b in bins] == [
         ("node_modules/opencode-windows-x64/bin/opencode.exe",
          hashlib.sha256(b"MZok").hexdigest())]
+
+
+from harness.security.opencode_precheck import main
+
+
+def test_cli_smoke_writes_all_three_artifacts(tmp_path, capsys):
+    tree = tmp_path / "fresh"
+    (tree / "node_modules" / "foo").mkdir(parents=True)
+    (tree / "package.json").write_text(
+        '{"name":"opencode-ai","license":"MIT","scripts":{"postinstall":"node ./postinstall.mjs"}}')
+    (tree / "node_modules" / "foo" / "package.json").write_text('{"name":"foo","license":"MIT"}')
+    exe = tree / "node_modules" / "foo" / "pre.exe"
+    exe.write_bytes(b"PE")
+    man = tmp_path / "runtime-package.json"
+    man.write_text('{"dependencies":{"@ai-sdk/openai-compatible":"^3.0.41"}}')
+    out = tmp_path / "out"
+    out.mkdir()
+    rc = main([str(out), f"--tree=t1={tree}", f"--runtime-manifest=t1={man}"])
+    assert rc == 0
+    data = json.loads((out / "scan.json").read_text())
+    assert data["trees"][0]["tree"] == "t1"
+    assert any(f["field"] == "dependencies.@ai-sdk/openai-compatible"
+               for f in data["trees"][0]["floating"])
+    assert "- lifecycle scripts (CRITICAL until adjudicated): 1" in \
+        (out / "mechanical-scan.md").read_text()
+    assert "t1/node_modules/foo/pre.exe" in (out / "sha256-manifest.txt").read_text()
+    assert "scanned" in capsys.readouterr().out

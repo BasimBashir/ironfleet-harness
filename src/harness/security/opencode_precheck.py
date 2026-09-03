@@ -171,3 +171,86 @@ def inventory_native_binaries(tree: str, root: Path) -> list[NativeBinary]:
 def write_manifest(res: ScanResult, path: Path) -> None:
     lines = [f"{b.sha256}  {b.tree}/{b.relpath}" for b in res.native_binaries]
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def write_scan_json(res: ScanResult, path: Path) -> None:
+    Path(path).write_text(res.model_dump_json(indent=2), encoding="utf-8")
+
+
+def write_mechanical(res: ScanResult, path: Path) -> None:
+    lines = [
+        "# OpenCode supply-chain mechanical scan (S7a / A-8)",
+        "",
+        f"- trees scanned: {', '.join(t.tree for t in res.trees)}",
+        f"- packages scanned: {res.packages}",
+        f"- vendored: {res.vendored}",
+        f"- missing licence fields: {res.missing_licence}",
+        f"- lifecycle scripts (CRITICAL until adjudicated): {res.critical_findings}",
+        f"- floating runtime ranges: {len(res.floating)}",
+        f"- native binaries inventoried: {len(res.native_binaries)}",
+    ]
+    for t in res.trees:
+        lines += [f"## tree {t.tree} — {t.root}",
+                  f"- packages: {t.packages} · missing licence: {t.missing_licence} · vendored: {t.vendored}",
+                  "- lifecycle:"]
+        lines += [f"  - {f.package} · {f.script} · {f.path}" for f in t.lifecycle] or ["  - none"]
+        lines += ["- floating:"]
+        lines += [f"  - {f.file} · {f.field} · {f.spec}" for f in t.floating] or ["  - none"]
+        natives = [b for b in res.native_binaries if b.tree == t.tree]
+        lines += [f"- native binaries: {len(natives)}"]
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def _read_texts(pattern: str, root: Path) -> dict[str, str]:
+    return {str(p.relative_to(root)).replace("\\", "/"):
+            p.read_text(encoding="utf-8", errors="ignore")
+            for p in sorted(root.rglob(pattern))}
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    p = argparse.ArgumentParser(description="OpenCode (A-8) supply-chain mechanical scan")
+    p.add_argument("outdir")
+    p.add_argument("--tree", action="append", default=[], metavar="LABEL=PATH")
+    p.add_argument("--runtime-manifest", action="append", default=[], metavar="LABEL=PATH")
+    p.add_argument("--opencode-json", action="append", default=[], metavar="LABEL=PATH")
+    a = p.parse_args(argv)
+
+    res = ScanResult()
+    for spec in a.tree:
+        label, _, root = spec.partition("=")
+        rootp = Path(root)
+        ts = scan_install_tree(label, str(rootp), _read_texts("package.json", rootp))
+        res.trees.append(ts)
+        res.native_binaries.extend(inventory_native_binaries(label, rootp))
+
+    def _tree_for(label: str, root: str) -> TreeScan:
+        for t in res.trees:
+            if t.tree == label:
+                return t
+        ts = TreeScan(tree=label, root=root)
+        res.trees.append(ts)
+        return ts
+
+    for spec in a.runtime_manifest:
+        label, _, path = spec.partition("=")
+        pth = Path(path)
+        _tree_for(label, str(pth.parent)).floating += \
+            scan_runtime_manifest(label, str(pth), pth.read_text(encoding="utf-8", errors="ignore"))
+    for spec in a.opencode_json:
+        label, _, path = spec.partition("=")
+        pth = Path(path)
+        _tree_for(label, str(pth.parent)).floating += \
+            scan_opencode_json(label, str(pth), pth.read_text(encoding="utf-8", errors="ignore"))
+
+    outdir = Path(a.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    write_scan_json(res, outdir / "scan.json")
+    write_mechanical(res, outdir / "mechanical-scan.md")
+    write_manifest(res, outdir / "sha256-manifest.txt")
+    print(f"scanned {res.packages} package.json files across {len(res.trees)} trees -> {outdir}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
