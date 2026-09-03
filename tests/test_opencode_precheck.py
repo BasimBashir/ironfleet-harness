@@ -122,7 +122,8 @@ def test_inventory_skips_unreadable_entries(tmp_path, monkeypatch):
          hashlib.sha256(b"MZok").hexdigest())]
 
 
-from harness.security.opencode_precheck import main
+from harness.security.opencode_precheck import (
+    TreeScan, main, write_scan_json)
 
 
 def test_cli_smoke_writes_all_three_artifacts(tmp_path, capsys):
@@ -147,3 +148,36 @@ def test_cli_smoke_writes_all_three_artifacts(tmp_path, capsys):
         (out / "mechanical-scan.md").read_text()
     assert "t1/node_modules/foo/pre.exe" in (out / "sha256-manifest.txt").read_text()
     assert "scanned" in capsys.readouterr().out
+
+
+def test_cli_rejects_missing_tree_dir_before_writing(tmp_path, capsys):
+    out = tmp_path / "out"
+    out.mkdir()
+    rc = main([str(out), f"--tree=t1={tmp_path / 'does-not-exist'}"])
+    assert rc == 2
+    assert list(out.iterdir()) == []
+    assert "not a directory" in capsys.readouterr().err
+
+
+def test_cli_rejects_missing_manifest_file(tmp_path, capsys):
+    out = tmp_path / "out"
+    rc = main([str(out), f"--runtime-manifest=t1={tmp_path / 'nope.json'}"])
+    assert rc == 2
+    assert not out.exists()
+    assert "not a file" in capsys.readouterr().err
+
+
+def test_cli_rejects_missing_opencode_json_file(tmp_path):
+    rc = main([str(tmp_path / "out"),
+               f"--opencode-json=t1={tmp_path / 'nope.json'}"])
+    assert rc == 2
+
+
+def test_write_scan_json_lf_bytes_and_trailing_newline(tmp_path):
+    res = ScanResult(trees=[TreeScan(tree="t1", root="/x")])
+    out = tmp_path / "scan.json"
+    write_scan_json(res, out)
+    raw = out.read_bytes()
+    assert raw.endswith(b"\n")
+    assert b"\r" not in raw
+    assert json.loads(raw.decode("utf-8"))["trees"][0]["tree"] == "t1"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 from pydantic import BaseModel
 
@@ -174,7 +175,8 @@ def write_manifest(res: ScanResult, path: Path) -> None:
 
 
 def write_scan_json(res: ScanResult, path: Path) -> None:
-    Path(path).write_text(res.model_dump_json(indent=2), encoding="utf-8")
+    Path(path).write_text(res.model_dump_json(indent=2) + "\n",
+                          encoding="utf-8", newline="\n")
 
 
 def write_mechanical(res: ScanResult, path: Path) -> None:
@@ -215,6 +217,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--runtime-manifest", action="append", default=[], metavar="LABEL=PATH")
     p.add_argument("--opencode-json", action="append", default=[], metavar="LABEL=PATH")
     a = p.parse_args(argv)
+
+    def _fail(msg: str) -> int:
+        print(f"error: {msg}", file=sys.stderr)
+        return 2
+
+    for spec in a.tree:
+        label, _, root = spec.partition("=")
+        if not Path(root).is_dir():
+            return _fail(f"--tree {label}: not a directory: {root}")
+    for opt in ("--runtime-manifest", "--opencode-json"):
+        for spec in getattr(a, opt[2:].replace("-", "_")):
+            label, _, path = spec.partition("=")
+            if not Path(path).is_file():
+                return _fail(f"{opt} {label}: not a file: {path}")
 
     res = ScanResult()
     for spec in a.tree:
