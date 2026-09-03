@@ -20,10 +20,12 @@ defaults:
 
 def _registry():
     reg = ProviderRegistry()
-    reg.upsert(ProviderConfig(name="mini1-mlx", base_url="http://m1/v1", engine="mlx-lm", tier="local"))
+    reg.upsert(ProviderConfig(name="mini1-mlx", base_url="http://m1/v1", engine="mlx-lm", tier="local",
+                              admitted="full"))
     reg.upsert(ProviderConfig(name="mini2", base_url="http://m2/v1", engine="vllm", tier="local",
                               admitted="mechanical-only"))
-    reg.upsert(ProviderConfig(name="cloud-x", base_url="https://x/v1", engine="cloud", tier="cloud"))
+    reg.upsert(ProviderConfig(name="cloud-x", base_url="https://x/v1", engine="cloud", tier="cloud",
+                              admitted="full"))
     return reg
 
 def test_local_only_never_sees_cloud(tmp_path):
@@ -49,3 +51,12 @@ def test_malformed_routing_fails_loud_not_silent(tmp_path):
     rt = RoutingTable.from_yaml(q)
     result = rt.route("unknown-task", MatterPolicy(matter_ref="M", classification="LOCAL_ONLY"), _registry())
     assert [c.name for c in result] == ["mini1-mlx"]               # unknown task falls to defaults
+
+def test_unprobed_provider_defaults_to_refused_and_never_routes(tmp_path):
+    # S6-1: admitted defaults to "refused" — only a successful probe upgrades it (fail-closed).
+    reg = ProviderRegistry()
+    reg.upsert(ProviderConfig(name="mini1-mlx", base_url="http://m1/v1", engine="mlx-lm", tier="local"))
+    p = tmp_path / "routing.yaml"; p.write_text(ROUTING)
+    picks = RoutingTable.from_yaml(p).route(
+        "drafting", MatterPolicy(matter_ref="M", classification="LOCAL_PREFERRED"), reg)
+    assert picks == []                                             # never probed -> never routed

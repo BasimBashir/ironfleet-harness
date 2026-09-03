@@ -15,10 +15,10 @@ defaults:
 def _gate(tmp_path, transport):
     reg = ProviderRegistry()
     reg.upsert(ProviderConfig(name="mini1", base_url="http://m/v1", engine="mlx-lm", tier="local",
-                              model="qwen-30b",
+                              model="qwen-30b", admitted="full",      # as the probe would admit it
                               declared_provenance={"weights_revision": "rev-1"}))
     reg.upsert(ProviderConfig(name="cloud", base_url="https://c/v1", engine="cloud", tier="cloud",
-                              model="glm-5.2",
+                              model="glm-5.2", admitted="full",
                               declared_provenance={"weights_revision": "glm@1"}))
     p = tmp_path / "r.yaml"; p.write_text(ROUTING)
     return EgressGate(registry=reg, routing=RoutingTable.from_yaml(p),

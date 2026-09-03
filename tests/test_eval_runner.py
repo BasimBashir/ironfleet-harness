@@ -20,7 +20,8 @@ async def test_run_eval_end_to_end_offline(tmp_path, fake_transport):
         "id: c1\nmatter_type: m\ntask_class: drafting\nprompt: draft\n"
         'expected_citations: ["[Act, s 1]"]\nrequired_grounding: []\npersona_checks: {}\n')
     reg = ProviderRegistry()
-    reg.upsert(ProviderConfig(name="mini1", base_url="http://m/v1", engine="mlx-lm", tier="local", model="qwen-30b"))
+    reg.upsert(ProviderConfig(name="mini1", base_url="http://m/v1", engine="mlx-lm", tier="local",
+                              model="qwen-30b", admitted="full"))
     rp = tmp_path / "r.yaml"; rp.write_text(ROUTING)
     gate = EgressGate(registry=reg, routing=RoutingTable.from_yaml(rp),
                       trace=TraceStore(tmp_path / "t.db"), transport=fake_transport)

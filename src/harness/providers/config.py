@@ -8,7 +8,7 @@ class ProviderConfig(BaseModel):
     models: list[str] = []              # discovered model list (probe fills; informational)
     engine: str | None = None           # mlx-lm | vllm | llamacpp | ollama | cloud | None
     tier: str = "cloud"                 # local | cloud
-    admitted: str = "full"              # full | mechanical-only | refused  (set by probe, CR-3)
+    admitted: str = "refused"           # full | mechanical-only | refused — only the probe upgrades (S6-1, CR-3 fail-closed)
     declared_provenance: dict[str, str] = {}   # describes `model`: {"weights_revision": "...", "quant": "4bit"}
 
 class ProviderRegistry:
