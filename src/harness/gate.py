@@ -5,7 +5,7 @@ from typing import Awaitable, Callable
 from pydantic import BaseModel
 from harness.policy import RoutingTable, MatterPolicy, Classification
 from harness.providers.config import ProviderConfig, ProviderRegistry
-from harness.providers.provenance import ProvenanceReport
+from harness.providers.provenance import ProvenanceReport, revision_verified
 from harness.trace import TraceStore, DispatchRecord
 
 Transport = Callable[[ProviderConfig, dict], Awaitable[dict]]
@@ -61,7 +61,10 @@ class EgressGate:
             weights_revision=meta.get("weights_revision")
                 or provider.declared_provenance.get("weights_revision", ""),
             backend=meta.get("backend", ""),
-            verified=bool(meta.get("weights_revision")),
+            # S6-2: probe semantics at dispatch time — a server-reported revision only
+            # verifies when it MATCHES the declared (pinned) one, not merely exists.
+            verified=revision_verified(meta.get("weights_revision", ""),
+                                       provider.declared_provenance.get("weights_revision", "")),
             raw={"source": "response-meta" if meta else "declared-only"},
         )
 

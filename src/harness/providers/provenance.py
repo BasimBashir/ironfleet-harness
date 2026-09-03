@@ -5,6 +5,12 @@ from harness.providers.config import ProviderConfig
 
 Fetch = Callable[[str, dict], Awaitable[dict | None]]
 
+def revision_verified(reported: str, declared: str) -> bool:
+    """The ONE verified rule, shared by probe and dispatch (S6-2): a reported weights
+    revision counts only when it is present AND matches the declared (pinned) one.
+    A mismatch means the endpoint is no longer serving what was probed."""
+    return bool(reported) and reported == declared
+
 class ProvenanceReport(BaseModel):
     engine: str = ""
     weights_revision: str = ""
@@ -26,7 +32,7 @@ async def check_provenance(cfg: ProviderConfig, fetch: Fetch) -> ProvenanceRepor
         health = await fetch(f"{cfg.base_url.removesuffix('/v1')}/health", headers)
         rev = (health or {}).get("revision", "")
         return ProvenanceReport(engine="mlx-lm", weights_revision=rev, backend=(health or {}).get("engine", ""),
-                                verified=bool(rev) and rev == declared_rev, raw={"health": health or {}})
+                                verified=revision_verified(rev, declared_rev), raw={"health": health or {}})
     if cfg.engine == "vllm":
         ver = await fetch(f"{cfg.base_url.removesuffix('/v1')}/version", headers)
         rev = (ver or {}).get("version", "")

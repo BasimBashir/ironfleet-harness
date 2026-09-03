@@ -57,6 +57,21 @@ async def test_unverified_provenance_marks_record_unverified(tmp_path):
     assert gate.trace.by_matter("M-2")[0].verified == 0    # recorded honestly, not faked
 
 @pytest.mark.asyncio
+async def test_server_revision_mismatching_declared_is_not_verified(tmp_path):
+    # S6-2: dispatch-time verified uses the probe's semantics — a server-REPORTED revision
+    # only counts when it MATCHES the declared (pinned) one. A different revision means
+    # the endpoint is no longer serving what was probed -> verified=0.
+    async def transport(provider, payload):                # reports a foreign revision
+        return {"model": payload["model"], "choices": [{"message": {"content": "ans"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "_server_meta": {"engine": "mlx-lm", "weights_revision": "rev-OTHER"}}
+    gate = _gate(tmp_path, transport)
+    resp = await gate.dispatch(LLMRequest(matter_ref="M-4", task_class="drafting",
+                                          messages=[{"role": "user", "content": "x"}]))
+    assert resp.provenance.verified is False
+    assert gate.trace.by_matter("M-4")[0].verified == 0    # reported != declared rev-1
+
+@pytest.mark.asyncio
 async def test_missing_model_refuses_instead_of_guessing(tmp_path, fake_transport):
     gate = _gate(tmp_path, fake_transport)
     for c in gate.registry.list():                        # strip default models
