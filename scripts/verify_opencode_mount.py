@@ -10,7 +10,7 @@ problem this rig must report, not a silent degradation.
 """
 from __future__ import annotations
 
-import subprocess, sys
+import shutil, subprocess, sys
 from pathlib import Path
 
 EXPECTED_VERSION = "1.18.25"
@@ -19,8 +19,14 @@ GUARD_SEAMS = ("tool.execute.before", "tool.execute.after", "experimental.text.c
 
 
 def installed_version() -> str:
+    # On Windows, subprocess.run with a bare name does not apply PATHEXT, so the npm shim
+    # (opencode.CMD) is never found and the rig reports a false "not found" — fail-closed
+    # against a phantom problem, and the pin is never actually checked. shutil.which resolves
+    # the shim. Deliberately no shell=True: the resolved absolute path runs directly, so no
+    # shell ever interprets it.
+    exe = shutil.which("opencode") or "opencode"
     try:
-        out = subprocess.run(["opencode", "--version"], capture_output=True, text=True,
+        out = subprocess.run([exe, "--version"], capture_output=True, text=True,
                              timeout=30)
         return out.stdout.strip() or out.stderr.strip()
     except (OSError, subprocess.SubprocessError):

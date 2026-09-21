@@ -33,3 +33,23 @@ def test_rig_cli_runs(monkeypatch):
     monkeypatch.setattr(rig, "installed_version", lambda: "1.18.25")
     rc = rig.main([])
     assert rc == 0
+
+def test_installed_version_resolves_via_shutil_which(monkeypatch):
+    # Windows CreateProcess does not apply PATHEXT, so a bare "opencode" never finds the npm
+    # shim (opencode.CMD) and the rig reports a false "not found" — fail-closed against a
+    # problem that does not exist, and the pin is never actually checked. The probe must go
+    # through shutil.which. Regression guard for the failure observed on this box.
+    from scripts import verify_opencode_mount as rig
+    seen = {}
+    class _R:
+        stdout = "1.18.25"
+        stderr = ""
+        returncode = 0
+    def fake_run(argv, **kw):
+        seen["argv"] = argv
+        return _R()
+    monkeypatch.setattr(rig.shutil, "which", lambda name: "C:/npm/opencode.CMD")
+    monkeypatch.setattr(rig.subprocess, "run", fake_run)
+    assert rig.installed_version() == "1.18.25"
+    assert seen["argv"][0] == "C:/npm/opencode.CMD", \
+        "the resolved path must be what subprocess invokes, not the bare name"
