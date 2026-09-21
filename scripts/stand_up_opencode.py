@@ -100,7 +100,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--timeout", type=int, default=300)
     args = ap.parse_args(argv)
 
-    ws = Path(args.workspace) if args.workspace else Path.home() / "spike-ws" / "opencode-a1"
+    # Distinct parent from the spike's ~/spike-ws/opencode: opencode groups sibling git
+    # repos under one parent into a multi-instance project and the session can attach the
+    # WRONG instance (spike, observed 2026-09-01: session directory=harness-core despite
+    # cwd=spike-ws). ~/spike-ws-a1 has no sibling repos to adopt — the spike's own premise
+    # (run_spike_opencode.py:57-60), preserved by not reusing its parent.
+    ws = Path(args.workspace) if args.workspace else Path.home() / "spike-ws-a1" / "opencode-a1"
     ws.mkdir(parents=True, exist_ok=True)
     sync_mount(ws, MOUNT, args.matter_ref, args.classification, PORT)
 
