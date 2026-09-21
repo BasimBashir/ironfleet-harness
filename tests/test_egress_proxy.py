@@ -1,5 +1,5 @@
 # tests/test_egress_proxy.py
-import json, urllib.request
+import json, urllib.request, urllib.error
 import pytest
 from harness.gate import EgressGate, LLMRequest
 from harness.policy import RoutingTable
@@ -59,5 +59,80 @@ def test_models_endpoint_lists_aliases(gate_stack):
         r = urllib.request.urlopen(f"http://{host}:{port}/v1/models", timeout=10)
         ids = {m["id"] for m in json.loads(r.read())["data"]}
         assert ids == set(aliases)
+    finally:
+        proxy.stop()
+
+def test_refusal_returns_403_and_traces(gate_stack):
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    matter = tmp_path / "matter.json"
+    matter.write_text(json.dumps({"matter_ref": "m-draft", "classification": "LOCAL_PREFERRED"}))
+    # Add a drafting alias whose rule lists only unregistered providers → refuses.
+    aliases["gate/drafting"] = {"task_class": "drafting"}
+    rt._rules.append({"task_class": "drafting", "local_only": ["mini1-mlx"],
+                      "local_preferred": ["mini1-mlx"], "cloud_permitted": ["mini1-mlx"]})
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        with pytest.raises(urllib.error.HTTPError) as ex:
+            _post(f"http://{host}:{port}/v1/chat/completions",
+                  {"model": "gate/drafting",
+                   "messages": [{"role": "user", "content": "Draft a claim"}]})
+        assert ex.value.code == 403
+        rows = trace.by_matter("m-draft")
+        assert len(rows) == 1
+        assert rows[0].status == "refused" and rows[0].provider == "-"
+    finally:
+        proxy.stop()
+
+def test_transport_error_returns_502_and_traces(gate_stack):
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    matter = tmp_path / "matter.json"
+    matter.write_text(json.dumps({"matter_ref": "m-broken", "classification": "LOCAL_PREFERRED"}))
+
+    async def dead(provider, payload):
+        raise RuntimeError("ollama down")
+    gate._transport = dead
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        with pytest.raises(urllib.error.HTTPError) as ex:
+            _post(f"http://{host}:{port}/v1/chat/completions",
+                  {"model": "gate/extraction",
+                   "messages": [{"role": "user", "content": "Extract"}]})
+        assert ex.value.code == 502
+        rows = trace.by_matter("m-broken")
+        assert len(rows) == 1 and rows[0].status == "error"
+    finally:
+        proxy.stop()
+
+def test_missing_matter_returns_500_and_never_dispatches(gate_stack):
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, tmp_path / "nope.json")
+    proxy.start(); host, port = proxy.server_address
+    try:
+        with pytest.raises(urllib.error.HTTPError) as ex:
+            _post(f"http://{host}:{port}/v1/chat/completions",
+                  {"model": "gate/extraction",
+                   "messages": [{"role": "user", "content": "Extract"}]})
+        assert ex.value.code == 500
+        assert trace.summary()["dispatches"] == 0        # nothing reached the gate
+    finally:
+        proxy.stop()
+
+def test_stream_true_returns_sse_with_one_delta(gate_stack):
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    matter = tmp_path / "matter.json"
+    matter.write_text(json.dumps({"matter_ref": "m-stream", "classification": "LOCAL_PREFERRED"}))
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        req = urllib.request.Request(f"http://{host}:{port}/v1/chat/completions",
+            data=json.dumps({"model": "gate/extraction", "stream": True,
+                             "messages": [{"role": "user", "content": "Extract"}]}).encode(),
+            headers={"Content-Type": "application/json"})
+        raw = urllib.request.urlopen(req, timeout=10).read().decode()
+        assert raw.startswith("data: ")
+        assert "[DONE]" in raw
+        assert trace.by_matter("m-stream")
     finally:
         proxy.stop()

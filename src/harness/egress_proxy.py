@@ -54,6 +54,22 @@ class UnknownMatter(RuntimeError):
     """matter.json unreadable or missing a matter_ref. Nothing may dispatch without it."""
 
 
+def _sse_chunks(resp) -> bytes:
+    """Emit a batch gate result as a single SSE delta + [DONE].
+
+    The gate's transport is batch (it must be — provenance and usage are only known
+    once the call completes), so streaming is presentation, not plumbing: the whole
+    completion arrives as one chunk. Provider-side streaming would bypass provenance
+    assembly and is deliberately not supported."""
+    delta = {"id": "gate-dispatch", "object": "chat.completion.chunk", "model": resp.model,
+             "choices": [{"index": 0, "finish_reason": None,
+                          "delta": {"role": "assistant", "content": resp.content}}]}
+    final = {"id": "gate-dispatch", "object": "chat.completion.chunk", "model": resp.model,
+             "choices": [{"index": 0, "finish_reason": "stop", "delta": {}}]}
+    return (f"data: {json.dumps(delta, ensure_ascii=False)}\n\n"
+            f"data: {json.dumps(final)}\n\ndata: [DONE]\n\n").encode()
+
+
 class _Handler(BaseHTTPRequestHandler):
     proxy: "EgressProxy" = None        # set by the server factory below
 
@@ -111,11 +127,28 @@ class _Handler(BaseHTTPRequestHandler):
             resp = _dispatch_async(self.proxy.gate, request)
         except GateRefusal as ex:
             # The gate already traced the refusal before raising. No fallback exists.
-            self._send_json(403, {"error": {"message": str(ex), "type": "gate_refusal"}})
+            # The gate raises one exception type for two different failures: "no eligible
+            # provider" (policy) and "all candidates failed" (upstream). They are told apart
+            # by the trace row the gate wrote just before raising — a refused row is a 403,
+            # an error row is a 502. The trace is the proof, not just the status code.
+            code, kind = 403, "gate_refusal"
+            rows = self.proxy.gate.trace.by_matter(request.matter_ref)
+            if rows and rows[-1].status == "error":
+                code, kind = 502, "dispatch_error"
+            self._send_json(code, {"error": {"message": str(ex), "type": kind}})
             return
         except Exception as ex:                     # noqa: BLE001 — surface, never pass through
             self._send_json(502, {"error": {"message": f"dispatch failed: {ex}",
                                             "type": "dispatch_error"}})
+            return
+        if raw.get("stream"):
+            body = _sse_chunks(resp)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         self._send_json(200, {"id": "gate-dispatch", "object": "chat.completion",
                               "model": resp.model,
