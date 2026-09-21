@@ -1,10 +1,10 @@
 # tests/test_egress_proxy.py
 import json, urllib.request, urllib.error
 import pytest
-from harness.gate import EgressGate, LLMRequest
+from harness.gate import EgressGate, LLMRequest, GateRefusal
 from harness.policy import RoutingTable
 from harness.providers.config import ProviderConfig, ProviderRegistry
-from harness.trace import TraceStore
+from harness.trace import TraceStore, DispatchRecord
 from harness.egress_proxy import EgressProxy, UnknownMatter
 
 @pytest.fixture
@@ -134,5 +134,47 @@ def test_stream_true_returns_sse_with_one_delta(gate_stack):
         assert raw.startswith("data: ")
         assert "[DONE]" in raw
         assert trace.by_matter("m-stream")
+    finally:
+        proxy.stop()
+
+def test_concurrent_same_matter_keeps_each_request_own_code(gate_stack):
+    # Two ThreadingHTTPServer requests share a matter_ref (parallel tool calls in one
+    # OpenCode session). Request A is a transport error → 502; request B is a policy
+    # refusal → 403. If B's refused row lands after A's own error row but before A's
+    # handler reads the trace, by_matter()[-1] is B's row and A misreports 403 where the
+    # spec requires 502. The pre-dispatch snapshot must point A at its own row.
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    matter = tmp_path / "matter.json"
+    matter.write_text(json.dumps({"matter_ref": "m-race", "classification": "LOCAL_PREFERRED"}))
+
+    async def dead(provider, payload):
+        raise RuntimeError("ollama down")
+    gate._transport = dead
+
+    # Simulate B's row landing between A's traced error and A's trace read. That window
+    # lives inside the gate's append→raise, which cannot be hit deterministically from
+    # outside a byte-locked gate, so the interleaving is reproduced here instead.
+    real_dispatch = gate.dispatch
+    async def racing_dispatch(request):
+        try:
+            return await real_dispatch(request)
+        except GateRefusal:
+            trace.append(DispatchRecord(
+                matter_ref=request.matter_ref, task_class="other",
+                classification=request.classification, provider="-", model="-",
+                status="refused", error="no eligible provider"))
+            raise
+    gate.dispatch = racing_dispatch
+
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        with pytest.raises(urllib.error.HTTPError) as ex:
+            _post(f"http://{host}:{port}/v1/chat/completions",
+                  {"model": "gate/extraction",
+                   "messages": [{"role": "user", "content": "Extract"}]})
+        assert ex.value.code == 502            # not 403 — this request's own row was an error
+        rows = trace.by_matter("m-race")
+        assert [r.status for r in rows] == ["error", "refused"]
     finally:
         proxy.stop()

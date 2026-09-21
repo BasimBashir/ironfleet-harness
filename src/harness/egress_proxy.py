@@ -123,6 +123,11 @@ class _Handler(BaseHTTPRequestHandler):
                              model=raw.get("model_override"),
                              classification=matter.get("classification", "LOCAL_PREFERRED"),
                              max_tokens=raw.get("max_tokens", 128_000))
+        # Snapshot the row count BEFORE dispatching. by_matter() is matter-scoped, not
+        # request-scoped — the gate's first append for THIS request is rows[prior], and
+        # concurrent requests sharing a matter_ref can append in between. rows[-1] would
+        # read another request's row and misreport a transport failure as a policy refusal.
+        prior = len(self.proxy.gate.trace.by_matter(request.matter_ref))
         try:
             resp = _dispatch_async(self.proxy.gate, request)
         except GateRefusal as ex:
@@ -133,7 +138,7 @@ class _Handler(BaseHTTPRequestHandler):
             # an error row is a 502. The trace is the proof, not just the status code.
             code, kind = 403, "gate_refusal"
             rows = self.proxy.gate.trace.by_matter(request.matter_ref)
-            if rows and rows[-1].status == "error":
+            if len(rows) > prior and rows[prior].status == "error":
                 code, kind = 502, "dispatch_error"
             self._send_json(code, {"error": {"message": str(ex), "type": kind}})
             return
