@@ -23,6 +23,11 @@ def resolve_alias(model: str, aliases: dict) -> str:
     raises UnknownAlias: the proxy must never infer a task class from an unrecognised
     model string, because the routing table's empty defaults are what make unknown
     classes refuse."""
-    if model not in aliases:
+    entry = aliases.get(model)
+    # "Not present" and "present but unusable" are the same failure for the caller:
+    # this model string does not resolve to a task class. Both raise UnknownAlias, so
+    # downstream code (Task 3's proxy) catches one type and returns a 400 — never a
+    # bare KeyError escaping as a 500.
+    if not isinstance(entry, dict) or "task_class" not in entry:
         raise UnknownAlias(model)
-    return aliases[model]["task_class"]
+    return entry["task_class"]
