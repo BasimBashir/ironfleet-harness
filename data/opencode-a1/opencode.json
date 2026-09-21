@@ -1,0 +1,20 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "share": "disabled",
+  "autoupdate": false,
+  "model": "gate/extraction",
+  "provider": {
+    "gate-local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "IronFleet Gate",
+      "baseURL": "http://127.0.0.1:7373/v1",
+      "models": {
+        "gate/extraction":      {"context": 32768, "limit": {"output": 8192}},
+        "gate/classification":  {"context": 32768, "limit": {"output": 8192}},
+        "gate/redaction":       {"context": 32768, "limit": {"output": 8192}},
+        "gate/grounding_check": {"context": 32768, "limit": {"output": 8192}},
+        "gate/drafting":        {"context": 32768, "limit": {"output": 8192}}
+      }
+    }
+  }
+}
