@@ -13,7 +13,10 @@ def test_mount_has_exactly_one_provider():
 def test_mount_provider_points_at_loopback_proxy():
     cfg = json.loads((DATA / "opencode.json").read_text())
     p = cfg["provider"]["gate-local"]
-    assert p["baseURL"] == "http://127.0.0.1:7373/v1"
+    # baseURL is only valid under "options"; a top-level key is ignored at runtime and the
+    # SDK requests "undefined/chat/completions" (opencode 1.18.25, ProviderConfig schema).
+    assert p["options"]["baseURL"] == "http://127.0.0.1:7373/v1"
+    assert "baseURL" not in p
     assert p["npm"] == "@ai-sdk/openai-compatible"
 
 def test_mount_hardens_egress():
@@ -29,6 +32,14 @@ def test_mount_models_match_routing_aliases():
     aliases = load_aliases(Path(__file__).resolve().parent.parent / "data" / "routing-a1.yaml")
     cfg = json.loads((DATA / "opencode.json").read_text())
     assert set(cfg["provider"]["gate-local"]["models"]) == set(aliases)
+
+def test_mount_disables_title_generation():
+    # opencode fires a separate "title generator" LLM call per session — a second dispatch
+    # the caller never asked for (observed live: extraction landed as 2 rows, one of them a
+    # ~4k-token title-gen prompt with a 22-token reply). The mount must turn it off.
+    cfg = json.loads((DATA / "opencode.json").read_text())
+    assert cfg["agent"]["title"]["disable"] is True
+
 
 def test_matter_example_shape():
     m = json.loads((DATA / "matter.example.json").read_text())

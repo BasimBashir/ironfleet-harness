@@ -53,11 +53,33 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
         subprocess.run(["git", "init", "-q"], cwd=str(ws), check=True,
                        capture_output=True)
     (ws / ".opencode" / "agent").mkdir(parents=True, exist_ok=True)
+    # baseURL lives under "options" — opencode's ProviderConfig schema is
+    # additionalProperties:false, so a top-level baseURL is silently ignored at runtime and
+    # the SDK builds "undefined/chat/completions". The spike's proven mount puts it here
+    # (src/harness/spike/candidates/opencode/opencode.json).
     cfg = json.loads((mount / "opencode.json").read_text())
-    cfg["provider"]["gate-local"]["baseURL"] = f"http://{HOST}:{port}/v1"
+    cfg["provider"]["gate-local"].setdefault("options", {})["baseURL"] = \
+        f"http://{HOST}:{port}/v1"
     (ws / "opencode.json").write_text(json.dumps(cfg, indent=2))
     (ws / "matter.json").write_text(json.dumps(
         {"matter_ref": matter_ref, "classification": classification}, indent=2))
+
+
+def _scalar_usage(result: dict) -> dict:
+    """Keep only the scalar token counts in a provider usage dict.
+
+    Ollama's /v1 endpoint returns OpenAI-shaped usage whose prompt_tokens_details /
+    completion_tokens_details are OBJECTS ({"cached_tokens": 3930}). LLMResponse.usage is
+    typed dict[str, int] — gate.py is byte-locked for this plan — so a nested object fails
+    validation at dispatch and the call 502s; opencode marks that isRetryable and replays it,
+    so one query lands as a fan of identical rows instead of a single dispatch (observed
+    live: 9 rows, rc=1). The breakdown objects are optional in the OpenAI schema; the scalar
+    counts are what the gate traces and what the SDK consumes."""
+    usage = result.get("usage")
+    if isinstance(usage, dict):
+        result["usage"] = {k: v for k, v in usage.items()
+                           if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    return result
 
 
 def build_gate(trace_path: Path) -> tuple[EgressGate, RoutingTable, dict]:
@@ -66,6 +88,15 @@ def build_gate(trace_path: Path) -> tuple[EgressGate, RoutingTable, dict]:
     trace = TraceStore(trace_path)
     reg = _probe_ollama()
     gate = EgressGate(reg, rt, trace)          # default transport talks to Ollama
+    # The transport seam is the one non-byte-locked place to normalise provider response
+    # shape before gate.dispatch validates it. Wrapping the gate's own default transport
+    # (rather than reimplementing it) keeps the key/baseURL logic in one place.
+    _default_transport = gate._default_transport
+
+    async def _transport(provider, payload):
+        result = await _default_transport(provider, payload)
+        return _scalar_usage(result)
+    gate._transport = _transport
     return gate, rt, aliases
 
 

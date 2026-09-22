@@ -7,14 +7,46 @@
     "gate-local": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "IronFleet Gate",
-      "baseURL": "http://127.0.0.1:7373/v1",
       "models": {
-        "gate/extraction":      {"context": 32768, "limit": {"output": 8192}},
-        "gate/classification":  {"context": 32768, "limit": {"output": 8192}},
-        "gate/redaction":       {"context": 32768, "limit": {"output": 8192}},
-        "gate/grounding_check": {"context": 32768, "limit": {"output": 8192}},
-        "gate/drafting":        {"context": 32768, "limit": {"output": 8192}}
+        "gate/extraction": {
+          "limit": {
+            "output": 8192,
+            "context": 32768
+          }
+        },
+        "gate/classification": {
+          "limit": {
+            "output": 8192,
+            "context": 32768
+          }
+        },
+        "gate/redaction": {
+          "limit": {
+            "output": 8192,
+            "context": 32768
+          }
+        },
+        "gate/grounding_check": {
+          "limit": {
+            "output": 8192,
+            "context": 32768
+          }
+        },
+        "gate/drafting": {
+          "limit": {
+            "output": 8192,
+            "context": 32768
+          }
+        }
+      },
+      "options": {
+        "baseURL": "http://127.0.0.1:7373/v1"
       }
+    }
+  },
+  "agent": {
+    "title": {
+      "disable": true
     }
   }
 }

@@ -12,7 +12,7 @@ def test_sync_mount_copies_and_substitutes(tmp_path):
     sync_mount(ws, data / "opencode-a1", matter_ref="m-test",
                classification="LOCAL_PREFERRED", port=7373)
     cfg = json.loads((ws / "opencode.json").read_text())
-    assert cfg["provider"]["gate-local"]["baseURL"] == "http://127.0.0.1:7373/v1"
+    assert cfg["provider"]["gate-local"]["options"]["baseURL"] == "http://127.0.0.1:7373/v1"
     matter = json.loads((ws / "matter.json").read_text())
     assert matter["matter_ref"] == "m-test"
 
@@ -25,7 +25,7 @@ def test_sync_mount_refuses_port_collision_substitution(tmp_path):
     sync_mount(ws, data / "opencode-a1", matter_ref="m-test",
                classification="LOCAL_PREFERRED", port=7373)
     cfg = json.loads((ws / "opencode.json").read_text())
-    assert "127.0.0.1:7373" in cfg["provider"]["gate-local"]["baseURL"]
+    assert "127.0.0.1:7373" in cfg["provider"]["gate-local"]["options"]["baseURL"]
 
 def test_driver_help_runs(tmp_path):
     # Smoke: the CLI imports cleanly and its --help exits 0.
