@@ -91,7 +91,19 @@ def build_gate(trace_path: Path) -> tuple[EgressGate, RoutingTable, dict]:
     # The transport seam is the one non-byte-locked place to normalise provider response
     # shape before gate.dispatch validates it. Wrapping the gate's own default transport
     # (rather than reimplementing it) keeps the key/baseURL logic in one place.
-    _default_transport = gate._default_transport
+    # _default_transport is private in gate.py — this coupling is deliberate and this guard
+    # is the seam's side of it: if gate.py renames or restructures the attribute, fail loudly
+    # and EARLY, here, with something actionable. A bare AttributeError would instead surface
+    # at live-run time, because every suite test stubs build_gate (it probes real Ollama).
+    _ATTR = "_default_transport"
+    _default_transport = getattr(gate, _ATTR, None)
+    if not callable(_default_transport):
+        raise RuntimeError(
+            f"{type(gate).__name__} no longer exposes {_ATTR} — the transport seam in "
+            f"build_gate needs the gate's default transport to wrap. If gate.py renamed or "
+            f"restructured it, re-point this seam (and the {_ATTR} reference) at the "
+            f"replacement; do not silently fall back to an unwrapped transport, or Ollama's "
+            f"nested usage objects will fail validation inside dispatch again.")
 
     async def _transport(provider, payload):
         result = await _default_transport(provider, payload)
