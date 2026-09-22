@@ -41,6 +41,22 @@ def test_mount_disables_title_generation():
     assert cfg["agent"]["title"]["disable"] is True
 
 
+def test_mount_models_carry_context_and_output_limits():
+    # opencode 1.18.25 exits 1 at config validation — before any network — when a model
+    # entry lacks limit.context (the model schema is additionalProperties:false and
+    # limit: {context, output} is required both). This was the fatal mount defect found
+    # at the Task 8 live run: the config parses, the binary refuses to start, and the
+    # only symptom is rc=1 with no dispatch. Every model must carry both keys.
+    cfg = json.loads((DATA / "opencode.json").read_text())
+    models = cfg["provider"]["gate-local"]["models"]
+    assert models, "mount must define at least one gate-local model"
+    for name, spec in models.items():
+        limit = spec.get("limit", {})
+        assert {"context", "output"} <= set(limit), \
+            f"model {name!r} is missing limit.context/limit.output — opencode exits 1 " \
+            "at config validation and no dispatch ever reaches the gate"
+
+
 def test_matter_example_shape():
     m = json.loads((DATA / "matter.example.json").read_text())
     assert set(m) >= {"matter_ref", "classification"}

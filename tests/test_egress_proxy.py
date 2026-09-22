@@ -130,9 +130,23 @@ def test_stream_true_returns_sse_with_one_delta(gate_stack):
             data=json.dumps({"model": "gate/extraction", "stream": True,
                              "messages": [{"role": "user", "content": "Extract"}]}).encode(),
             headers={"Content-Type": "application/json"})
-        raw = urllib.request.urlopen(req, timeout=10).read().decode()
+        resp = urllib.request.urlopen(req, timeout=10)
+        raw = resp.read().decode()
         assert raw.startswith("data: ")
         assert "[DONE]" in raw
+        # A body of "data: {}\n\ndata: [DONE]" with the wrong content type would pass the two
+        # assertions above. The SSE branch must present as an event stream and actually carry
+        # the dispatched answer — parse the data: lines rather than substring-searching.
+        assert resp.headers.get("Content-Type") == "text/event-stream"
+        chunks = []
+        for line in raw.splitlines():
+            if not line.startswith("data: "):
+                continue
+            payload = line[len("data: "):]
+            if payload == "[DONE]":
+                continue
+            chunks.append(json.loads(payload)["choices"][0]["delta"].get("content") or "")
+        assert "".join(chunks) == "mock answer citing [Act, s 1]"
         assert trace.by_matter("m-stream")
     finally:
         proxy.stop()
