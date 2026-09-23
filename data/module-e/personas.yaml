@@ -1,0 +1,115 @@
+personas:
+  - name: adversary
+    description: "Red team critique — finds weaknesses, recommends KILL if unwinnable"
+    task_type: complex_reasoning
+    primary: _source/adversary.txt
+    variants: {}
+    allowed_tools: [cognee_search, skill_loader, citation_extractor]
+    denied_tools: [file_write, web_scrape, shell_exec]
+
+  - name: ambiguity
+    description: "Query complexity detector — LOW/MEDIUM/HIGH assessment before routing"
+    task_type: classification
+    primary: _source/ambiguity.txt
+    variants: {}
+    allowed_tools: [skill_loader]
+    denied_tools: [cognee_search, file_write, web_scrape, shell_exec]
+
+  - name: architect
+    description: "State management — Case Vault persistence, session continuity, state baton"
+    task_type: summarization
+    primary: _source/architect.txt
+    variants: {}
+    allowed_tools: [cognee_search, cognee_write, redis_cache, file_read, file_write]
+    denied_tools: [web_scrape, shell_exec]
+
+  - name: auditor
+    description: "Calculation specialist — all math via statutory kernel code only"
+    task_type: summarization
+    primary: _source/auditor.txt
+    variants: {}
+    allowed_tools:
+      - nz-imca-2016-calculator
+      - nz-limitation-act-checker
+      - nz-statutory-demand-validator
+      - nz-penalty-clause-analyzer
+      - nz-security-interest-checker
+      - nz-solvency-assessor
+      - nz_calendar
+    denied_tools: [web_search, web_scrape, file_write, shell_exec, cognee_search]
+
+  - name: citation
+    description: "Formats citations in legal documents using Iron Fleet's standard format, renders PDF page snippets, and enables bi-directional source highlighting."
+    task_type: drafting
+    primary: _source/citation.txt
+    variants:
+      brain: _source/citation-brain.txt
+    allowed_tools: [pdf_extractor, pdf_snippet, cognee_search]
+    denied_tools: []
+
+  - name: clerk
+    description: "Legal document drafting — memos, demands, letters, advice"
+    task_type: drafting
+    primary: _source/clerk.txt
+    variants:
+      glass: _source/clerk-glass.txt
+    allowed_tools: [cognee_search, skill_loader, citation_extractor, nz_calendar]
+    denied_tools: [file_write, web_scrape, shell_exec, ppsr_search]
+
+  - name: evaluator
+    description: "Quality assurance specialist — scoring, citation verification, approval gating"
+    task_type: complex_reasoning
+    primary: _source/evaluator.txt
+    variants: {}
+    allowed_tools: [cognee_search, citation_extractor, skill_loader]
+    denied_tools: [file_write, web_scrape, shell_exec, ppsr_search, companies_office]
+
+  - name: hunter
+    description: "Legal research specialist — case law, statutes, registries"
+    task_type: research
+    primary: _source/hunter.txt
+    variants: {}
+    allowed_tools: [cognee_search, nzlii_search, citation_extractor, ppsr_search, companies_office, skill_loader]
+    denied_tools: [file_write, web_scrape, shell_exec]
+
+  - name: ingestor
+    description: "Document ingestion -- parses, chunks, indexes client files into case workspace"
+    task_type: classification
+    primary: _source/ingestor.txt
+    variants: {}
+    allowed_tools: [cognee_ingest, legal_chunker, pdf_extractor, docx_preprocessor]
+    denied_tools: [web_scrape, shell_exec]
+
+  - name: negotiator
+    description: "ZOPA analysis — settlement ranges, BATNA, negotiation strategy"
+    task_type: complex_reasoning
+    primary: _source/negotiator.txt
+    variants:
+      glass: _source/negotiator-glass.txt
+    allowed_tools: [cognee_search, skill_loader, interest_calc, limitation_checker]
+    denied_tools: [file_write, web_scrape, shell_exec]
+
+  - name: strategist
+    description: "Strategic planning — legal position analysis, risk assessment, recommendations"
+    task_type: complex_reasoning
+    primary: _source/strategist.txt
+    variants:
+      glass: _source/strategist-glass.txt
+    allowed_tools: [cognee_search, skill_loader, citation_extractor, limitation_checker]
+    denied_tools: [file_write, web_scrape, shell_exec, ppsr_search]
+
+  - name: verifier
+    description: "Hallucination guard — extracts and grounds factual claims against corpus"
+    task_type: classification
+    primary: _source/verifier.txt
+    variants: {}
+    allowed_tools: [cognee_search, citation_extractor]
+    denied_tools: [file_write, web_scrape, shell_exec]
+
+  - name: wargamer
+    description: "Monte Carlo risk simulation — probabilistic outcome modelling"
+    task_type: complex_reasoning
+    primary: _source/wargamer.txt
+    variants: {}
+    allowed_tools: [cognee_search, skill_loader, interest_calc, limitation_checker]
+    denied_tools: [file_write, web_scrape, shell_exec]
