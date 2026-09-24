@@ -1,0 +1,11 @@
+# Byte-exact text is load-bearing in this repo: the S7c persona corpus
+# (data/module-e/personas/_source/*) must round-trip identically, and generated
+# .opencode/agent/*.md bodies must be byte-identical to their corpus source.
+# core.autocrlf=true would silently LF<->CRLF on checkout and break that parity.
+*.md   text eol=lf
+*.txt  text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.json text eol=lf
+*.ts   text eol=lf
+*.py   text eol=lf
