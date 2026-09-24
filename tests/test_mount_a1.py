@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 DATA = Path(__file__).resolve().parent.parent / "data" / "opencode-a1"
 
 def test_mount_has_exactly_one_provider():
@@ -61,3 +63,24 @@ def test_matter_example_shape():
     m = json.loads((DATA / "matter.example.json").read_text())
     assert set(m) >= {"matter_ref", "classification"}
     assert m["classification"] in ("LOCAL_ONLY", "LOCAL_PREFERRED", "CLOUD_PERMITTED")
+
+
+PERSONA_CLASSES = ["research", "analysis", "drafting", "complex_reasoning",
+                   "classification", "summarization"]
+
+@pytest.mark.parametrize("task_class", PERSONA_CLASSES)
+def test_mount_carries_every_persona_task_class(task_class):
+    # Added symmetric to BOTH files: an alias with no model (or the reverse) is the exact drift
+    # class the S7b mount was built to refuse.
+    cfg = json.loads((DATA / "opencode.json").read_text())
+    from harness.alias import load_aliases
+    aliases = load_aliases(Path(__file__).resolve().parent.parent / "data" / "routing-a1.yaml")
+    assert f"gate/{task_class}" in cfg["provider"]["gate-local"]["models"], task_class
+    assert f"gate/{task_class}" in aliases, task_class
+
+def test_every_model_output_meets_the_thomson1_floor():
+    # D12: thomson1 needs >=16k output — ~3k reasoning tokens precede content. 8192 (the old
+    # A-1 value) truncates every golden-case answer.
+    cfg = json.loads((DATA / "opencode.json").read_text())
+    for name, spec in cfg["provider"]["gate-local"]["models"].items():
+        assert spec["limit"]["output"] >= 16384, f"{name}: output below the floor"

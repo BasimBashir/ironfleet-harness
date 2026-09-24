@@ -10,31 +10,55 @@
       "models": {
         "gate/extraction": {
           "limit": {
-            "output": 8192,
+            "output": 16384,
             "context": 32768
           }
         },
         "gate/classification": {
           "limit": {
-            "output": 8192,
+            "output": 16384,
             "context": 32768
           }
         },
         "gate/redaction": {
           "limit": {
-            "output": 8192,
+            "output": 16384,
             "context": 32768
           }
         },
         "gate/grounding_check": {
           "limit": {
-            "output": 8192,
+            "output": 16384,
             "context": 32768
           }
         },
         "gate/drafting": {
           "limit": {
-            "output": 8192,
+            "output": 16384,
+            "context": 32768
+          }
+        },
+        "gate/research": {
+          "limit": {
+            "output": 16384,
+            "context": 32768
+          }
+        },
+        "gate/analysis": {
+          "limit": {
+            "output": 16384,
+            "context": 32768
+          }
+        },
+        "gate/complex_reasoning": {
+          "limit": {
+            "output": 16384,
+            "context": 32768
+          }
+        },
+        "gate/summarization": {
+          "limit": {
+            "output": 16384,
             "context": 32768
           }
         }

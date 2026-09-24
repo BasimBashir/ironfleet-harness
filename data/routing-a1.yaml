@@ -3,11 +3,15 @@
 # Empty defaults: an unrecognised task class has no candidates and REFUSES. Every class
 # the harness uses must be listed explicitly — that is the fail-closed contract.
 aliases:
-  gate/extraction:      {task_class: extraction}
-  gate/classification:  {task_class: classification}
-  gate/redaction:       {task_class: redaction}
-  gate/grounding_check: {task_class: grounding_check}
-  gate/drafting:        {task_class: drafting}
+  gate/extraction:        {task_class: extraction}
+  gate/classification:    {task_class: classification}
+  gate/redaction:         {task_class: redaction}
+  gate/grounding_check:   {task_class: grounding_check}
+  gate/drafting:          {task_class: drafting}
+  gate/research:          {task_class: research}
+  gate/analysis:          {task_class: analysis}
+  gate/complex_reasoning: {task_class: complex_reasoning}
+  gate/summarization:     {task_class: summarization}
 rules:
   - task_class: extraction
     local_only: [ollama-local]
@@ -26,9 +30,25 @@ rules:
     local_preferred: [ollama-local]
     cloud_permitted: [ollama-local]
   - task_class: drafting
-    local_only: [mini1-mlx]                    # not registered on this box → refuses
-    local_preferred: [mini1-mlx, cloud-x]
-    cloud_permitted: [cloud-x, mini1-mlx]
+    local_only: [ollama-local]
+    local_preferred: [ollama-local]
+    cloud_permitted: [ollama-local]
+  - task_class: research
+    local_only: [ollama-local]
+    local_preferred: [ollama-local]
+    cloud_permitted: [ollama-local]
+  - task_class: analysis
+    local_only: [ollama-local]
+    local_preferred: [ollama-local]
+    cloud_permitted: [ollama-local]
+  - task_class: complex_reasoning
+    local_only: [ollama-local]
+    local_preferred: [ollama-local]
+    cloud_permitted: [ollama-local]
+  - task_class: summarization
+    local_only: [ollama-local]
+    local_preferred: [ollama-local]
+    cloud_permitted: [ollama-local]
 defaults:
   local_only: []
   local_preferred: []
