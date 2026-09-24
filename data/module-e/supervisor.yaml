@@ -1,0 +1,25 @@
+# data/module-e/supervisor.yaml — routing as data (S7c spec §3.4)
+# Ported from orchestration/supervisor.py:_ROUTING_TABLE. REMOVED: predictor, ensemble,
+# red_blue — no agent directories exist for them in the old tree (verified 2026-09-23); the old
+# table referenced personas that were never built. Every name below must resolve to a shipped
+# .opencode/agent/<name>.md (Task 10 asserts it).
+default_route: [hunter]
+
+routes:
+  research:            [hunter]
+  drafting:            [hunter, clerk]
+  analysis:            [hunter, strategist]
+  calculation:         [hunter, auditor]
+  strategy_validation: [hunter, strategist, adversary, wargamer]
+  negotiation:         [hunter, strategist, negotiator]
+  risk_simulation:     [hunter, strategist, wargamer]
+  ingestion:           [ingestor]
+
+complex_intents: [strategy_validation, negotiation, risk_simulation]
+
+complexity:
+  # MEDIUM/HIGH adds strategist to any route that lacks it (old supervisor lines 407-419).
+  add_strat_on_medium_or_high: [strategist]
+  # HIGH negotiation adds wargamer (old supervisor line 427).
+  add_on_high:
+    negotiation: [wargamer]
