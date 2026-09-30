@@ -216,6 +216,42 @@ def test_rig_without_live_reports_the_behavioural_check_as_not_run(monkeypatch, 
     assert "NOT RUN" in capsys.readouterr().err
 
 
+def test_static_tier_reaches_the_child_env_check(monkeypatch):
+    # The first cut returned before verify_child_env unless --live was passed, so the static
+    # tier could not reach its own check while the header claimed it did (fix-round finding).
+    # A dirty child env must be reported on the static path, with no binary involved.
+    import scripts.stand_up_opencode as driver
+    from scripts import verify_opencode_mount as rig
+    monkeypatch.setattr(rig, "installed_version", lambda: "1.18.25")
+    monkeypatch.setattr(driver, "child_env", lambda ws: {
+        "PWD": str(ws), "AWS_REGION": "us-east-1", "ANTHROPIC_AUTH_TOKEN": "tok",
+        "OPENCODE_DISABLE_MODELS_FETCH": "1", "OPENCODE_DISABLE_TELEMETRY": "1",
+        "DO_NOT_TRACK": "1"})
+    problems, evidence = rig.verify_mount(ws=None, live=False)
+    text = "\n".join(problems)
+    assert "AWS_REGION" in text and "ANTHROPIC_AUTH_TOKEN" in text, problems
+    # bearer_keys returns sorted
+    assert evidence["child_env_bearer_keys"] == ["ANTHROPIC_AUTH_TOKEN", "AWS_REGION"]
+    assert evidence["behavioural_check"].startswith("NOT RUN")
+
+
+def test_static_tier_records_what_the_machine_carries(monkeypatch):
+    # Evidence, not a problem: a box holding provider keys is the case the scrub exists for. The
+    # static tier records what was scrubbed out of the parent so its output shows the scrub did
+    # something rather than merely existing. This box carries several ANTHROPIC_* variables that
+    # do not activate anything on the pinned binary — the assertion is a subset, because the
+    # point is that NONE of them survive into the child.
+    import scripts.stand_up_opencode as driver
+    from scripts import verify_opencode_mount as rig
+    monkeypatch.setattr(rig, "installed_version", lambda: "1.18.25")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-attacker")
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    _, evidence = rig.verify_mount(ws=None, live=False)
+    scrubbed = evidence["parent_bearer_keys_scrubbed"]
+    assert {"ANTHROPIC_API_KEY", "AWS_REGION"} <= set(scrubbed), scrubbed
+    assert evidence["child_env_bearer_keys"] == []
+
+
 def test_mount_aggregation_reports_a_leak_end_to_end(monkeypatch, tmp_path):
     # verify_mount(live=True) is the unit-tested path to the verdict: workspace synced, child
     # env scrubbed, model list asserted. The binary is stubbed; the plumbing is real.

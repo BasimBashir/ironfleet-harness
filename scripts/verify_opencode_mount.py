@@ -10,8 +10,14 @@ problem this rig must report, not a silent degradation.
 
 Two levels:
 
-  python scripts/verify_opencode_mount.py            static: pin + seams + child env
-  python scripts/verify_opencode_mount.py --live     adds the behavioural check
+  python scripts/verify_opencode_mount.py            static: version pin + child env
+  python scripts/verify_opencode_mount.py --live     adds the behavioural provider check
+
+The static tier checks the version pin and the child env the driver builds (bearer scrub +
+precheck §5 hardening), and records what provider credentials this machine actually carries and
+that the scrub removed them. GUARD_SEAMS is carried as a MANIFEST of names only: no tier probes
+those seams against the binary (that is live-only work, deferred to close-out), so this header
+does not claim them.
 
 The behavioural check is what the S7b review asked for and what the trace store can never
 give: it syncs the real mount into a throwaway workspace and asks the pinned BINARY what it
@@ -32,7 +38,7 @@ pins that).
 """
 from __future__ import annotations
 
-import json, shutil, subprocess, sys
+import json, os, shutil, subprocess, sys
 from pathlib import Path
 
 EXPECTED_VERSION = "1.18.25"
@@ -179,43 +185,58 @@ def verify_models(ws: Path, env: dict[str, str]) -> tuple[list[str], dict]:
 
 
 def verify_mount(ws: Path | None = None, live: bool = False) -> tuple[list[str], dict]:
-    """All checks. Static ones always run; the behavioural one needs the pinned binary and a
-    synced workspace, so it is behind live=True and its absence is REPORTED, never silent."""
-    problems = list(verify_version())
-    evidence: dict = {"version": installed_version(), "live": live}
-    if not live:
-        evidence["behavioural_check"] = "NOT RUN (pass --live)"
-        print(f"[rig] behavioural check NOT RUN — the positive gate-local-only assertion "
-              f"needs --live (and the pinned binary)", file=sys.stderr)
-        return problems, evidence
-
-    # The driver lives in scripts/ (no package __init__) and imports harness/* from src/: as a
-    # CLI, sys.path[0] is scripts/ itself, so neither import resolves without these two.
+    """All checks. The version pin and the child env run on BOTH tiers; the behavioural check
+    needs the pinned binary and a synced workspace, so it is behind live=True and its absence is
+    REPORTED, never silent. GUARD_SEAMS is probed on no path (see the module docstring)."""
+    # verify_child_env imports the scrub from the driver module, so the import has to resolve on
+    # the STATIC tier too: as a CLI, sys.path[0] is scripts/ itself, not the repo root. Hoisting
+    # this above the static return is what makes the child-env check reachable without --live.
     for p in (str(ROOT / "src"), str(ROOT)):
         if p not in sys.path:
             sys.path.insert(0, p)
-    from scripts.stand_up_opencode import PORT, bearer_keys, child_env, sync_mount
+    from scripts.stand_up_opencode import bearer_keys, child_env
+    problems = list(verify_version())
+
     workspace = ws
     owned = False
-    if workspace is None:
-        import tempfile
-        workspace = Path(tempfile.mkdtemp(prefix="verify-opencode-mount-"))
-        owned = True
-    evidence["workspace"] = str(workspace)
-    try:
+    if live:
+        from scripts.stand_up_opencode import PORT, sync_mount
+        if workspace is None:
+            import tempfile
+            workspace = Path(tempfile.mkdtemp(prefix="verify-opencode-mount-"))
+            owned = True
         sync_mount(workspace, MOUNT, matter_ref="verify-mount",
                    classification="LOCAL_PREFERRED", port=PORT)
         env = child_env(workspace)
-        # What the binary is actually handed — recorded so the evidence shows the scrub was
-        # applied, not merely that a scrub function exists.
-        evidence["child_env_bearer_keys"] = bearer_keys(env)
-        problems += verify_child_env(env)
+    else:
+        # Nothing is synced on the static tier, and nothing needs to be: the workspace argument
+        # only sets PWD, which verify_child_env does not inspect.
+        env = child_env(ws if ws is not None else Path.cwd())
+
+    evidence: dict = {"version": installed_version(), "live": live,
+                      "child_env_bearer_keys": bearer_keys(env)}
+    problems += verify_child_env(env)
+    # What the machine carries and what the scrub removed from the child — evidence, not a
+    # problem: a box holding provider keys is exactly the case the scrub exists for. Recorded so
+    # the static tier shows the scrub did something, not merely that it exists.
+    evidence["parent_bearer_keys_scrubbed"] = bearer_keys(dict(os.environ))
+
+    if not live:
+        evidence["behavioural_check"] = "NOT RUN (pass --live)"
+        print(f"[rig] behavioural check NOT RUN — the positive gate-local-only assertion "
+              f"needs --live (and the pinned binary); the child env WAS checked "
+              f"({len(evidence['parent_bearer_keys_scrubbed'])} provider variable(s) scrubbed "
+              f"from the parent)", file=sys.stderr)
+        return problems, evidence
+
+    evidence["workspace"] = str(workspace)
+    try:
         model_problems, model_evidence = verify_models(workspace, env)
-        problems += model_problems
-        evidence["behavioural"] = model_evidence
     finally:
         if owned:
             shutil.rmtree(workspace, ignore_errors=True)
+    problems += model_problems
+    evidence["behavioural"] = model_evidence
     return problems, evidence
 
 
@@ -240,9 +261,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[rig] {len(problems)} problem(s). Fallback is '{FALLBACK}': stay on "
               f"{EXPECTED_VERSION}.", file=sys.stderr)
         return 1
-    print(f"[rig] mount verified: opencode {EXPECTED_VERSION}, "
-          f"guard seams {list(GUARD_SEAMS)}"
-          + (", providers resolve to gate-local only" if live else ""),
+    print(f"[rig] mount verified: opencode {EXPECTED_VERSION}, child env scrubbed"
+          + (", providers resolve to gate-local only" if live else "")
+          + f"; guard seams carried but NOT probed: {list(GUARD_SEAMS)}",
           file=sys.stderr)
     return 0
 

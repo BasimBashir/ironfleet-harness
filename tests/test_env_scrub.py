@@ -68,6 +68,60 @@ def test_the_scrub_does_not_touch_the_parent_env(fake_keys):
         assert os.environ[k] == f"fake-{k}"   # scrub is copy-on-write, never destructive
 
 
+def test_the_scrub_does_not_write_the_hardening_into_the_parent_env(monkeypatch):
+    # The other half of copy-on-write. The pre-Task-12 hardening path wrote HARDEN_ENV into
+    # os.environ and left it there for the rest of the process — exactly the destructive
+    # behaviour this task retired, applied to the hardening keys instead of the bearers. A
+    # regression to that shape passes the bearer pin above and still leaks into the parent.
+    from scripts.stand_up_opencode import HARDEN_ENV, child_env
+    for k in HARDEN_ENV:
+        monkeypatch.delenv(k, raising=False)
+    child_env(ws="/tmp/ws")
+    for k in HARDEN_ENV:
+        assert k not in os.environ, \
+            f"{k} was written into the parent env — the scrub is no longer copy-on-write"
+
+
+def test_accept_s7b_run_case_passes_the_scrubbed_env(monkeypatch, tmp_path):
+    # The SECOND caller of run_opencode_session. Task 12 threaded the scrub through the driver
+    # and missed this one: the A-1 acceptance path still inherited the full parent env, with a
+    # comment asserting the old (no-longer-true) mechanism. This pins the reach, not the prose.
+    import scripts.accept_s7b as acc
+    seen = {}
+
+    def fake_session(ws, model, prompt, timeout, env=None):
+        seen["env"], seen["model"] = env, model
+        return 0, "tail text"
+
+    class _Store:
+        def by_matter(self, matter):
+            return ["row"]
+
+    class _Gate:
+        trace = _Store()
+
+    monkeypatch.setattr(acc, "run_opencode_session", fake_session)
+    monkeypatch.setattr(acc, "sync_mount", lambda *a, **k: None)
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-attacker")
+    res = acc.run_case("extraction", "prompt", _Gate(), None, tmp_path, 10)
+    assert res["rows"] == ["row"] and res["rc"] == 0
+    assert seen["model"] == "gate/extraction"
+    env = seen["env"]
+    assert env["PWD"] == str(tmp_path)
+    for k in ("AWS_REGION", "ANTHROPIC_API_KEY"):
+        assert k not in env, f"the acceptance child inherited {k}"
+
+
+def test_accept_s7b_never_mutates_its_own_process_env():
+    # The mutate-then-run pattern Task 12 retired must not come back in the acceptance path: it
+    # would leave the hardening (and any bearer-key scrub) in the accept process permanently.
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "accept_s7b.py").read_text(
+        encoding="utf-8")
+    assert "os.environ[" not in src, "the retired os.environ mutation is back in accept_s7b"
+    assert "os.environ[k] = v" not in src
+
+
 def test_the_scrub_keeps_the_vars_opencode_needs_to_start(monkeypatch):
     # Deleting bearer keys must not take PATH/APPDATA/USERPROFILE with them: opencode is
     # resolved on PATH and reads the profile/data dirs. A scrub that kept only the

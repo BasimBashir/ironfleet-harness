@@ -10,14 +10,14 @@ Run: .venv/Scripts/python.exe scripts/accept_s7b.py
 """
 from __future__ import annotations
 
-import json, os, sqlite3, subprocess, sys, uuid
+import json, sqlite3, subprocess, sys, uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.stand_up_opencode import (HOST, PORT, MOUNT, ROUTING, sync_mount,
-                                       build_gate, run_opencode_session, HARDEN_ENV)
+from scripts.stand_up_opencode import (HOST, PORT, MOUNT, ROUTING, child_env,
+                                       sync_mount, build_gate, run_opencode_session)
 from harness.egress_proxy import EgressProxy
 
 EXTRACTION_PROMPT = ("List the party names as bullets. Text: 'ACME Ltd and Beta Corp "
@@ -25,16 +25,21 @@ EXTRACTION_PROMPT = ("List the party names as bullets. Text: 'ACME Ltd and Beta 
                      "guarantor on 1 April 2026.'")
 DRAFTING_PROMPT = "Draft a statement of claim for a breach of contract."
 
-# run_opencode() builds its child env as {**os.environ, "PWD": ws} — it does NOT accept an
-# env argument. So hardening only reaches the child by mutating THIS process's os.environ,
-# which happens once in main(); do not re-derive a local env dict here.
+# The child env is built once per case, in run_case, by child_env(ws): the parent's env with
+# every provider-activating variable scrubbed (finding S1), PWD re-pinned to the workspace, and
+# the precheck §5 hardening set. It is passed down run_opencode_session -> run_opencode(env=...),
+# so THIS process's os.environ is never written. The pattern this file used before Task 12 —
+# writing HARDEN_ENV into os.environ and leaving it there for the whole acceptance — is retired,
+# and a bearer-key scrub done that way would have been destructive and irreversible.
 
 
 def run_case(task_class: str, prompt: str, gate, rt, ws: Path, timeout: int) -> dict:
     matter = f"a1-{task_class}-{uuid.uuid4()}"
     sync_mount(ws, MOUNT, matter, "LOCAL_PREFERRED", PORT)
     model = f"gate/{task_class}"
-    rc, text = run_opencode_session(ws, model, prompt, timeout)
+    # The scrubbed env, not the parent's: an acceptance run that inherited the machine's provider
+    # keys would validate a mount whose bypass surface was closed only incidentally (finding S1).
+    rc, text = run_opencode_session(ws, model, prompt, timeout, env=child_env(ws))
     rows = gate.trace.by_matter(matter)
     return {"task_class": task_class, "model": model, "rc": rc, "rows": rows,
             "out_tail": (text or "")[-400:]}
@@ -70,11 +75,6 @@ def main() -> int:
         print(f"port {PORT} busy — close whatever holds it and retry: {ex}", file=sys.stderr)
         return 2
     proxy.start()
-
-    # Hardening must land in os.environ BEFORE run_opencode_session, which copies
-    # os.environ into the child rather than accepting an env argument.
-    for k, v in HARDEN_ENV.items():
-        os.environ[k] = v
 
     results = {}
     try:
