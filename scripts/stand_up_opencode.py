@@ -18,6 +18,10 @@ from pathlib import Path
 from harness.alias import load_aliases
 from harness.egress_proxy import EgressProxy
 from harness.gate import EgressGate
+from harness.module_e.skills import sync_skills
+from harness.module_e.guard import render_guard_plugin
+from harness.module_e.personas import generate_all
+from harness.module_e.tools import ToolEntry, declared_tools, load_manifest, ported_tools
 from harness.policy import RoutingTable
 from harness.providers.probe import register_provider
 from harness.providers.http_fetch import openai_fetch
@@ -25,8 +29,15 @@ from harness.keychain import get_key
 from harness.trace import TraceStore
 
 HOST, PORT = "127.0.0.1", 7373
-DATA = Path(__file__).resolve().parent.parent / "data"
+ROOT = Path(__file__).resolve().parents[1]
+DATA = ROOT / "data"
 MOUNT = DATA / "opencode-a1"
+MODULE_E = DATA / "module-e"
+PLUGIN_SRC = ROOT / "src" / "harness" / "spike" / "candidates" / "opencode"
+GUARD_TEMPLATE = PLUGIN_SRC / "ironfleet-guard-s7c.ts"
+TOOLS_TEMPLATE = PLUGIN_SRC / "ironfleet-tools.ts"
+GUARD_CLI = ROOT / "src" / "harness" / "spike" / "guard_cli.py"
+PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 ROUTING = DATA / "routing-a1.yaml"
 OLLAMA_URL = "http://127.0.0.1:11434/v1"
 OPENCODE_EXE = os.path.join(os.environ.get("APPDATA", ""), "npm", "opencode.cmd")
@@ -39,9 +50,27 @@ HARDEN_ENV = {
 }
 
 
+def render_tools_plugin(template: str, ws: Path, python: str, manifest: Path,
+                        entries: list[ToolEntry]) -> str:
+    """Substitute the tools shim's four placeholders.
+
+    The TOOLS payload is a JSON array literal, not a bare comma list — the same lesson as the
+    guard's annotation whitelist (an unbracketed list renders something that matches nothing) —
+    and json.dumps keeps descriptions containing quotes/backslashes valid TypeScript."""
+    tools = json.dumps([{"name": e.name, "description": e.description}
+                        for e in sorted(entries, key=lambda e: e.name)], ensure_ascii=False)
+    return (template.replace("__SPIKE_WS__", str(ws).replace("\\", "/"))
+                    .replace("__PYTHON__", str(python).replace("\\", "/"))
+                    .replace("__MANIFEST__", str(manifest).replace("\\", "/"))
+                    .replace("__TOOLS__", tools))
+
+
 def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
                port: int = PORT) -> None:
-    """Copy the mount into the workspace and write the matter record.
+    """Copy the mount into the workspace and write the matter record, then assemble the full
+    S7c mount: every persona/variant agent file and its drive twin, the 26 skill documents,
+    the guard and tools plugins rendered from the committed templates, and the guard's
+    authorities.
 
     The baseURL port is substituted to match the proxy we will bind — never discovered
     from a free port, because then the mount could point at anything listening."""
@@ -49,6 +78,9 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
     # one parent into a multi-instance project, and a workspace that is not itself a repo
     # adopts a sibling's instance. The workspace must be its own repo — init only, no
     # commits, so the matter never enters any history.
+    # The driver's callers may hand us a workspace that does not exist yet; git init below needs
+    # a real cwd, and every later write needs the tree.
+    ws.mkdir(parents=True, exist_ok=True)
     if not (ws / ".git").exists():
         subprocess.run(["git", "init", "-q"], cwd=str(ws), check=True,
                        capture_output=True)
@@ -63,6 +95,33 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
     (ws / "opencode.json").write_text(json.dumps(cfg, indent=2))
     (ws / "matter.json").write_text(json.dumps(
         {"matter_ref": matter_ref, "classification": classification}, indent=2))
+
+    # --- S7c Module E (Task 10). The manifest is loaded ONCE and drives everything below, so
+    # the personas' enablement, the guard's annotation whitelist and the tools shim's tool list
+    # cannot drift apart: they are three projections of the same rows.
+    manifest = load_manifest(MODULE_E / "tools.yaml")
+    declared, ported = declared_tools(manifest), ported_tools(manifest)
+    generate_all(MODULE_E / "personas.yaml", MODULE_E / "personas", ws / ".opencode" / "agent",
+                 declared=declared, ported=ported)
+    sync_skills(MODULE_E / "skills", ws / ".opencode" / "skills")
+    (ws / ".opencode" / "plugins").mkdir(parents=True, exist_ok=True)
+    plugins = {
+        "ironfleet-guard.ts": render_guard_plugin(
+            GUARD_TEMPLATE.read_text(encoding="utf-8"), ws=ws, python=str(PYTHON),
+            guard_cli=str(GUARD_CLI), whitelist=ported),
+        "ironfleet-tools.ts": render_tools_plugin(
+            TOOLS_TEMPLATE.read_text(encoding="utf-8"), ws=ws, python=str(PYTHON),
+            manifest=MODULE_E / "tools.yaml",
+            entries=[t for t in manifest.values() if t.status == "ported"]),
+    }
+    for name, body in plugins.items():
+        (ws / ".opencode" / "plugins" / name).write_text(body, encoding="utf-8")
+    # Guard authorities: annotate-only and empty until a driver run writes real ones — the same
+    # starting state the spike's sync_workspace ships (fail-closed in the plugin if unreadable).
+    (ws / "allowed.json").write_text(json.dumps({"allowed": [], "block": False}),
+                                     encoding="utf-8")
+    # fresh guard log per sync (evidence lives in the transcripts and the sidecar too)
+    (ws / "guard-log.jsonl").write_text("", encoding="utf-8")
 
 
 def _scalar_usage(result: dict) -> dict:

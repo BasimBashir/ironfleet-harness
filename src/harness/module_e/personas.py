@@ -37,10 +37,14 @@ def _frontmatter(p: Persona, model: str, mode: str,
         unknown = [t for t in p.allowed_tools if t not in declared]
         if unknown:
             raise UnknownTool(f"{p.name}: allowed_tools {unknown} are not in the tool manifest")
-        lines.append("tools:")
-        for t in sorted(p.allowed_tools):
-            if t in ported:
-                lines.append(f"  {t}: true")
+        # `tools:` is only written when there is something under it: opencode 1.18.25 validates a
+        # bare `tools:` as null and rejects the WHOLE configuration ("Expected object | undefined,
+        # got null tools"), which takes every agent and plugin down with it (observed live with
+        # `opencode agent list` on a mounted workspace).
+        enabled = [f"  {t}: true" for t in sorted(p.allowed_tools) if t in ported]
+        if enabled:
+            lines.append("tools:")
+            lines += enabled
         deny = sorted({DENY_MAP.get(d) for d in p.denied_tools if d in DENY_MAP})
         if deny:
             lines.append("permission:")

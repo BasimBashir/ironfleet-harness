@@ -34,7 +34,7 @@ def route_tool(args: dict) -> dict:
     data = Path(__file__).resolve().parents[3] / "data" / "module-e" / "supervisor.yaml"
     routes = load_routes(data)
     known = intent in routes.routes
-    return {"intent": intent, "complexity": complexity, "defaulted": not known,
+    return {"intent": intent, "complexity": complexity, _DEFAULTED: not known,
             "personas": routes.resolve(intent, complexity)}
 
 def load_routes(path: Path) -> SupervisorRoutes:

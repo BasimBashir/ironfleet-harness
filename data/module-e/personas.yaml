@@ -1,10 +1,23 @@
+# data/module-e/personas.yaml — the S7c persona index
+#
+# Bodies: `primary`/`variants` point into `_source/`, byte-for-byte transcriptions of the old
+# tree (see PROVENANCE.md). Task 1 transcribed `allowed_tools`/`denied_tools` verbatim from the
+# old `config.yaml` files; Task 10 reconciled both lists against the tool manifest
+# (`tools.yaml`), because a persona advertising an old-tree name this mount does not have would
+# be a silent capability lie. Every disposition — mapped, dropped, or removed-from-denied — is
+# recorded in PROVENANCE.md with its reason; nothing below is an unexplained residue.
+#
+# Result: auditor is the only persona carrying tool references — one ported
+# (`ironfleet_statutory_demand`, which the generator writes as `tools: {…: true}`) plus five
+# deferred (which it records in a `# deferred` ledger). Hunter, clerk and strategist are left
+# with no tool references at all, which is correct for the acceptance spine.
 personas:
   - name: adversary
     description: "Red team critique — finds weaknesses, recommends KILL if unwinnable"
     task_type: complex_reasoning
     primary: _source/adversary.txt
     variants: {}
-    allowed_tools: [cognee_search, skill_loader, citation_extractor]
+    allowed_tools: []
     denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: ambiguity
@@ -12,15 +25,15 @@ personas:
     task_type: classification
     primary: _source/ambiguity.txt
     variants: {}
-    allowed_tools: [skill_loader]
-    denied_tools: [cognee_search, file_write, web_scrape, shell_exec]
+    allowed_tools: []
+    denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: architect
     description: "State management — Case Vault persistence, session continuity, state baton"
     task_type: summarization
     primary: _source/architect.txt
     variants: {}
-    allowed_tools: [cognee_search, cognee_write, redis_cache, file_read, file_write]
+    allowed_tools: []
     denied_tools: [web_scrape, shell_exec]
 
   - name: auditor
@@ -29,14 +42,13 @@ personas:
     primary: _source/auditor.txt
     variants: {}
     allowed_tools:
-      - nz-imca-2016-calculator
-      - nz-limitation-act-checker
-      - nz-statutory-demand-validator
-      - nz-penalty-clause-analyzer
-      - nz-security-interest-checker
-      - nz-solvency-assessor
-      - nz_calendar
-    denied_tools: [web_search, web_scrape, file_write, shell_exec, cognee_search]
+      - ironfleet_statutory_demand
+      - ironfleet_solvency_assessor
+      - ironfleet_penalty_clause
+      - ironfleet_imca_2016
+      - ironfleet_limitation_act
+      - ironfleet_security_interest
+    denied_tools: [web_search, web_scrape, file_write, shell_exec]
 
   - name: citation
     description: "Formats citations in legal documents using Iron Fleet's standard format, renders PDF page snippets, and enables bi-directional source highlighting."
@@ -44,7 +56,7 @@ personas:
     primary: _source/citation.txt
     variants:
       brain: _source/citation-brain.txt
-    allowed_tools: [pdf_extractor, pdf_snippet, cognee_search]
+    allowed_tools: []
     denied_tools: []
 
   - name: clerk
@@ -53,23 +65,23 @@ personas:
     primary: _source/clerk.txt
     variants:
       glass: _source/clerk-glass.txt
-    allowed_tools: [cognee_search, skill_loader, citation_extractor, nz_calendar]
-    denied_tools: [file_write, web_scrape, shell_exec, ppsr_search]
+    allowed_tools: []
+    denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: evaluator
     description: "Quality assurance specialist — scoring, citation verification, approval gating"
     task_type: complex_reasoning
     primary: _source/evaluator.txt
     variants: {}
-    allowed_tools: [cognee_search, citation_extractor, skill_loader]
-    denied_tools: [file_write, web_scrape, shell_exec, ppsr_search, companies_office]
+    allowed_tools: []
+    denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: hunter
     description: "Legal research specialist — case law, statutes, registries"
     task_type: research
     primary: _source/hunter.txt
     variants: {}
-    allowed_tools: [cognee_search, nzlii_search, citation_extractor, ppsr_search, companies_office, skill_loader]
+    allowed_tools: []
     denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: ingestor
@@ -77,7 +89,7 @@ personas:
     task_type: classification
     primary: _source/ingestor.txt
     variants: {}
-    allowed_tools: [cognee_ingest, legal_chunker, pdf_extractor, docx_preprocessor]
+    allowed_tools: []
     denied_tools: [web_scrape, shell_exec]
 
   - name: negotiator
@@ -86,7 +98,7 @@ personas:
     primary: _source/negotiator.txt
     variants:
       glass: _source/negotiator-glass.txt
-    allowed_tools: [cognee_search, skill_loader, interest_calc, limitation_checker]
+    allowed_tools: []
     denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: strategist
@@ -95,15 +107,15 @@ personas:
     primary: _source/strategist.txt
     variants:
       glass: _source/strategist-glass.txt
-    allowed_tools: [cognee_search, skill_loader, citation_extractor, limitation_checker]
-    denied_tools: [file_write, web_scrape, shell_exec, ppsr_search]
+    allowed_tools: []
+    denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: verifier
     description: "Hallucination guard — extracts and grounds factual claims against corpus"
     task_type: classification
     primary: _source/verifier.txt
     variants: {}
-    allowed_tools: [cognee_search, citation_extractor]
+    allowed_tools: []
     denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: wargamer
@@ -111,5 +123,5 @@ personas:
     task_type: complex_reasoning
     primary: _source/wargamer.txt
     variants: {}
-    allowed_tools: [cognee_search, skill_loader, interest_calc, limitation_checker]
+    allowed_tools: []
     denied_tools: [file_write, web_scrape, shell_exec]

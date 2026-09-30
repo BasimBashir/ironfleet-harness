@@ -1,10 +1,7 @@
 # tests/test_seam_tools.py
-from pathlib import Path
 import pytest
-from harness.module_e.supervisor import load_routes, route_tool
+from harness.module_e.supervisor import route_tool
 from harness.module_e import refine
-
-DATA = Path(__file__).resolve().parent.parent / "data"
 
 # ── route_tool (the supervisor routing, tool-shaped) ─────────────────────────
 
@@ -20,6 +17,12 @@ def test_route_defaults_on_an_unknown_intent():
 
 def test_route_is_not_a_default_when_known():
     assert route_tool({"intent": "ingestion"})["defaulted"] is False
+
+def test_route_with_no_intent_fails_loud():
+    # The missing-intent contract: `args["intent"]` indexes before anything can default, so a
+    # call with no intent raises KeyError — surfaced, never swallowed into a default route.
+    with pytest.raises(KeyError):
+        route_tool({})
 
 # ── refine_tool (critique + improve, through the gate proxy) ─────────────────
 
