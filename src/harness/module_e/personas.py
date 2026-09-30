@@ -68,9 +68,11 @@ def _deferred_ledger(p: Persona, ported: set[str]) -> str:
 def render_agent_md(p: Persona, model: str, mode: str, declared: set[str], ported: set[str],
                     source_root: Path | None = None, rel: str | None = None) -> str:
     rel = rel or p.primary
-    # newline="" is load-bearing: the repo has core.autocrlf and no .gitattributes, so a plain
-    # read_text would translate the corpus's LF to CRLF on Windows and silently break the
-    # byte-exact parity Task 1 established. Read bytes as they are in the file.
+    # newline="" is belt-and-braces: the byte-exact pin now exists (.gitattributes, b67ba30,
+    # forces eol=lf on the corpus and every generated file), but this is a direct filesystem
+    # read, not a git checkout, so a plain read_text would still translate the corpus's LF to
+    # CRLF on Windows and silently break the byte-exact parity Task 1 established. Read bytes
+    # as they are in the file.
     body = (Path(source_root) / rel).read_text(encoding="utf-8", newline="") if source_root else ""
     ledger = _deferred_ledger(p, ported) if mode == "subagent" else ""
     return f"{_frontmatter(p, model, mode, declared, ported)}---\n{ledger}{body}"

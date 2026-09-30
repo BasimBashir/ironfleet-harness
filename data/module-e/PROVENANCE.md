@@ -153,7 +153,7 @@ no-silent-drop property — so the mapping is restored.)
 
 | old name | personas carrying it | disposition |
 |---|---|---|
-| `file_write` | adversary, ambiguity, clerk, evaluator, hunter, negotiator, strategist, verifier, wargamer | KEPT → `permission: {edit: deny}` (`DENY_MAP`) |
+| `file_write` | adversary, ambiguity, auditor, clerk, evaluator, hunter, negotiator, strategist, verifier, wargamer | KEPT → `permission: {edit: deny}` (`DENY_MAP`) |
 | `web_scrape` | adversary, ambiguity, architect, auditor, clerk, evaluator, hunter, ingestor, negotiator, strategist, verifier, wargamer | KEPT → `permission: {webfetch: deny}` (`DENY_MAP`) |
 | `shell_exec` | same set as `web_scrape` | KEPT → `permission: {bash: deny}` (`DENY_MAP`) |
 | `web_search` | auditor | KEPT → `permission: {webfetch: deny}` (`DENY_MAP`) |
