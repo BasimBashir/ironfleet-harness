@@ -118,7 +118,7 @@ index carries what the mount can actually honour.
 | `nz-security-interest-checker` | auditor | → `ironfleet_security_interest` (deferred) |
 | `nz_calendar` | auditor, clerk | DROP — the `nz-court-calendar` skill doc ships at `.opencode/skills/`; wiring it as a tool is the batch task |
 | `skill_loader` | adversary, ambiguity, clerk, evaluator, hunter, negotiator, strategist, wargamer | DROP — SKILL.md docs are natively discoverable; batch task |
-| `limitation_checker` | negotiator, strategist, wargamer | DROP here — old `tools/calculation/limitation_checker.py`, the same function as the limitation skill, so the capability is `ironfleet_limitation_act` (deferred), which auditor already carries; negotiator/strategist/wargamer keep no tool reference (see note A) |
+| `limitation_checker` | negotiator, strategist, wargamer | → `ironfleet_limitation_act` (deferred) — old `tools/calculation/limitation_checker.py`, the same function as the limitation skill, so the old name resolves onto that deferred row the way the six kernel names do; negotiator/strategist/wargamer carry it in their `# deferred` ledger (see note A) |
 | `interest_calc` | negotiator, wargamer | DROP — old `tools/calculation/interest_calc.py`; both configs annotate it "IMCA 2016 for interest exposure", so `ironfleet_imca_2016` (deferred) covers the capability (see note A) |
 | `cognee_search` | adversary, architect, citation, clerk, evaluator, hunter, negotiator, strategist, verifier, wargamer | DROP — Central Brain retrieval lands with A-4 |
 | `cognee_write` | architect | DROP — same A-4 family (memory write/ingest) |
@@ -135,13 +135,19 @@ index carries what the mount can actually honour.
 | `file_write` | architect | DROP from `allowed_tools` — conservative: nothing in the acceptance spine writes files, and every other persona DENIES it |
 | `redis_cache` | architect | DROP — old `helpers/cache.py` infra, not a legal capability |
 
-Note A — the two `tools/calculation/` names. Both map onto a deferred
-capability rather than a new one, and the deferred row is already carried by
-auditor, the calculation persona. Recording the capability a second time on
-negotiator/strategist/wargamer would put tool references on personas the
-acceptance spine leaves tool-free, so the references are dropped and recorded
-here instead. The mapping is preserved above so the disposition is recoverable
-if the batch task later ports those kernels.
+Note A — the two `tools/calculation/` names. `limitation_checker` MAPS: it is
+the same function as the limitation skill, so it resolves to
+`ironfleet_limitation_act` exactly the way the six kernel names do, and
+negotiator/strategist/wargamer — the personas that allowed it in the old
+configs — carry that deferred row in their `# deferred` ledger rather than an
+enabled tool. `interest_calc` stays a DROP per the table: its capability is
+`ironfleet_imca_2016` (deferred), which auditor, the calculation persona,
+already carries, so the reference is not re-hung on negotiator/wargamer.
+
+(Correction on file: an earlier revision of this note recorded
+`limitation_checker` as a drop, reading the reconciliation's summary sentence
+over the mapping table. The table governs — it is what carries the
+no-silent-drop property — so the mapping is restored.)
 
 ### `denied_tools` — all 7 distinct names disposed
 
@@ -163,13 +169,13 @@ twin.
 
 ### Measured end state
 
-`auditor` is the only persona with tool references: `ironfleet_statutory_demand`
+`auditor` is the only persona with an ENABLED tool: `ironfleet_statutory_demand`
 (ported → the generator writes `tools: {ironfleet_statutory_demand: true}` into
-`auditor.md`) plus FIVE deferred rows recorded in its `# deferred` ledger
+`auditor.md`), plus FIVE deferred rows recorded in its `# deferred` ledger
 (`ironfleet_solvency_assessor`, `ironfleet_penalty_clause`,
 `ironfleet_imca_2016`, `ironfleet_limitation_act`,
-`ironfleet_security_interest`). The dropped `nz_calendar` survives only in this
-file. Every other persona ends with an empty `allowed_tools`; hunter, clerk and
-strategist are left with no tool references at all, which is correct for the
-acceptance spine. Exactly one persona gains an enabled tool — a measured fact,
-not a failure.
+`ironfleet_security_interest`). `negotiator`, `strategist` and `wargamer` each
+carry ONE deferred reference (`ironfleet_limitation_act`) and no enabled tool.
+Every other persona ends with an empty `allowed_tools`; hunter and clerk have no
+tool references at all, which is correct for the acceptance spine. Exactly one
+persona gains an enabled tool — a measured fact, not a failure.

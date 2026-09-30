@@ -7,10 +7,12 @@
 # be a silent capability lie. Every disposition — mapped, dropped, or removed-from-denied — is
 # recorded in PROVENANCE.md with its reason; nothing below is an unexplained residue.
 #
-# Result: auditor is the only persona carrying tool references — one ported
-# (`ironfleet_statutory_demand`, which the generator writes as `tools: {…: true}`) plus five
-# deferred (which it records in a `# deferred` ledger). Hunter, clerk and strategist are left
-# with no tool references at all, which is correct for the acceptance spine.
+# Result: auditor carries one ported reference (`ironfleet_statutory_demand`, which the generator
+# writes as `tools: {…: true}`) plus five deferred rows in its `# deferred` ledger;
+# negotiator, strategist and wargamer each carry one deferred reference
+# (`ironfleet_limitation_act`, the deferred form of the `limitation_checker` they allowed in the
+# old configs); every other persona carries no tool reference at all. Exactly one persona gains an
+# ENABLED tool — a measured fact, not a failure.
 personas:
   - name: adversary
     description: "Red team critique — finds weaknesses, recommends KILL if unwinnable"
@@ -98,7 +100,7 @@ personas:
     primary: _source/negotiator.txt
     variants:
       glass: _source/negotiator-glass.txt
-    allowed_tools: []
+    allowed_tools: [ironfleet_limitation_act]
     denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: strategist
@@ -107,7 +109,7 @@ personas:
     primary: _source/strategist.txt
     variants:
       glass: _source/strategist-glass.txt
-    allowed_tools: []
+    allowed_tools: [ironfleet_limitation_act]
     denied_tools: [file_write, web_scrape, shell_exec]
 
   - name: verifier
@@ -123,5 +125,5 @@ personas:
     task_type: complex_reasoning
     primary: _source/wargamer.txt
     variants: {}
-    allowed_tools: []
+    allowed_tools: [ironfleet_limitation_act]
     denied_tools: [file_write, web_scrape, shell_exec]

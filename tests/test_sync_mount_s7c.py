@@ -136,6 +136,22 @@ def test_no_agent_file_emits_a_bare_tools_key(tmp_path):
                 assert i + 1 < len(lines) and lines[i + 1].startswith("  "), f.name
 
 
+def test_the_limitation_checker_personas_carry_the_deferred_row(tmp_path):
+    """The mapping table governs the reconciliation, so the three personas that allowed old
+    `tools/calculation/limitation_checker.py` carry `ironfleet_limitation_act` as a DEFERRED
+    reference (a ledger line, never an enabled tool — the manifest gives it no entry)."""
+    from scripts.stand_up_opencode import sync_mount
+    ws = tmp_path / "ws"
+    sync_mount(ws, DATA / "opencode-a1", "m-test", "LOCAL_PREFERRED", 7373)
+    agent = ws / ".opencode" / "agent"
+    carriers = [f.name for f in sorted(agent.glob("*.md"))
+                if not f.stem.endswith("-drive")
+                and "#   - ironfleet_limitation_act" in f.read_text(encoding="utf-8")]
+    # variants inherit the persona's tool list, so negotiator-glass and strategist-glass carry it too
+    assert carriers == ["auditor.md", "negotiator-glass.md", "negotiator.md",
+                        "strategist-glass.md", "strategist.md", "wargamer.md"]
+
+
 def test_workspace_is_its_own_git_repo_and_uncommitted(tmp_path):
     from scripts.stand_up_opencode import sync_mount
     ws = tmp_path / "ws"
