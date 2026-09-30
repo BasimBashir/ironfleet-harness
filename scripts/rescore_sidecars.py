@@ -49,7 +49,7 @@ def _mean(xs: list[float]) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--sidecars", nargs="*", default=None,
+    ap.add_argument("--sidecars", nargs="*", type=Path, default=None,
                     help="sidecar .jsonl files (default: committed baseline chunks 2..6)")
     ap.add_argument("--cases", type=Path, default=ROOT / "data" / "golden_cases")
     ap.add_argument("--out", type=Path,

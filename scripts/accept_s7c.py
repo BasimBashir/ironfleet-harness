@@ -152,7 +152,7 @@ def write_matter(ws: Path, matter_ref: str, classification: str = "LOCAL_PREFERR
     re-syncing the mount, which would wipe the guard log."""
     (ws / "matter.json").write_text(
         json.dumps({"matter_ref": matter_ref, "classification": classification}, indent=2),
-        encoding="utf-8")
+        encoding="utf-8", newline="")
 
 
 def guard_log(ws: Path) -> list[dict]:
@@ -367,7 +367,7 @@ def mount_side(ws: Path, case: GoldenCase, env: dict, timeout: int, run_id: str)
         failure = f"driver failure ({type(ex).__name__}): {ex}"
     latency = int((time.monotonic() - t0) * 1000)
     (ws / "transcripts").mkdir(parents=True, exist_ok=True)
-    (ws / "transcripts" / f"{run_id}.jsonl").write_text(raw, encoding="utf-8")
+    (ws / "transcripts" / f"{run_id}.jsonl").write_text(raw, encoding="utf-8", newline="")
     decisions = guard_log(ws)[before:]
     write_slice(ws, run_id, decisions)
     sc, score_err = _score_or_error(text, case)
@@ -432,7 +432,9 @@ def parity_run(cases: list[GoldenCase], ws: Path, out_dir: Path, gate: EgressGat
     if limit:
         selected = selected[:limit]
     rows: list[dict] = list(done.values())
-    with sidecar_path.open("a", encoding="utf-8") as sidecar:
+    # newline="": the sidecar and the report are COMMITTED artifacts, and .gitattributes pins
+    # eol=lf — writing os.linesep here would land CRLF in the working tree on Windows.
+    with sidecar_path.open("a", encoding="utf-8", newline="") as sidecar:
         for i, case in enumerate(selected, 1):
             if case.id in done:
                 print(f"[parity {i}/{len(selected)}] {case.id}: already scored, skipped")
@@ -570,7 +572,8 @@ def _inject_run(ws: Path, env: dict, name: str, prompt: str, timeout: int) -> di
     code, raw = run_opencode(ws, ["run", "--model", f"gate-local/{MOUNT_MODEL}", "--auto",
                                   "--format", "json", prompt], timeout=timeout, env=env)
     latency = int((time.monotonic() - t0) * 1000)
-    (ws / "transcripts" / f"fail-closed-{name}.jsonl").write_text(raw, encoding="utf-8")
+    (ws / "transcripts" / f"fail-closed-{name}.jsonl").write_text(raw, encoding="utf-8",
+                                                                  newline="")
     decisions = guard_log(ws)[before:]
     write_slice(ws, f"fail-closed-{name}", decisions)
     tool_texts = spike.extract_tool_texts(spike.parse_events(raw))
@@ -849,7 +852,7 @@ def write_report(out_dir: Path, bar: dict, cov: dict, fc: dict, nb: dict, model:
               "by checks 2 and 3 on the installed binary; the version pin itself is drifted and "
               "remains a recorded user decision."]
     report = out_dir / "S7C-PARITY-REPORT.md"
-    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return report
 
 
@@ -957,7 +960,8 @@ def main(argv: list[str] | None = None) -> int:
         "check_4_no_bypass": checks["no_bypass"],
     }
     (out_dir / "acceptance-verdict.json").write_text(
-        json.dumps(verdict, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        json.dumps(verdict, ensure_ascii=False, indent=2, default=str), encoding="utf-8",
+        newline="")
     print(f"\nACCEPTANCE: {'EXIT 0 — all four checks passed' if ok else 'EXIT 1'}")
     print(f"REPORT  : {report}")
     print(f"SIDECAR : {out_dir / 'parity-sidecars.jsonl'}")
