@@ -27,6 +27,7 @@
 // Per-case authorities: <ws>/allowed.json  {"allowed": [..], "block": bool} (annotate-only
 // for parity runs; block=true demonstrates the deny decision on the tool path).
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { readFileSync, writeFileSync, appendFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 
@@ -72,19 +73,36 @@ function guardOnce(text: string, allowed: string[], tag: string): GuardDecision 
   }
 }
 
+// GUARD DECISION LOG (S7c spec §3.3: "<ws>/guard-log.jsonl — JSONL: hook, tool, decision,
+// reason"; acceptance check 2 asserts against it). One line per hook call, written inside the
+// serialized chain so lines are ordered and never interleaved. sha256_16 identifies the text
+// EXAMINED (pre-annotation), which is what lets the acceptance driver prove the 1:1
+// correspondence between the assistant completions in a session transcript and the
+// text.complete decisions recorded here — without a per-decision line this log carries only
+// retries and event summaries, and check 2 has nothing to assert. Text itself is NOT logged:
+// it already lives in the transcript, and the log stays small enough to read whole.
+function logDecision(d: GuardDecision, tag: string, text: string, authorities: number): GuardDecision {
+  appendFileSync(join(WS, "guard-log.jsonl"), JSON.stringify({
+    tag, decision: d.decision, reason: d.reason.slice(0, 200), chars: text.length,
+    sha256_16: createHash("sha256").update(text).digest("hex").slice(0, 16),
+    authorities,
+  }) + "\n")
+  return d
+}
+
 function guard(text: unknown, tag: string): GuardDecision {
   if (typeof text !== "string" || text.length === 0)
     return { decision: "approve", reason: "no text", output: typeof text === "string" ? text : "" }
   const { allowed, block } = authorities()
   const work = guardChain.then(async (): Promise<GuardDecision> => {
     try {
-      return guardOnce(text, allowed, tag)
+      return logDecision(guardOnce(text, allowed, tag), tag, text, allowed.length)
     } catch (first) {
       // One logged retry: transient spawn contention (observed on the subagent path).
       await new Promise((r) => setTimeout(r, 250))
       appendFileSync(join(WS, "guard-log.jsonl"),
         JSON.stringify({ tag, retry: true, first_error: String(first).slice(0, 300) }) + "\n")
-      return guardOnce(text, allowed, tag)
+      return logDecision(guardOnce(text, allowed, tag), tag, text, allowed.length)
     }
   })
   guardChain = work.catch(() => {})            // never break the chain on a failed call

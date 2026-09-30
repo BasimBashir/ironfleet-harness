@@ -82,6 +82,36 @@ def build_messages(case: GoldenCase) -> list[dict]:
             {"role": "user", "content": case.prompt}]
 
 
+async def build_reference_gate(base_url: str, model: str,
+                               db_path: Path) -> tuple["EgressGate | None", str]:
+    """The in-house HUNTER reference dispatch point: real probe -> honest verdict printed ->
+    the recorded in-memory admission override -> routing that makes this provider the only
+    candidate for EVERY task class (defaults, not rules — the golden cases span `analysis` and
+    `detection`, and a rules-only table with no `detection` row would refuse one case).
+
+    Extracted 2026-10-01 (S7c Task 13) so the acceptance driver can drive the reference
+    dispatch PER CASE — interleaved with the mount side, so a crash costs one case-pair, not
+    one side of thirty — instead of this script's whole-loop CLI run. run() calls this, so the
+    setup has exactly one definition and the two callers cannot drift."""
+    registry = ProviderRegistry()
+    keys: dict[str, str] = {}
+    res = await register_provider(
+        PROVIDER_NAME, base_url, "ollama-nokey-needed", model=model, engine="ollama",
+        declared={"weights_revision": ""}, registry=registry, keychain_set=keys,
+    )
+    print(f"[probe] reachable={res.reachable} auth_ok={res.auth_ok} "
+          f"provenance.verified={res.provenance.verified} -> admission={res.admission}")
+    if res.admission == "refused":
+        return None, ""
+    honest = registry.get(PROVIDER_NAME).admitted
+    registry.get(PROVIDER_NAME).admitted = "full"
+    routing = RoutingTable(rules=[], defaults={
+        "local_only": [PROVIDER_NAME], "local_preferred": [PROVIDER_NAME],
+        "cloud_permitted": [PROVIDER_NAME]})
+    gate = EgressGate(registry=registry, routing=routing, trace=TraceStore(db_path))
+    return gate, honest
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Run the in-house HUNTER persona reference eval against local Ollama.",
@@ -109,24 +139,13 @@ async def run(args: argparse.Namespace) -> int:
     print(f"[setup] using model: {model}")
 
     # 1-2. Real probe, then the inherited recorded override (verbatim pattern from the baseline).
-    registry = ProviderRegistry()
-    keys: dict[str, str] = {}
-    res = await register_provider(
-        PROVIDER_NAME, args.base_url, "ollama-nokey-needed", model=model, engine="ollama",
-        declared={"weights_revision": ""}, registry=registry, keychain_set=keys,
-    )
-    print(f"[probe] reachable={res.reachable} auth_ok={res.auth_ok} "
-          f"provenance.verified={res.provenance.verified} -> admission={res.admission}")
-    if res.admission == "refused":
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    db_path = ROOT / "data" / "eval" / f"trace-{stamp}.db"
+    gate, honest = await build_reference_gate(args.base_url, model, db_path)
+    if gate is None:
         print(f"FAIL: probe refused {PROVIDER_NAME}")
         return 1
-    honest = registry.get(PROVIDER_NAME).admitted
-    registry.get(PROVIDER_NAME).admitted = "full"
     print(f"[deviation] {DEVIATION}")
-
-    routing = RoutingTable(rules=[], defaults={
-        "local_only": [PROVIDER_NAME], "local_preferred": [PROVIDER_NAME],
-        "cloud_permitted": [PROVIDER_NAME]})
 
     all_cases = load_cases(CASES_DIR)
     cases = all_cases if args.all else select_parity_subset(all_cases)
@@ -140,9 +159,6 @@ async def run(args: argparse.Namespace) -> int:
         return 1
     print(f"[setup] {len(cases)}/{len(all_cases)} case(s) from {CASES_DIR}")
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    db_path = ROOT / "data" / "eval" / f"trace-{stamp}.db"
-    gate = EgressGate(registry=registry, routing=routing, trace=TraceStore(db_path))
     print(f"[setup] trace db: {db_path}")
 
     scores: list[CaseScore] = []
