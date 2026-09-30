@@ -1,3 +1,4 @@
+# src/harness/module_e/guard.py
 from __future__ import annotations
 from pathlib import Path
 
@@ -13,7 +14,11 @@ def annotate_eligible(tool: str, whitelist: set[str]) -> bool:
 
 def render_guard_plugin(template: str, ws: Path, python: str, guard_cli: str,
                         whitelist: set[str]) -> str:
-    wl = ", ".join(f'"{t}"' for t in sorted(whitelist | _ALWAYS_ANNOTATE))
+    # BRACKETED array literal — load-bearing. JS's Set constructor takes ONE iterable:
+    # `new Set("a", "b")` silently iterates only "a" (a string -> its characters), so an
+    # unbracketed comma list renders a set that matches NOTHING and annotation is inert
+    # (Task 5 review C1, found under Node). The brackets make the payload a real array.
+    wl = "[" + ", ".join(f'"{t}"' for t in sorted(whitelist | _ALWAYS_ANNOTATE)) + "]"
     return (template.replace("__SPIKE_WS__", str(ws).replace("\\", "/"))
                     .replace("__PYTHON__", str(python).replace("\\", "/"))
                     .replace("__GUARD_CLI__", str(guard_cli).replace("\\", "/"))

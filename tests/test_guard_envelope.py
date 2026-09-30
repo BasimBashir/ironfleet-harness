@@ -37,6 +37,15 @@ def test_render_substitutes_every_placeholder():
     assert '"route"' in out and '"refine_output"' in out
     assert "__ANNOTATE__" not in out and "__SPIKE_WS__" not in out
 
+def test_rendered_annotate_set_is_a_bracketed_array_literal():
+    # SEMANTIC, not substring-incidental: JS's Set constructor takes ONE iterable —
+    # `new Set("a", "b")` silently uses only "a" (string -> char set) and matches nothing.
+    # The rendered payload must be an array literal so the whitelist actually works.
+    out = render_guard_plugin(TEMPLATE, ws=Path("C:/ws"), python="C:/py/python.exe",
+                              guard_cli="C:/guard_cli.py",
+                              whitelist={"route", "refine_output"})
+    assert 'new Set<string>(["refine_output", "route", "task"])' in out
+
 def test_render_escapes_backslashes_for_windows_paths():
     out = render_guard_plugin(TEMPLATE, ws=Path("C:\\ws"), python="C:\\py\\python.exe",
                               guard_cli="C:\\guard_cli.py", whitelist=set())
