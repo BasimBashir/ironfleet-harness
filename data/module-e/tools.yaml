@@ -1,0 +1,169 @@
+# data/module-e/tools.yaml — the tool surface S7c exposes to OpenCode (spec §3.5)
+# status:  ported   = wired and tested this cycle
+#          deferred = named for the S7c batch task; a persona may reference it — the generator
+#                     records it in a `# deferred` ledger in the agent file rather than enabling
+#                     a tool ID that does not exist
+#          blocked  = dependency cannot be satisfied without the old tree
+# source:  path in ..\IronFleet\legalai (provenance for review)
+# aliases: old kernel names — the 6 kernels are 13-line re-export shims INTO these skills, so a
+#          kernel is an alias on a skill row, never a row of its own.
+tools:
+  - name: ironfleet_statutory_demand
+    description: "Validate a statutory demand under s 289 Companies Act 1993 and compute the
+                  s 241(4)(a) compliance deadline"
+    entry: harness.module_e.kernel_tools:statutory_demand
+    status: ported
+    source: skills/nz-statutory-demand-validator/scripts/companies_act.py
+    aliases: [companies_act]
+
+  - name: ironfleet_without_prejudice
+    description: "Detect without-prejudice correspondence and privilege markers in text"
+    entry: harness.module_e.kernel_tools:without_prejudice
+    status: ported
+    source: skills/without-prejudice-detector/scripts/without_prejudice_detector.py
+
+  - name: route
+    description: "Resolve which specialist personas handle this matter and in what order"
+    entry: harness.module_e.supervisor:route_tool
+    status: ported
+    source: orchestration/supervisor.py
+
+  - name: refine_output
+    description: "Critique and improve a draft through the gate (self-refine loop)"
+    entry: harness.module_e.refine:refine_tool
+    status: ported
+    source: helpers/self_refine.py
+
+  # --- prompt-only skills (SKILL.md, no executable script): no tool row ---
+  # affidavit-formatter, correspondence-tone-analyser, summariser, what_if_dashboard
+
+  # --- deferred: the S7c batch task ports these; each needs dependency triage ---
+  - name: ironfleet_solvency_assessor
+    description: "Responsible-lending compliance assessment (CCCFA 2003)"
+    entry: ""
+    status: deferred
+    source: skills/nz-solvency-assessor/scripts/cccfa_2003.py
+    aliases: [cccfa_2003]
+    reason: "vendored-dependency shape; batch task"
+  # ...the remaining 19 deferred rows, pinned. Kernel-backed first (aliases on the row), then
+  # the 15 plain executable skills. Names and sources measured from the old tree 2026-09-24;
+  # every row carries `entry: ""`, `status: deferred`, and its own reason.
+  - name: ironfleet_penalty_clause
+    description: "Penalty-clause analysis under the Credit Contracts Legislation Act 2017"
+    entry: ""
+    status: deferred
+    source: skills/nz-penalty-clause-analyzer/scripts/ccla_2017.py
+    aliases: [ccla_2017]
+    reason: "batch task"
+  - name: ironfleet_imca_2016
+    description: "Interest and financial exposure calculation under IMCA 2016"
+    entry: ""
+    status: deferred
+    source: skills/nz-imca-2016-calculator/scripts/imca_2016.py
+    aliases: [imca_2016]
+    reason: "batch task"
+  - name: ironfleet_limitation_act
+    description: "Limitation Act 2010 time-bar checking"
+    entry: ""
+    status: deferred
+    source: skills/nz-limitation-act-checker/scripts/limitation_act.py
+    aliases: [limitation_act]
+    reason: "batch task"
+  - name: ironfleet_security_interest
+    description: "Personal property security interest checking (PPSA 2007)"
+    entry: ""
+    status: deferred
+    source: skills/nz-security-interest-checker/scripts/pla_2007.py
+    aliases: [pla_2007]
+    reason: "batch task"
+  - name: ironfleet_exhibit_numberer
+    description: "Number and cross-reference exhibits across a document set"
+    entry: ""
+    status: deferred
+    source: skills/exhibit-numberer/scripts/exhibit_numberer.py
+    reason: "batch task"
+  - name: ironfleet_hearing_bundle
+    description: "Assemble paginated hearing bundles"
+    entry: ""
+    status: deferred
+    source: skills/hearing-bundle-assembler/scripts/hearing_bundle_assembler.py
+    reason: "batch task"
+  - name: ironfleet_context_compression
+    description: "Compress long NZ legal context while preserving citations"
+    entry: ""
+    status: deferred
+    source: skills/nz-context-compression/scripts/nz_context_compression.py
+    reason: "batch task"
+  - name: ironfleet_contract_review_analyzer
+    description: "Contract clause risk analysis"
+    entry: ""
+    status: deferred
+    source: skills/nz-contract-review-analyzer/scripts/contract_review.py
+    reason: "batch task"
+  - name: ironfleet_contract_reviewer
+    description: "Full contract review workflow"
+    entry: ""
+    status: deferred
+    source: skills/nz-contract-reviewer/scripts/nz_contract_reviewer.py
+    reason: "batch task"
+  - name: ironfleet_court_calendar
+    description: "NZ court sitting days and deadline arithmetic"
+    entry: ""
+    status: deferred
+    source: skills/nz-court-calendar/scripts/nz_court_calendar.py
+    reason: "does sys.path.insert back to the old project root — vendored for the kernel
+             chain at Task 7; tool row waits for the batch"
+  - name: ironfleet_data_structure_protocol
+    description: "NZ data structure protocol validation"
+    entry: ""
+    status: deferred
+    source: skills/nz-data-structure-protocol/scripts/nz_data_structure_protocol.py
+    reason: "batch task"
+  - name: ironfleet_differential_review
+    description: "LLM-assisted differential document review"
+    entry: ""
+    status: deferred
+    source: skills/nz-differential-review/scripts/nz_differential_review.py
+    reason: "the ONE LLM-bearing script — must dispatch through the gate; batch task"
+  - name: ironfleet_kreuzberg_ingestor
+    description: "Kreuzberg-based document ingestion"
+    entry: ""
+    status: deferred
+    source: skills/nz-kreuzberg-ingestor/scripts/nz_kreuzberg_ingestor.py
+    reason: "external dependency (kreuzberg); batch task"
+  - name: ironfleet_memory_systems
+    description: "Persistent memory system interface"
+    entry: ""
+    status: deferred
+    source: skills/nz-memory-systems/scripts/nz_memory_systems.py
+    reason: "batch task"
+  - name: ironfleet_nutrient_processor
+    description: "Document nutrient extraction and processing"
+    entry: ""
+    status: deferred
+    source: skills/nz-nutrient-processor/scripts/nz_nutrient_processor.py
+    reason: "batch task"
+  - name: ironfleet_property_based_testing
+    description: "Property-based test generation for legal computations"
+    entry: ""
+    status: deferred
+    source: skills/nz-property-based-testing/scripts/nz_property_based_testing.py
+    reason: "batch task"
+  - name: ironfleet_recursive_decomposition
+    description: "Recursive decomposition of large documents"
+    entry: ""
+    status: deferred
+    source: skills/nz-recursive-decomposition/scripts/nz_recursive_decomposition.py
+    reason: "batch task"
+  - name: ironfleet_varlock
+    description: "Variable-lock consistency checking"
+    entry: ""
+    status: deferred
+    source: skills/nz-varlock/scripts/nz_varlock.py
+    reason: "batch task"
+  - name: ironfleet_pagination_index
+    description: "Paginated index mapping for document sets"
+    entry: ""
+    status: deferred
+    source: skills/pagination-index-mapper/scripts/pagination_index_mapper.py
+    reason: "two scripts in the dir — check_bounding_boxes rides the batch"
