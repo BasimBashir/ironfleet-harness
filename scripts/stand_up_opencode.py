@@ -30,6 +30,12 @@ from harness.trace import TraceStore
 
 HOST, PORT = "127.0.0.1", 7373
 ROOT = Path(__file__).resolve().parents[1]
+# run_opencode_session resolves the spike driver by package path (scripts.run_spike_opencode),
+# and scripts/ carries no __init__.py: run as a CLI, sys.path[0] is scripts/ itself, so that
+# import cannot resolve without the repo root on sys.path (observed live 2026-10-01 — the gate
+# came up, then the session died on ModuleNotFoundError before opencode ever started).
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 DATA = ROOT / "data"
 MOUNT = DATA / "opencode-a1"
 MODULE_E = DATA / "module-e"
@@ -48,6 +54,81 @@ HARDEN_ENV = {
     "OPENCODE_DISABLE_TELEMETRY": "1",
     "DO_NOT_TRACK": "1",
 }
+
+# Variables that make opencode activate a BUILTIN provider, by name (exact) and by family
+# (prefix). S7b final review finding S1: the child otherwise inherits the full parent env, and
+# on a machine holding any of these the mount's single-provider guarantee is gone — the agent
+# can select a provider that never touches the gate. Verified live 2026-10-01 against the
+# pinned binary in a synced mount workspace: `opencode models` resolved 275 models
+# (anthropic 19, openai 61, amazon-bedrock 178) under the key set a parent process might hold,
+# where a scrubbed env resolves only gate-local (9).
+#
+# Prefixes, not just a name list — the names that activate a provider are not the names that
+# read like bearer keys. Two cases found live:
+#   * AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (the standard pair — there is no
+#     "AWS_BEDROCK_API_KEY") light up amazon-bedrock, and so does bare AWS_REGION with no
+#     credential at all: a region is enough to make the provider and its 178 models
+#     SELECTABLE, which is the surface S1 is about, credential or not.
+#   * this box carries ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL, which do NOT activate
+#     anthropic on 1.18.25 (only ANTHROPIC_API_KEY does) but are bearer credentials and a
+#     redirect target, so the whole family goes rather than relying on that accident.
+BEARER_ENV_KEYS = (
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GOOGLE_GENERATIVE_AI_KEY",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "AWS_BEDROCK_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+    "OPENROUTER_API_KEY",
+    "XAI_API_KEY",
+)
+BEARER_ENV_PREFIXES = (
+    "ANTHROPIC_",
+    "OPENAI_",
+    "GOOGLE_",
+    "GEMINI_",
+    "AZURE_",
+    "AWS_",
+    "DEEPSEEK_",
+    "GROQ_",
+    "MISTRAL_",
+    "OPENROUTER_",
+    "XAI_",
+)
+
+
+def bearer_keys(env: dict[str, str]) -> list[str]:
+    """Which of `env`'s keys the scrub would drop — the one definition of "bearer" that both
+    child_env and the rig's child-env check use, so they cannot drift apart."""
+    out = []
+    for key in env:
+        if key in BEARER_ENV_KEYS or key.startswith(BEARER_ENV_PREFIXES):
+            out.append(key)
+    return sorted(out)
+
+
+def child_env(ws: Path | str) -> dict[str, str]:
+    """The env opencode's child must run under: the parent's env, PWD re-pinned to the
+    workspace (instance resolution reads PWD, not cwd), the precheck §5 hardening, and NO
+    provider credential or provider-activating variable.
+
+    Copy-on-write by construction: this builds a new dict and never assigns into os.environ,
+    so scrubbing cannot leak into the parent process (the previous hardening path mutated
+    os.environ in main() and left the values set for the rest of the driver).
+
+    The scrub closes the *credential* half of S1 only. The keyless `opencode/*` catalog
+    models need no variable at all and survive any env scrub — `disabled_providers` in
+    data/opencode-a1/opencode.json closes that half. Neither layer alone yields a
+    gate-local-only provider set; verify_opencode_mount.py --live asserts the composition
+    against the real binary."""
+    env = {**os.environ, "PWD": str(ws), **HARDEN_ENV}
+    for key in bearer_keys(env):
+        del env[key]
+    return env
 
 
 def render_tools_plugin(template: str, ws: Path, python: str, manifest: Path,
@@ -229,20 +310,21 @@ def main(argv: list[str] | None = None) -> int:
     prompt = args.prompt or ("Extract the party names from the following text and "
                              "list them as bullets. Text: 'ACME Ltd and Beta Corp "
                              "entered into an agreement on 3 March 2026.'")
-    # Hardening lands in os.environ BEFORE run_opencode_session: run_opencode builds the
-    # child env from os.environ (with PWD=ws), so an env argument would be ignored.
-    for k, v in HARDEN_ENV.items():
-        os.environ[k] = v
+    # run_opencode's env seam takes the scrubbed env directly, so the driver's own process env
+    # is never mutated: the hardening used to be written into os.environ and left there for the
+    # remainder of the run, and a bearer-key scrub done that way would have been destructive and
+    # irreversible on failure. child_env is pure — os.environ is read, never written.
     try:
         code, text = run_opencode_session(ws, f"gate/{args.task_class}", prompt,
-                                          args.timeout)
+                                          args.timeout, env=child_env(ws))
     finally:
         proxy.stop()
     print(text, file=sys.stderr)
     return code
 
 
-def run_opencode_session(ws: Path, model: str, prompt: str, timeout: int) -> tuple[int, str]:
+def run_opencode_session(ws: Path, model: str, prompt: str, timeout: int,
+                         env: dict[str, str] | None = None) -> tuple[int, str]:
     """Supervised, tree-killed opencode run; returns (exit code, final assistant text).
 
     Reuses the spike driver's proven primitives (not reinvented): run_opencode(ws, args,
@@ -250,10 +332,14 @@ def run_opencode_session(ws: Path, model: str, prompt: str, timeout: int) -> tup
     on timeout. We only assemble the argv in the shape the spike verified live:
     `run --model <provider/model> --auto --format json <prompt>`. --format json so the
     final text is recoverable by extract_final_text(parse_events(raw)); the prompt is
-    flattened because cmd.exe ends the command line at the first embedded newline."""
+    flattened because cmd.exe ends the command line at the first embedded newline.
+
+    `env` is passed through to run_opencode; the caller passes child_env(ws) so the child
+    runs without bearer credentials (finding S1). None keeps run_opencode's own default."""
     from scripts.run_spike_opencode import run_opencode, flatten_prompt, extract_final_text, parse_events
     code, raw = run_opencode(ws, ["run", "--model", f"gate-local/{model}", "--auto",
-                                  "--format", "json", flatten_prompt(prompt)], timeout)
+                                  "--format", "json", flatten_prompt(prompt)], timeout,
+                             env=env)
     return code, extract_final_text(parse_events(raw))
 
 

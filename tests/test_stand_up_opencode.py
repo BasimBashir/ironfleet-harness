@@ -181,3 +181,53 @@ def test_build_gate_fails_loudly_if_the_seam_attribute_is_gone(tmp_path, monkeyp
         drv.build_gate(tmp_path / "trace.db")
     assert "_default_transport" in str(ex.value)
     assert "build_gate" in str(ex.value)
+
+
+def test_driver_run_as_a_script_reaches_the_spike_driver(tmp_path):
+    # Running the driver as a CLI puts scripts/ at sys.path[0] and NOT the repo root, and
+    # run_opencode_session resolves the spike driver by package path (scripts/ has no
+    # __init__.py) — so the gate bound, then the session died on ModuleNotFoundError before
+    # opencode ever started (observed live 2026-10-01). `--help` exits at argparse and never
+    # reaches that import, which is why the suite stayed green: this has to exercise it, from
+    # a cwd that is not the repo, with only scripts/ on the path the way a CLI would have it.
+    import subprocess, sys
+    probe = ("import sys; sys.path.insert(0, sys.argv[1]);"
+             "import stand_up_opencode;"
+             "from scripts.run_spike_opencode import run_opencode")
+    r = subprocess.run([sys.executable, "-c", probe,
+                        str(Path(__file__).resolve().parent.parent / "scripts")],
+                       capture_output=True, text=True, cwd=str(tmp_path), timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "No module named 'scripts'" not in r.stderr
+
+
+def test_main_hands_the_scrubbed_env_to_the_session(monkeypatch, tmp_path):
+    # The env half of S1 at the driver's entry point: main() must pass child_env(ws) down, not
+    # mutate os.environ (the pre-Task-12 hardening path) and not let the child inherit the
+    # parent env.
+    from scripts import stand_up_opencode as drv
+    seen = {}
+
+    def fake_session(ws, model, prompt, timeout, env=None):
+        seen["env"] = env
+        return 0, "ok"
+
+    monkeypatch.setattr(drv, "run_opencode_session", fake_session)
+    monkeypatch.setattr(drv, "sync_mount", lambda *a, **k: None)
+    monkeypatch.setattr(drv, "build_gate", lambda trace: (object(), object(), {}))
+
+    class _Proxy:
+        def __init__(self, *a, **k):
+            pass
+        def start(self):
+            pass
+        def stop(self):
+            pass
+    monkeypatch.setattr(drv, "EgressProxy", _Proxy)
+    rc = drv.main(["--matter-ref", "m-env", "--task-class", "extraction",
+                   "--workspace", str(tmp_path)])
+    assert rc == 0
+    env = seen["env"]
+    assert env["PWD"] == str(tmp_path)
+    assert env["OPENCODE_DISABLE_MODELS_FETCH"] == "1"
+    assert not any(k in env for k in ("ANTHROPIC_API_KEY", "AWS_REGION", "AWS_ACCESS_KEY_ID"))

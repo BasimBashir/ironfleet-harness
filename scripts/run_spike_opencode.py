@@ -152,16 +152,29 @@ def opencode_cmd() -> list[str]:
     return [exe]
 
 
-def run_opencode(ws: Path, args: list[str], timeout: int = RUN_TIMEOUT_S) -> tuple[int, str]:
+def run_opencode(ws: Path, args: list[str], timeout: int = RUN_TIMEOUT_S,
+                 env: dict[str, str] | None = None) -> tuple[int, str]:
     """Run opencode in the workspace; return (exit code, combined stdout+stderr text).
     PWD must be scrubbed: opencode reads the env's PWD for project/instance resolution and
     an inherited PWD pointing elsewhere (e.g. harness-core) steers the session into THAT
     repo's instance — observed live 2026-09-01 (ProviderModelNotFound despite cwd=ws).
     Timeout uses a TREE kill: killing only the direct child (cmd.exe) leaves opencode.exe
     holding the stdout pipe, and communicate() then blocks forever despite the timeout —
-    observed live 2026-09-01 (driver hung >1 h on a dead case)."""
-    import os
-    env = {**os.environ, "PWD": str(ws)}
+    observed live 2026-09-01 (driver hung >1 h on a dead case).
+
+    `env` is the seam the bearer-key scrub hangs on (S7b review finding S1): without it the
+    child inherits the FULL parent env, and any provider key on the machine (ANTHROPIC_API_KEY,
+    OPENAI_API_KEY, the AWS pair, …) activates opencode's builtin providers and makes them
+    selectable — verified live 2026-10-01 (275 models resolved where a scrubbed env resolves
+    9). None (the default, and every spike-driver call) keeps the historical behaviour of
+    building the child env from os.environ. A caller-supplied env is used verbatim for
+    everything EXCEPT PWD, which is always re-pinned to `ws`: the process runs with cwd=ws,
+    and a stale PWD is the wrong-instance failure above, so this seam never reintroduces it."""
+    if env is None:
+        import os
+        env = {**os.environ, "PWD": str(ws)}
+    else:
+        env = {**env, "PWD": str(ws)}
     proc = subprocess.Popen(opencode_cmd() + args, cwd=str(ws),
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, encoding="utf-8", errors="replace", env=env)
