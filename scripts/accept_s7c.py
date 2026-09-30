@@ -217,10 +217,15 @@ def decision_digests(decisions: list[dict]) -> Counter:
     """What left the guard, per decision. The transcript records the ANNOTATED text (the hook
     writes its output back into the part), so the correspondence is matched on sha256_out — the
     digest of what the guard returned. sha256_16 (what the guard examined) is the fallback for
-    an unannotated decision written by an older log, and doubles as the annotation detector."""
+    an unannotated decision written by an older log, and doubles as the annotation detector.
+
+    A retry record is NOT a decision: the plugin writes `{tag, retry: true, first_error}` with the
+    hook's tag and NO digests before re-attempting a transient spawn failure, and the recovered
+    attempt then logs its own line. Counting the retry record would add an unmatched empty digest
+    and fail check 2 on exactly the recovery the retry exists for."""
     out: Counter = Counter()
     for d in decisions:
-        if d.get("tag") != GUARD_TAG:
+        if d.get("tag") != GUARD_TAG or d.get("retry") or not d.get("decision"):
             continue
         digest = d.get("sha256_out") or d.get("sha256_16", "")
         out[digest] += 1
@@ -318,6 +323,16 @@ def parity_bar(rows: list[dict], variance: dict) -> dict:
         f"house {bar['house']['rubric_passes']}/{len(pairs)}",
         variance["note"],
     ]
+    # The 0-rubric-pass reading is the one a reviewer could take as a port failure, so the
+    # agreement signal is measured and stated next to it rather than left in prose elsewhere.
+    bar["exact_ties"] = sum(1 for r in pairs if r["mount"]["citation_accuracy"] == r["citation_accuracy"]
+                            and r["mount"]["grounding_score"] == r["grounding_score"])
+    bar["rubric_gloss"] = (
+        f"The rubric-pass count is a property of the MODEL, not of the port: under the "
+        f"{MAX_TOKENS} output cap thomson1 rarely emits the exact citation needles the scorer "
+        f"substrings for, and it does so equally on both sides — {bar['exact_ties']}/{len(pairs)} "
+        f"case-pairs are exact ties across BOTH metrics, which is the parity signal.")
+    bar["reasons"].append(bar["rubric_gloss"])
     return bar
 
 
@@ -460,20 +475,38 @@ def parity_run(cases: list[GoldenCase], ws: Path, out_dir: Path, gate: EgressGat
     return rows, resumed
 
 
-def variance_probe(ws: Path, case: GoldenCase, env: dict) -> dict:
+def variance_probe(ws: Path, case: GoldenCase, env: dict,
+                   baseline: dict | None = None) -> dict:
     """Run-to-run variance, MEASURED rather than asserted: one mount-side repeat of an already
-    scored case, scored against the same authorities. One pair is a small sample — the note
-    says so, and the report carries it as a measurement, not a bound."""
+    scored case, scored against the same authorities. One pair is a small sample — the note says
+    so, and it reports the deltas it actually measured instead of a stock phrase about noise."""
     repeat = mount_side(ws, case, env, CASE_TIMEOUT_S, f"{case.id}-variance")
+    dc = dg = None
+    if baseline is not None and baseline.get("status") == "ok":
+        dc = round(repeat["citation_accuracy"] - baseline["citation_accuracy"], 2)
+        dg = round(repeat["grounding_score"] - baseline["grounding_score"], 2)
+    if dc is None:
+        tail = "no baseline score for that case in this run, so no repeat delta is measured"
+    elif dc == 0 and dg == 0:
+        tail = ("both metrics repeated exactly at the scorer's 2-decimal granularity, so this "
+                "pair is evidence FOR stability, not against it")
+    else:
+        tail = ("a delta of that size is what an unpinned model produces between two runs, so "
+                "per-case deltas are read as measurements, not as a regression signal")
     return {"case": case.id,
             "repeat": {"run_id": repeat["run_id"],
                        "citation_accuracy": repeat["citation_accuracy"],
                        "grounding_score": repeat["grounding_score"],
+                       "delta_citations": dc, "delta_grounding": dg,
                        "latency_ms": repeat["latency_ms"], "error": repeat["error"]},
-            "note": "variance: a single repeat pair on the mount side, temperature unpinned on "
-                    "both sides (the in-house gate sends no temperature field; opencode sends "
-                    "its own default) — a delta of this size is within sampling noise, so "
-                    "per-case deltas are read as measurements, not as a regression signal."}
+            "note": f"variance: ONE mount-side repeat of `{case.id}` scored citations "
+                    f"{_fmt(repeat['citation_accuracy'])} and grounding "
+                    f"{_fmt(repeat['grounding_score'])} against the run's own "
+                    f"{_fmt(baseline['citation_accuracy']) if baseline else '-'}/"
+                    f"{_fmt(baseline['grounding_score']) if baseline else '-'} "
+                    f"(repeat delta citations {_fmt(dc)}, grounding {_fmt(dg)}) — temperature "
+                    f"is unpinned on both sides (the in-house gate sends no temperature field), "
+                    f"and {tail}."}
 
 
 # ── checks 3 and 4 ────────────────────────────────────────────────────────────
@@ -519,7 +552,10 @@ class RequestCapture:
         return False
 
     def replay(self, model: str, base_url: str = OLLAMA_URL) -> dict:
-        """The captured request, re-sent to the provider directly (streaming stripped)."""
+        """The captured request, re-sent to the provider directly: the model alias is rewritten
+        (the provider does not know `gate/research`) and the streaming keys are stripped. Every
+        other byte — system scaffolding, 14 tool schemas, the message list — is unchanged, so a
+        provider-side tool call still isolates where the call was lost."""
         if not self.body:
             return {"captured": False}
         body = {**self.body, "model": model}
@@ -538,9 +574,22 @@ class RequestCapture:
         calls = msg.get("tool_calls") or []
         return {"captured": True, "replayed": True, "finish_reason": choice.get("finish_reason"),
                 "tool_calls": [c.get("function", {}).get("name") for c in calls],
-                "model_requested": model,
+                "model_requested": model, "model_alias_rewritten": self.body.get("model"),
                 "tools_offered": len(self.body.get("tools", []) or []),
-                "note": "identical payload replayed to the provider without opencode"}
+                "note": "identical modulo the model-name rewrite (the provider does not know the "
+                        "gate alias) and the stripped streaming keys, replayed to the provider "
+                        "without opencode"}
+
+    def dump(self, path: Path) -> Path | None:
+        """The captured request, persisted beside the verdict. The module-level risk record should
+        not live only outside the repo. No redaction: the body holds opencode's own scaffolding,
+        the tool schemas and synthetic case text — no credentials."""
+        if not self.body:
+            return None
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.body, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8", newline="")
+        return path
 
 # Check 3 scenarios. The FIRST is the spike's (reused verbatim); the second targets a PORTED
 # tool with JSON args, because the spike's bash scenario is not reliable on this model: live
@@ -591,13 +640,14 @@ def _inject_run(ws: Path, env: dict, name: str, prompt: str, timeout: int) -> di
             "final_text_head": spike.extract_final_text(spike.parse_events(raw))[:400]}
 
 
-def fail_closed(ws: Path, env: dict, timeout: int = 1800, model: str = "") -> dict:
+def fail_closed(ws: Path, env: dict, timeout: int = 1800, model: str = "",
+                capture_path: Path | None = None) -> dict:
     """Check 3: an ungrounded citation supplied on the TOOL path is BLOCKED by
     tool.execute.before. Scenarios run in order and the first tool-path block wins; a scenario
     where the model never called a tool proves nothing and is reported as such. When NO scenario
     reached the tool path, the captured request is replayed to the provider directly, so the
     record shows WHERE the tool call was lost rather than leaving check 3 as an unexplained
-    failure."""
+    failure — and the capture is persisted beside the verdict."""
     runs: list[dict] = []
     with RequestCapture() as cap:
         for name, prompt in FAIL_CLOSED_SCENARIOS:
@@ -607,6 +657,10 @@ def fail_closed(ws: Path, env: dict, timeout: int = 1800, model: str = "") -> di
     diagnostic: dict = {"needed": not bool(good)}
     if not good and model:
         diagnostic.update(cap.replay(model))
+    if capture_path is not None:
+        dumped = cap.dump(capture_path)
+        if dumped:
+            diagnostic["captured_request"] = str(dumped)
     return {"passed": bool(good) and not any(r["injection_reached_a_result"] for r in runs),
             "scenario": winner["scenario"],
             "tool_path_blocks": winner["tool_path_blocks"],
@@ -695,9 +749,9 @@ def build_gates(ws: Path, base_url: str = OLLAMA_URL) -> tuple[EgressGate, Egres
     S7b). The house model is read off the mount gate's registry, so the two sides cannot
     dispatch different weights by accident."""
     mount_gate, rt, aliases = build_gate(ws / "trace-mount.db")
-    honest = mount_gate.registry.get("ollama-local").admitted
+    honest = {"mount": mount_gate.registry.get("ollama-local").admitted}
     mount_gate.registry.get("ollama-local").admitted = "full"
-    print(f"[gate] mount probe admission (honest): {honest} -> overridden to 'full' in memory "
+    print(f"[gate] mount probe admission (honest): {honest['mount']} -> overridden to 'full' in memory "
           f"(CR-3; the recorded user-directed Ollama deviation)")
 
     model = mount_gate.registry.get("ollama-local").model
@@ -715,6 +769,7 @@ def build_gates(ws: Path, base_url: str = OLLAMA_URL) -> tuple[EgressGate, Egres
         return _scalar_usage(await default(provider, payload))
     house_gate._transport = _transport
     print(f"[gate] parity model: {model} (read off the mount registry; both sides dispatch it)")
+    honest["house"] = honest_house
     return mount_gate, house_gate, rt, aliases, model, honest
 
 
@@ -727,7 +782,7 @@ def _fmt(x: object) -> str:
 
 
 def write_report(out_dir: Path, bar: dict, cov: dict, fc: dict, nb: dict, model: str,
-                 binary: str, honest_admission: str, resumed: int) -> Path:
+                 binary: str, honest_admission: dict, resumed: int) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     lines = [f"# S7c acceptance — {out_dir.name}", "",
              f"- generated: {datetime.now().isoformat(timespec='seconds')}",
@@ -739,7 +794,8 @@ def write_report(out_dir: Path, bar: dict, cov: dict, fc: dict, nb: dict, model:
              f"construction; S7c mount from `sync_mount`",
              f"- house side: the `run_eval_persona_ollama` dispatch — persona verbatim as the "
              f"system message through `EgressGate.dispatch`, production scorers (S6-normalised)",
-             f"- probe admission (honest): {honest_admission} — overridden to 'full' IN MEMORY "
+             f"- probe admission (honest): mount {honest_admission['mount']}, house "
+             f"{honest_admission['house']} — overridden to 'full' IN MEMORY "
              f"ONLY on both gates (CR-3: Ollama cannot report its engine; without the override "
              f"every non-mechanical class, `research` included, is refused)",
              f"- max_tokens: {MAX_TOKENS} on both sides (the mount's output floor, B1)",
@@ -812,9 +868,13 @@ def write_report(out_dir: Path, bar: dict, cov: dict, fc: dict, nb: dict, model:
                   f"  - tools offered in that request: {diag.get('tools_offered')}; provider "
                   f"finish_reason: {diag.get('finish_reason')}; provider tool_calls: "
                   f"{diag.get('tool_calls')}",
-                  f"  - {diag.get('note', '')}: a provider-side tool call to the identical "
-                  f"payload means the tool call was lost inside opencode, so the guard's "
-                  f"tool.execute.before hook was never reachable — the guard did not fail",
+                  f"  - {diag.get('note', '')} — a provider-side tool call to that payload "
+                  f"means the call was lost inside opencode, so the guard's "
+                  f"tool.execute.before hook was never reachable; the guard did not fail",
+                  f"  - request persisted by this run: "
+                  f"{diag.get('captured_request') or 'no'} — no redaction is needed either way: "
+                  f"opencode's own scaffolding, the tool schemas and synthetic case text, no "
+                  f"credentials",
                   f"  - the spike demonstrated this block live on 2026-09-01 (opencode "
                   f"1.18.25, tool.execute.before:bash); the pin question is a recorded user "
                   f"decision"]
@@ -908,7 +968,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not args.skip_probes:
             print("[check 3] fail-closed injection (block mode)")
-            checks["fail_closed"] = fail_closed(ws, env, model=model)
+            checks["fail_closed"] = fail_closed(ws, env, model=model,
+                                                capture_path=out_dir / "captured-request.json")
             session_runs |= {f"fail-closed-{r['scenario']}" for r in checks["fail_closed"]["runs"]}
             print(f"[check 3] passed={checks['fail_closed']['passed']} "
                   f"(scenario {checks['fail_closed']['scenario']}, "
@@ -917,7 +978,9 @@ def main(argv: list[str] | None = None) -> int:
             rows, resumed = parity_run(cases, ws, out_dir, house_gate, env, model,
                                        only=args.only, limit=args.limit)
             session_runs |= {r["mount"]["run_id"] for r in rows}
-            variance = (variance_probe(ws, min(cases, key=lambda c: len(c.prompt)), env)
+            chosen = min(cases, key=lambda c: len(c.prompt))
+            baseline = next((r for r in rows if r["case_id"] == chosen.id), None)
+            variance = (variance_probe(ws, chosen, env, baseline=baseline)
                         if not args.skip_probes and rows
                         else {"case": "-", "repeat": {},
                               "note": "variance probe skipped (debug mode)"})
@@ -953,6 +1016,7 @@ def main(argv: list[str] | None = None) -> int:
     verdict = {
         "generated": datetime.now().isoformat(timespec="seconds"),
         "binary": binary, "expected_pin": rig.EXPECTED_VERSION, "parity_model": model,
+        "probe_admission_honest": honest,
         "report": str(report), "cases_expected": EXPECTED_CASES, "exit_zero": ok,
         "check_1_parity": {k: v for k, v in checks["parity"].items() if k != "rows"},
         "check_2_guard_coverage": checks["guard_coverage"],

@@ -294,7 +294,40 @@ def test_coverage_matches_the_annotated_text_that_left_the_guard():
     assert out["passed"] is False and out["missing"]
 
 
-def test_coverage_ignores_empty_reasoning_parts_but_counts_real_ones():
+def test_coverage_ignores_a_retry_record_but_counts_the_recovered_decision():
+    """REVIEW ROUND 1, Important 1: the plugin writes `{tag, retry: true, first_error}` with the
+    hook's tag and NO digests before re-attempting a transient spawn failure. Counting it would
+    add an unmatched empty digest and fail check 2 on exactly the recovery the retry exists for —
+    a false FAIL that could not false-PASS."""
+    mod = _load()
+    texts = ["the answer."]
+    recovered = {"tag": "text.complete", "decision": "approve", "reason": "grounded",
+                 "chars": len(texts[0]), "sha256_16": mod_sha16(texts[0]),
+                 "sha256_out": mod_sha16(texts[0]), "annotated": False, "authorities": 3}
+    decisions = [{"tag": "text.complete", "retry": True,
+                  "first_error": "ironfleet-guard: guard_cli failed (text.complete) status=null"},
+                 recovered]
+    out = mod.coverage({"gc-x-001": texts}, {"gc-x-001": decisions})
+    assert out["passed"] is True and out["decisions"] == 1 and out["unmatched"] == []
+    # the guard is not merely "skip empty digests": a non-retry line with no decision field is
+    # not a decision either
+    out2 = mod.coverage({"gc-x-001": texts},
+                        {"gc-x-001": [dict(recovered, decision=None, sha256_out=None,
+                                           sha256_16="")]})
+    assert out2["passed"] is False and out2["missing"]
+
+
+def test_parity_bar_states_the_agreement_signal_next_to_the_rubric_count():
+    """REVIEW ROUND 1, Minor 9: 'rubric passes: mount 0/30, house 0/30' with no gloss reads as a
+    port failure. The agreement signal is measured and printed beside it."""
+    mod = _load()
+    rows = _rows(mod, {f"gc-x-{i:03d}": (1.0, 1.0) for i in range(1, 31)})
+    bar = mod.parity_bar(rows, {"case": "-", "repeat": {}, "note": "n/a"})
+    assert bar["exact_ties"] == 30
+    assert "30/30" in bar["rubric_gloss"] and bar["rubric_gloss"] in bar["reasons"]
+
+
+def test_parity_bar_reports_deltas_and_variance_and_never_passes_silently():
     """The plugin returns early on an empty text part (thomson1 streams empty reasoning parts),
     so an empty part is not a completion and must not read as a missing decision."""
     mod = _load()
@@ -395,9 +428,13 @@ def _rows(mod, scores: dict[str, tuple[float, float]]):
 def test_parity_bar_reports_deltas_and_variance_and_never_passes_silently():
     mod = _load()
     rows = _rows(mod, {"gc-x-001": (1.0, 1.0), "gc-x-002": (0.5, 1.0)})
-    variance = {"case": "gc-x-001", "repeat": {"citation_accuracy": 1.0, "grounding_score": 1.0,
-                                               "latency_ms": 5, "error": ""},
-                "note": "variance: a single repeat pair, temperature unpinned on both sides."}
+    variance = {"case": "gc-x-001",
+                "repeat": {"run_id": "gc-x-001-variance", "citation_accuracy": 1.0,
+                           "grounding_score": 1.0, "delta_citations": 0.0,
+                           "delta_grounding": 0.0, "latency_ms": 5, "error": ""},
+                "note": "variance: ONE mount-side repeat of `gc-x-001` scored citations 1.00 and "
+                        "grounding 1.00 against the run's own 1.00/1.00 (repeat delta citations "
+                        "+0.00, grounding +0.00) — both metrics repeated exactly."}
     bar = mod.parity_bar(rows, variance)
     assert bar["pairs_scored"] == 2 and bar["verdict"] != "PASS"      # 2 of 30 is not parity
     assert bar["mount"]["citations"] == pytest.approx(0.75)
@@ -408,6 +445,7 @@ def test_parity_bar_reports_deltas_and_variance_and_never_passes_silently():
     for reason in bar["reasons"][:4]:                  # the numeric reasons name a measurement
         assert any(ch.isdigit() for ch in reason), reason
     assert bar["variance"]["note"] in bar["reasons"]   # the variance note is never dropped
+    assert "repeat delta" in bar["variance"]["note"]   # it names the MEASURED deltas (Minor 6)
 
 
 def test_parity_bar_names_an_unscorable_pair_instead_of_passing():
