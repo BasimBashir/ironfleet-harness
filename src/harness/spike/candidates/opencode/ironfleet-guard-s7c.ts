@@ -85,6 +85,11 @@ function logDecision(d: GuardDecision, tag: string, text: string, authorities: n
   appendFileSync(join(WS, "guard-log.jsonl"), JSON.stringify({
     tag, decision: d.decision, reason: d.reason.slice(0, 200), chars: text.length,
     sha256_16: createHash("sha256").update(text).digest("hex").slice(0, 16),
+    // The ANNOTATED text is what actually leaves the hook into the session, and the transcript
+    // records that — so coverage matches on sha256_out, and sha256_16 (what was examined)
+    // doubles as the annotation detector (annotated = the two digests differ).
+    sha256_out: createHash("sha256").update(d.output).digest("hex").slice(0, 16),
+    annotated: d.output !== text,
     authorities,
   }) + "\n")
   return d

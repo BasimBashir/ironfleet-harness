@@ -102,6 +102,16 @@ def test_authorities_are_reused_verbatim_not_rederived():
     assert mod.allowed_for is spike.allowed_for        # the same function object, not a copy
 
 
+def test_the_opencode_primitives_are_the_spikes_too():
+    """The driver must not grow its own invocation or authority writer: a local re-derivation is
+    how the annotate-inside-a-needle failure (and a wrong-env child) would come back."""
+    mod = _load()
+    from scripts import run_spike_opencode as spike
+    assert mod.write_allowed is spike.write_allowed
+    assert mod.run_opencode is spike.run_opencode
+    assert mod.spike is spike
+
+
 def test_authorities_carry_expected_citations_and_their_bracket_envelopes():
     mod = _load()
     from harness.spike.guard_port import _citations
@@ -225,13 +235,18 @@ def _flat_events(*texts: str) -> str:
 
 def _decisions(*texts: str) -> list[dict]:
     return [{"tag": "text.complete", "decision": "approve", "reason": "grounded",
-             "chars": len(t), "sha256_16": mod_sha16(t), "authorities": 3}
+             "chars": len(t), "sha256_16": mod_sha16(t), "sha256_out": mod_sha16(t),
+             "annotated": False, "authorities": 3}
             for t in texts]
 
 
 def mod_sha16(text: str) -> str:
     import hashlib
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def mod_ungrounded() -> str:
+    return "[UNGROUNDED — not confirmed]"
 
 
 def test_coverage_passes_when_every_completion_has_a_decision():
@@ -257,6 +272,26 @@ def test_coverage_fails_when_the_log_records_text_the_session_never_shows():
                        {"gc-x-001": _decisions("the answer.", "a phantom completion.")})
     assert out["passed"] is False
     assert out["unmatched"][0]["sha256_16"] == mod_sha16("a phantom completion.")
+
+
+def test_coverage_matches_the_annotated_text_that_left_the_guard():
+    """LIVE FINDING (smoke run 2026-10-01): the transcript records the ANNOTATED text — the hook
+    writes its output back into the part — so the correspondence must be matched on the guard's
+    OUTPUT digest. Matching the examined digest reads every annotated completion as uncovered
+    (measured: 10 annotations in one mount-side answer)."""
+    mod = _load()
+    examined = "Per [Imaginary Act 2026, s 9] it applies."
+    annotated = f"Per [Imaginary Act 2026, s 9] {mod_ungrounded()} it applies."
+    decisions = [{"tag": "text.complete", "decision": "block",
+                  "reason": "ungrounded: ['[Imaginary Act 2026, s 9]']", "chars": len(examined),
+                  "sha256_16": mod_sha16(examined), "sha256_out": mod_sha16(annotated),
+                  "annotated": True, "authorities": 1}]
+    assert mod.coverage({"gc-x-001": [annotated]}, {"gc-x-001": decisions})["passed"] is True
+    # an older log carrying only the examined digest cannot see the correspondence: documented
+    # failure mode, not a silent pass
+    only_in = [{**decisions[0], "sha256_out": None}]
+    out = mod.coverage({"gc-x-001": [annotated]}, {"gc-x-001": only_in})
+    assert out["passed"] is False and out["missing"]
 
 
 def test_coverage_ignores_empty_reasoning_parts_but_counts_real_ones():
@@ -298,13 +333,32 @@ def test_guard_coverage_joins_transcripts_to_their_own_slices(tmp_path):
     assert out["missing"] == [{"run": "gc-x-002", "sha256_16": mod_sha16("orphan."), "count": 1}]
 
 
+def test_guard_coverage_scopes_to_this_session(tmp_path):
+    """An earlier attempt's transcripts (or a resumed run's already-scored cases) are evidence,
+    not a false FAIL: only the runs THIS session made are asserted."""
+    mod = _load()
+    ws = tmp_path / "ws"
+    (ws / "transcripts").mkdir(parents=True)
+    (ws / "guard-slices").mkdir()
+    texts = ["a completion."]
+    (ws / "transcripts" / "gc-x-001.jsonl").write_text(_flat_events(*texts), encoding="utf-8")
+    (ws / "guard-slices" / "gc-x-001.jsonl").write_text(
+        "".join(json.dumps(d) + "\n" for d in _decisions(*texts)), encoding="utf-8")
+    (ws / "transcripts" / "stale-earlier-attempt.jsonl").write_text(
+        _flat_events("stale."), encoding="utf-8")
+    out = mod.guard_coverage(ws, runs={"gc-x-001"})
+    assert out["passed"] is True
+    assert out["ignored_transcripts"] == ["stale-earlier-attempt"]
+
+
 def test_the_plugin_logs_the_fields_coverage_reads():
     """If the plugin's decision line ever drops sha256_16 (or the tag), coverage reads nothing
     and check 2 fails — this pin turns that drift into a test failure instead."""
     mod = _load()
     body = TEMPLATE.read_text(encoding="utf-8")
     log_fn = body.split("function logDecision", 1)[1].split("}", 1)[0]
-    for field in ("tag", "decision", "reason", "chars", "sha256_16", "authorities"):
+    for field in ("tag", "decision", "reason", "chars", "sha256_16", "sha256_out", "annotated",
+                  "authorities"):
         assert field in log_fn, field
     assert 'createHash("sha256")' in body
     assert mod.GUARD_TAG == "text.complete"
@@ -403,6 +457,47 @@ def test_the_shipped_tool_surface_sweeps_clean():
     out = mod.network_sweep(ROOT / "src" / "harness" / "module_e")
     assert out["network_imports"], "the sweep must actually see the gate client"
     assert out["problems"] == []
+
+
+# ── check 3's diagnostic: where did the tool call go? ─────────────────────────
+
+def test_request_capture_patches_and_restores_the_handler():
+    import harness.egress_proxy as ep
+    mod = _load()
+    before = ep._Handler.do_POST
+    with mod.RequestCapture() as cap:
+        assert ep._Handler.do_POST is not before
+        assert cap.body is None and cap.replay("m") == {"captured": False}
+    assert ep._Handler.do_POST is before
+
+
+def test_replay_reports_what_the_provider_does_with_the_identical_payload(monkeypatch):
+    mod = _load()
+    cap = mod.RequestCapture()
+    cap.body = {"model": "gate/research", "tools": [{"type": "function"}] * 14}
+
+    class _FakeResp:
+        def __init__(self, doc): self._b = json.dumps(doc).encode()
+        def read(self): return self._b
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    doc = {"choices": [{"finish_reason": "tool_calls",
+                        "message": {"tool_calls": [{"function": {"name": "bash"}},
+                                                    {"function": {"name": "ironfleet_without_prejudice"}}]}}]}
+    seen = {}
+
+    def fake_urlopen(req, timeout=0):
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp(doc)
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
+    out = cap.replay(model="thomson1-chat:latest")
+    assert out["captured"] and out["replayed"]
+    assert out["finish_reason"] == "tool_calls"
+    assert out["tool_calls"] == ["bash", "ironfleet_without_prejudice"]
+    assert out["tools_offered"] == 14
+    assert seen["body"]["model"] == "thomson1-chat:latest"     # rewritten off the gate alias
+    assert "stream" not in seen["body"] and "stream_options" not in seen["body"]
 
 
 # ── the run date is the RUN date, not the plan's ─────────────────────────────

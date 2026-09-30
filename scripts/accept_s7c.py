@@ -38,9 +38,12 @@ import argparse
 import asyncio
 import hashlib
 import json
+import io
 import os
 import sys
 import time
+import urllib.error
+import urllib.request
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -58,6 +61,7 @@ for _p in (str(ROOT / "src"), str(ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import harness.egress_proxy as ep                                     # noqa: E402
 from harness.egress_proxy import EgressProxy                           # noqa: E402
 from harness.eval.golden_case import GoldenCase, load_cases            # noqa: E402
 from harness.eval.scorers import CaseScore, score_case                 # noqa: E402
@@ -79,8 +83,11 @@ from scripts.verify_opencode_mount import verify_models                # noqa: E
 
 # The authority construction is the spike's, rebound — not a copy. Re-deriving it here is how a
 # future edit would silently re-introduce the annotate-inside-an-expected-citation failure the
-# envelopes exist to prevent (Task 10's priced seam).
+# envelopes exist to prevent (Task 10's priced seam). The opencode invocation and the authority
+# writer are rebound for the same reason: one definition, and no driver-local re-derivation.
 allowed_for = spike.allowed_for
+write_allowed = spike.write_allowed
+run_opencode = spike.run_opencode
 
 CASES_DIR = ROOT / "data" / "golden_cases"
 DATA_EVAL = ROOT / "data" / "eval"
@@ -206,10 +213,24 @@ def text_parts(raw: str) -> list[str]:
     return parts
 
 
+def decision_digests(decisions: list[dict]) -> Counter:
+    """What left the guard, per decision. The transcript records the ANNOTATED text (the hook
+    writes its output back into the part), so the correspondence is matched on sha256_out — the
+    digest of what the guard returned. sha256_16 (what the guard examined) is the fallback for
+    an unannotated decision written by an older log, and doubles as the annotation detector."""
+    out: Counter = Counter()
+    for d in decisions:
+        if d.get("tag") != GUARD_TAG:
+            continue
+        digest = d.get("sha256_out") or d.get("sha256_16", "")
+        out[digest] += 1
+    return out
+
+
 def coverage(transcripts: dict[str, list[str]],
              decisions_by_run: dict[str, list[dict]]) -> dict:
     """Check 2, pure: the 1:1 correspondence between assistant completions and text.complete
-    guard decisions, per run, by digest of the text the guard examined. Multiset equality —
+    guard decisions, per run, by digest of the text that left the guard. Multiset equality —
     a completion with no decision is text that left the model without a recorded guard pass
     (the property spec §1 names), and a decision with no completion means the log records a
     pass for text the session never shows. Either half failing is a FAIL."""
@@ -219,8 +240,7 @@ def coverage(transcripts: dict[str, list[str]],
     n_completions = n_decisions = 0
     for run_id in sorted(transcripts):
         want = Counter(sha16(t) for t in transcripts[run_id] if t.strip())
-        got = Counter(d.get("sha256_16", "") for d in decisions_by_run.get(run_id, [])
-                      if d.get("tag") == GUARD_TAG)
+        got = decision_digests(decisions_by_run.get(run_id, []))
         n_completions += sum(want.values())
         n_decisions += sum(got.values())
         for digest, n in (want - got).items():
@@ -343,9 +363,6 @@ def mount_side(ws: Path, case: GoldenCase, env: dict, timeout: int, run_id: str)
         text = spike.extract_final_text(spike.parse_events(raw))
         if not text:
             failure = f"no assistant text in events (exit={code})"
-        text = spike.extract_final_text(spike.parse_events(raw))
-        if not text:
-            failure = f"no assistant text in events (exit={code})"
     except Exception as ex:                              # noqa: BLE001 — one case, not the run
         failure = f"driver failure ({type(ex).__name__}): {ex}"
     latency = int((time.monotonic() - t0) * 1000)
@@ -447,7 +464,8 @@ def variance_probe(ws: Path, case: GoldenCase, env: dict) -> dict:
     says so, and the report carries it as a measurement, not a bound."""
     repeat = mount_side(ws, case, env, CASE_TIMEOUT_S, f"{case.id}-variance")
     return {"case": case.id,
-            "repeat": {"citation_accuracy": repeat["citation_accuracy"],
+            "repeat": {"run_id": repeat["run_id"],
+                       "citation_accuracy": repeat["citation_accuracy"],
                        "grounding_score": repeat["grounding_score"],
                        "latency_ms": repeat["latency_ms"], "error": repeat["error"]},
             "note": "variance: a single repeat pair on the mount side, temperature unpinned on "
@@ -458,36 +476,144 @@ def variance_probe(ws: Path, case: GoldenCase, env: dict) -> dict:
 
 # ── checks 3 and 4 ────────────────────────────────────────────────────────────
 
-def fail_closed(ws: Path, env: dict, timeout: int = 1800) -> dict:
-    """Check 3, on the spike's inject scenario with BLOCK=true authorities: the ungrounded
-    citation rides in the tool ARGS, so tool.execute.before is the surface that must deny it.
-    Authorities are written BEFORE the run — a driver that forgets them annotates and blocks
-    every bracket in every tool result (Task 10's priced seam) and the probe would prove
-    nothing but its own bug."""
+INJECTED = "[Imaginary Act 2026, s 9]"
+UNGROUNDED_MARKER = "[UNGROUNDED — not confirmed]"
+
+
+class RequestCapture:
+    """Records the last body opencode POSTed to the loopback gate, without altering it.
+
+    Diagnostic only (check 3): when no scenario produced a tool call, the captured body is
+    replayed STRAIGHT to the provider. If the provider answers a tool call to the identical
+    payload, the tool path was never reached inside opencode — which is the difference between
+    'the guard failed' and 'the model never got a tool call through', and the acceptance record
+    needs to know which. The handler patch is installed and removed around the probe, and the
+    body is re-fed to the original handler through a fresh BytesIO, so the request is unchanged.
+    """
+
+    def __init__(self) -> None:
+        self.body: dict | None = None
+        self._orig = None
+
+    def __enter__(self) -> "RequestCapture":
+        self._orig = ep._Handler.do_POST
+        cap = self
+
+        def patched(handler):
+            n = int(handler.headers.get("Content-Length") or 0)
+            raw = handler.rfile.read(n) if n else b"{}"
+            try:
+                cap.body = json.loads(raw)
+            except ValueError:
+                pass
+            handler.rfile = io.BytesIO(raw)
+            return cap._orig(handler)
+
+        ep._Handler.do_POST = patched
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        ep._Handler.do_POST = self._orig
+        return False
+
+    def replay(self, model: str, base_url: str = OLLAMA_URL) -> dict:
+        """The captured request, re-sent to the provider directly (streaming stripped)."""
+        if not self.body:
+            return {"captured": False}
+        body = {**self.body, "model": model}
+        body.pop("stream", None)
+        body.pop("stream_options", None)
+        req = urllib.request.Request(f"{base_url.rstrip('/')}/chat/completions",
+                                     data=json.dumps(body).encode("utf-8"),
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=900) as resp:
+                doc = json.load(resp)
+        except (urllib.error.URLError, ValueError, OSError) as ex:
+            return {"captured": True, "replayed": False, "error": f"{type(ex).__name__}: {ex}"}
+        choice = (doc.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        calls = msg.get("tool_calls") or []
+        return {"captured": True, "replayed": True, "finish_reason": choice.get("finish_reason"),
+                "tool_calls": [c.get("function", {}).get("name") for c in calls],
+                "model_requested": model,
+                "tools_offered": len(self.body.get("tools", []) or []),
+                "note": "identical payload replayed to the provider without opencode"}
+
+# Check 3 scenarios. The FIRST is the spike's (reused verbatim); the second targets a PORTED
+# tool with JSON args, because the spike's bash scenario is not reliable on this model: live
+# 2026-10-01 thomson1 answered the echo request in a fenced code block instead of calling the
+# tool, which proves the model-output path but never exercises tool.execute.before. The check
+# passes on the first scenario that produces a tool-path block — the property under test is the
+# guard's deny decision on the tool path, not one phrasing of the request.
+FAIL_CLOSED_SCENARIOS: list[tuple[str, str]] = [
+    ("bash-args", spike.INJECT_PROMPT),
+    ("ported-tool-args",
+     "Use the ironfleet_without_prejudice tool with exactly these arguments: "
+     'content = "Per [Imaginary Act 2026, s 9] the threshold applies here." and '
+     'trust_tier = "T2". You MUST call the tool; do not answer from your own knowledge and do '
+     "not describe the call."),
+]
+
+
+def _inject_run(ws: Path, env: dict, name: str, prompt: str, timeout: int) -> dict:
+    """One injection scenario under BLOCK=true authorities. The ungrounded citation rides in
+    the tool ARGS, so tool.execute.before is the surface that must deny it. Authorities are
+    written BEFORE the run — a driver that forgets them annotates and blocks every bracket in
+    every tool result (Task 10's priced seam) and the probe would prove nothing but its own
+    bug. This is the spike's inject_run shape (transcript, decision slice, verdict), reused
+    rather than reinvented."""
     write_matter(ws, f"{MATTER_PREFIX}-failclosed")
     write_allowed(ws, allowed=["Real Authority Act 1908"], block=True)
     before = len(guard_log(ws))
     t0 = time.monotonic()
     code, raw = run_opencode(ws, ["run", "--model", f"gate-local/{MOUNT_MODEL}", "--auto",
-                                  "--format", "json", spike.INJECT_PROMPT],
-                             timeout=timeout, env=env)
+                                  "--format", "json", prompt], timeout=timeout, env=env)
     latency = int((time.monotonic() - t0) * 1000)
-    (ws / "transcripts" / "fail-closed.jsonl").write_text(raw, encoding="utf-8")
+    (ws / "transcripts" / f"fail-closed-{name}.jsonl").write_text(raw, encoding="utf-8")
     decisions = guard_log(ws)[before:]
-    write_slice(ws, "fail-closed", decisions)
+    write_slice(ws, f"fail-closed-{name}", decisions)
     tool_texts = spike.extract_tool_texts(spike.parse_events(raw))
     blocks = [d for d in decisions if str(d.get("tag", "")).startswith("tool.execute.before")
               and d.get("decision") == "block"]
-    injected = "[Imaginary Act 2026, s 9]"
-    marker = "[UNGROUNDED — not confirmed]"
-    return {"exit_code": code, "latency_ms": latency, "guard_decisions": decisions,
-            "tool_result_texts": len(tool_texts), "tool_path_blocks": blocks,
-            "block_names_injected": any(injected in d.get("reason", "") for d in blocks),
-            "injection_reached_a_result": any(injected in t and marker not in t
+    return {"scenario": name, "exit_code": code, "latency_ms": latency,
+            "tool_result_texts": len(tool_texts),
+            "tool_path_blocks": blocks,
+            "block_names_injected": any(INJECTED in d.get("reason", "") for d in blocks),
+            "injection_reached_a_result": any(INJECTED in t and UNGROUNDED_MARKER not in t
                                               for t in tool_texts),
-            "final_text_head": spike.extract_final_text(spike.parse_events(raw))[:400],
-            "passed": bool(blocks) and any(injected in d.get("reason", "") for d in blocks)
-            and not any(injected in t and marker not in t for t in tool_texts)}
+            "model_output_annotated": UNGROUNDED_MARKER
+            in spike.extract_final_text(spike.parse_events(raw)),
+            "guard_decisions": decisions,
+            "final_text_head": spike.extract_final_text(spike.parse_events(raw))[:400]}
+
+
+def fail_closed(ws: Path, env: dict, timeout: int = 1800, model: str = "") -> dict:
+    """Check 3: an ungrounded citation supplied on the TOOL path is BLOCKED by
+    tool.execute.before. Scenarios run in order and the first tool-path block wins; a scenario
+    where the model never called a tool proves nothing and is reported as such. When NO scenario
+    reached the tool path, the captured request is replayed to the provider directly, so the
+    record shows WHERE the tool call was lost rather than leaving check 3 as an unexplained
+    failure."""
+    runs: list[dict] = []
+    with RequestCapture() as cap:
+        for name, prompt in FAIL_CLOSED_SCENARIOS:
+            runs.append(_inject_run(ws, env, name, prompt, timeout))
+    good = [r for r in runs if r["block_names_injected"]]
+    winner = good[0] if good else runs[-1]
+    diagnostic: dict = {"needed": not bool(good)}
+    if not good and model:
+        diagnostic.update(cap.replay(model))
+    return {"passed": bool(good) and not any(r["injection_reached_a_result"] for r in runs),
+            "scenario": winner["scenario"],
+            "tool_path_blocks": winner["tool_path_blocks"],
+            "block_names_injected": winner["block_names_injected"],
+            "tool_result_texts": winner["tool_result_texts"],
+            "injection_reached_a_result": any(r["injection_reached_a_result"] for r in runs),
+            "exit_code": winner["exit_code"], "latency_ms": winner["latency_ms"],
+            "final_text_head": winner["final_text_head"],
+            "diagnostic": diagnostic,
+            "runs": [{k: v for k, v in r.items() if k != "guard_decisions"} for r in runs]}
 
 
 def network_sweep(root: Path, allowed_files: set[str] = frozenset({"refine.py"})) -> dict:
@@ -524,21 +650,30 @@ def no_bypass(ws: Path, env: dict) -> dict:
 
 # ── assembly ──────────────────────────────────────────────────────────────────
 
-def guard_coverage(ws: Path) -> dict:
-    """Check 2 over the real workspace: every transcript that carries assistant text, joined to
-    the guard-decision slice its own run wrote."""
+def guard_coverage(ws: Path, runs: set[str] | None = None) -> dict:
+    """Check 2 over the real workspace: the transcripts THIS session wrote, joined to the
+    guard-decision slice each of its runs wrote. Scoped to `runs` so an earlier attempt's
+    transcripts (or a resumed run's already-scored cases) are evidence, not a false FAIL."""
     tdir = ws / "transcripts"
     texts: dict[str, list[str]] = {}
+    ignored: list[str] = []
     for f in sorted(tdir.glob("*.jsonl")) if tdir.exists() else []:
+        if runs is not None and f.stem not in runs:
+            ignored.append(f.stem)
+            continue
         parts = text_parts(f.read_text(encoding="utf-8"))
         if parts:
             texts[f.stem] = parts
     decisions: dict[str, list[dict]] = {}
     sdir = ws / "guard-slices"
     for f in sorted(sdir.glob("*.jsonl")) if sdir.exists() else []:
+        if runs is not None and f.stem not in runs:
+            continue
         decisions[f.stem] = [json.loads(l) for l in
                              f.read_text(encoding="utf-8").splitlines() if l.strip()]
-    return coverage(texts, decisions)
+    out = coverage(texts, decisions)
+    out["ignored_transcripts"] = sorted(ignored)
+    return out
 
 
 def build_gates(ws: Path, base_url: str = OLLAMA_URL) -> tuple[EgressGate, EgressGate, dict,
@@ -647,6 +782,8 @@ def write_report(out_dir: Path, bar: dict, cov: dict, fc: dict, nb: dict, model:
               + (f" -> {cov['missing'][:5]}" if cov["missing"] else ""),
               f"- decisions without a completion: {len(cov['unmatched'])}"
               + (f" -> {cov['unmatched'][:5]}" if cov["unmatched"] else ""),
+              f"- transcripts outside this session (ignored): "
+              f"{len(cov.get('ignored_transcripts', []))}",
               "- per-run counts: " + ", ".join(
                   f"{k} ({v['completions']}/{v['decisions']})"
                   for k, v in sorted(cov["runs"].items())), "",
@@ -658,9 +795,30 @@ def write_report(out_dir: Path, bar: dict, cov: dict, fc: dict, nb: dict, model:
               f"{fc.get('injection_reached_a_result')}",
               f"- exit={fc.get('exit_code')}, latency_ms={fc.get('latency_ms')}, tool-result "
               f"texts seen: {fc.get('tool_result_texts')}",
-              f"- final text head: `{str(fc.get('final_text_head'))[:200]}`", "",
-              "## Check 4 — no bypass", ""]
-    beh = nb.get("rig_evidence", {}).get("behavioural", {}) or {}
+              f"- final text head: `{str(fc.get('final_text_head'))[:200]}`"]
+    for r in fc.get("runs", []):
+        lines.append(f"- scenario `{r['scenario']}`: tool-path blocks "
+                     f"{len(r.get('tool_path_blocks', []))}, tool-result texts "
+                     f"{r.get('tool_result_texts')}, model output annotated "
+                     f"{r.get('model_output_annotated')}")
+    diag = fc.get("diagnostic", {}) or {}
+    if diag.get("needed"):
+        lines += ["- DIAGNOSTIC (no scenario reached the tool path):",
+                  f"  - request captured: {diag.get('captured')}; replayed to the provider "
+                  f"directly: {diag.get('replayed')}",
+                  f"  - tools offered in that request: {diag.get('tools_offered')}; provider "
+                  f"finish_reason: {diag.get('finish_reason')}; provider tool_calls: "
+                  f"{diag.get('tool_calls')}",
+                  f"  - {diag.get('note', '')}: a provider-side tool call to the identical "
+                  f"payload means the tool call was lost inside opencode, so the guard's "
+                  f"tool.execute.before hook was never reachable — the guard did not fail",
+                  f"  - the spike demonstrated this block live on 2026-09-01 (opencode "
+                  f"1.18.25, tool.execute.before:bash); the pin question is a recorded user "
+                  f"decision"]
+        if diag.get("error"):
+            lines.append(f"  - replay error: {diag['error']}")
+    lines += ["", "## Check 4 — no bypass", ""]
+    beh = nb.get("rig_evidence", {}) or {}
     resolved = beh.get("resolved_models", []) or []
     lines += [f"**{'PASS' if nb.get('passed') else 'FAIL'}** — opencode resolved "
               f"{len(resolved)} model(s) from "
@@ -743,18 +901,25 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[gate] proxy on http://{HOST}:{PORT}/v1; aliases {sorted(aliases)}", file=sys.stderr)
 
     checks: dict[str, dict] = {}
+    session_runs: set[str] = set()          # check 2 is scoped to THIS acceptance session
     try:
         if not args.skip_probes:
             print("[check 3] fail-closed injection (block mode)")
-            checks["fail_closed"] = fail_closed(ws, env)
-            print(f"[check 3] passed={checks['fail_closed']['passed']}")
+            checks["fail_closed"] = fail_closed(ws, env, model=model)
+            session_runs |= {f"fail-closed-{r['scenario']}" for r in checks["fail_closed"]["runs"]}
+            print(f"[check 3] passed={checks['fail_closed']['passed']} "
+                  f"(scenario {checks['fail_closed']['scenario']}, "
+                  f"{len(checks['fail_closed']['tool_path_blocks'])} tool-path block(s))")
         if not args.skip_parity:
             rows, resumed = parity_run(cases, ws, out_dir, house_gate, env, model,
                                        only=args.only, limit=args.limit)
+            session_runs |= {r["mount"]["run_id"] for r in rows}
             variance = (variance_probe(ws, min(cases, key=lambda c: len(c.prompt)), env)
                         if not args.skip_probes and rows
                         else {"case": "-", "repeat": {},
                               "note": "variance probe skipped (debug mode)"})
+            if "run_id" in variance.get("repeat", {}):
+                session_runs.add(variance["repeat"]["run_id"])
             checks["parity"] = parity_bar(rows, variance)
             checks["parity"]["rows"] = rows
             checks["resumed"] = {"count": resumed}
@@ -762,7 +927,7 @@ def main(argv: list[str] | None = None) -> int:
             print("[check 4] no bypass (rig assertion + tool-surface network sweep)")
             checks["no_bypass"] = no_bypass(ws, env)
             print(f"[check 4] passed={checks['no_bypass']['passed']}")
-        checks["guard_coverage"] = guard_coverage(ws)
+        checks["guard_coverage"] = guard_coverage(ws, session_runs)
         print(f"[check 2] coverage passed={checks['guard_coverage']['passed']} "
               f"({checks['guard_coverage']['covered']}/"
               f"{checks['guard_coverage']['completions']} completions, "
@@ -775,26 +940,22 @@ def main(argv: list[str] | None = None) -> int:
               f"Sidecar + transcripts written under {out_dir}")
         return 2
 
+    ok = (checks["parity"]["verdict"] == "PASS"
+          and checks["guard_coverage"]["passed"] is True
+          and checks["fail_closed"]["passed"] is True
+          and checks["no_bypass"]["passed"] is True)
     report = write_report(out_dir, checks["parity"], checks["guard_coverage"],
                           checks["fail_closed"], checks["no_bypass"], model, binary,
                           honest, checks["resumed"]["count"])
     verdict = {
         "generated": datetime.now().isoformat(timespec="seconds"),
         "binary": binary, "expected_pin": rig.EXPECTED_VERSION, "parity_model": model,
-        "report": str(report), "cases_expected": EXPECTED_CASES,
+        "report": str(report), "cases_expected": EXPECTED_CASES, "exit_zero": ok,
         "check_1_parity": {k: v for k, v in checks["parity"].items() if k != "rows"},
         "check_2_guard_coverage": checks["guard_coverage"],
         "check_3_fail_closed": checks["fail_closed"],
         "check_4_no_bypass": checks["no_bypass"],
-        "exit_zero": False,
     }
-    (out_dir / "acceptance-verdict.json").write_text(
-        json.dumps(verdict, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    ok = (checks["parity"]["verdict"] == "PASS"
-          and checks["guard_coverage"]["passed"] is True
-          and checks["fail_closed"]["passed"] is True
-          and checks["no_bypass"]["passed"] is True)
-    verdict["exit_zero"] = ok
     (out_dir / "acceptance-verdict.json").write_text(
         json.dumps(verdict, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"\nACCEPTANCE: {'EXIT 0 — all four checks passed' if ok else 'EXIT 1'}")
