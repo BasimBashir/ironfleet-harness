@@ -24,6 +24,19 @@ class SupervisorRoutes:
                     agents.append(a)
         return list(dict.fromkeys(agents))
 
+_DEFAULTED = "defaulted"
+
+def route_tool(args: dict) -> dict:
+    """The manifest's `route` entry: resolve an intent to its ordered persona list. Reads the
+    shipped routing data — every routing decision stays a thing a test can read."""
+    intent = args["intent"]
+    complexity = args.get("complexity", "LOW")
+    data = Path(__file__).resolve().parents[3] / "data" / "module-e" / "supervisor.yaml"
+    routes = load_routes(data)
+    known = intent in routes.routes
+    return {"intent": intent, "complexity": complexity, "defaulted": not known,
+            "personas": routes.resolve(intent, complexity)}
+
 def load_routes(path: Path) -> SupervisorRoutes:
     doc = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return SupervisorRoutes(
