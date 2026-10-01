@@ -184,7 +184,10 @@ async def check_c4(gate, res) -> list[str]:
     problems: list[str] = []
     if res is None:
         return ["C4: no embedding result from C3 to store"]
-    res2 = await gate.embed(EmbeddingRequest(matter_ref=MATTER_OTHER, texts=TEXTS_2))
+    try:
+        res2 = await gate.embed(EmbeddingRequest(matter_ref=MATTER_OTHER, texts=TEXTS_2))
+    except Exception as ex:                       # noqa: BLE001
+        return [f"C4: second live embed raised {ex!r}"]
     store = VectorStore(WS / "vectors.db")
     n1 = store.add(MATTER_REF, TEXTS, res.vectors, model=EMBED_MODEL, provider="ollama-embed")
     n2 = store.add(MATTER_OTHER, TEXTS_2, res2.vectors, model=EMBED_MODEL, provider="ollama-embed")
@@ -207,16 +210,21 @@ async def check_c4(gate, res) -> list[str]:
     return problems
 
 
-async def check_c5() -> list[str]:
+def check_c5() -> list[str]:
     """A table with no embedding rule: the class falls to the empty defaults, no
     candidate qualifies, and embed() traces a refusal and raises — the SAME refusal
-    semantics dispatch() uses."""
+    semantics dispatch() uses.
+
+    Synchronous: build_gate() probes Ollama via asyncio.run internally, so this check
+    must not itself run inside an event loop (main calls it directly, not via
+    asyncio.run). Only the single embed() call needs a loop.
+    """
     problems: list[str] = []
     p = WS / "no-embedding.yaml"
     p.write_text(NO_EMBEDDING_RULE)
     gate, _rt, _aliases = build_gate(WS / "trace-c5.db", routing=p)
     try:
-        await gate.embed(EmbeddingRequest(matter_ref=MATTER_REF, texts=["a"]))
+        asyncio.run(gate.embed(EmbeddingRequest(matter_ref=MATTER_REF, texts=["a"])))
         problems.append("C5: embed against a table with no embedding rule did not raise")
     except GateRefusal:
         pass
@@ -248,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     c3, res = asyncio.run(check_c3(gate))
     problems += c3
     problems += asyncio.run(check_c4(gate, res))
-    problems += asyncio.run(check_c5())
+    problems += check_c5()
 
     print("", file=sys.stderr)
     if problems:
