@@ -60,3 +60,67 @@ def test_unprobed_provider_defaults_to_refused_and_never_routes(tmp_path):
     picks = RoutingTable.from_yaml(p).route(
         "drafting", MatterPolicy(matter_ref="M", classification="LOCAL_PREFERRED"), reg)
     assert picks == []                                             # never probed -> never routed
+
+# --- A-4: the embedding class is structurally LOCAL_ONLY (policy.py) -------------------
+
+EMB_ROUTING = """
+rules:
+  - task_class: embedding
+    local_only: [emb-local]
+    local_preferred: [emb-local]
+    cloud_permitted: [cloud-emb, emb-local]   # misconfigured: a cloud embedder named as permitted
+  - task_class: drafting
+    local_only: [mini1-mlx]
+    local_preferred: [mini1-mlx, cloud-x]
+    cloud_permitted: [cloud-x, mini1-mlx]
+defaults:
+  local_only: [mini1-mlx]
+  local_preferred: [mini1-mlx, cloud-x]
+  cloud_permitted: [cloud-x, mini1-mlx]
+"""
+
+def _registry_with_embedders():
+    reg = ProviderRegistry()
+    reg.upsert(ProviderConfig(name="mini1-mlx", base_url="http://m1/v1", engine="mlx-lm",
+                              tier="local", admitted="full"))
+    reg.upsert(ProviderConfig(name="emb-local", base_url="http://m2/v1", engine="ollama",
+                              tier="local", admitted="mechanical-only"))
+    reg.upsert(ProviderConfig(name="cloud-emb", base_url="https://ce/v1", engine="cloud",
+                              tier="cloud", admitted="full"))
+    reg.upsert(ProviderConfig(name="cloud-x", base_url="https://cx/v1", engine="cloud",
+                              tier="cloud", admitted="full"))
+    return reg
+
+def test_embedding_never_routes_to_cloud_even_when_cloud_permitted_lists_it(tmp_path):
+    # The load-bearing A-4 assertion: a cloud embedder the routing table EXPLICITLY
+    # permits under cloud_permitted is still unreachable for the embedding class.
+    p = tmp_path / "emb.yaml"; p.write_text(EMB_ROUTING)
+    rt = RoutingTable.from_yaml(p)
+    picks = rt.route("embedding", MatterPolicy(matter_ref="M",
+                                               classification="CLOUD_PERMITTED"),
+                     _registry_with_embedders())
+    assert picks, "embedding class must have at least one local candidate"
+    assert all(c.tier == "local" for c in picks), \
+        f"embedding class routed to cloud-tier providers: {[c.name for c in picks]}"
+    assert "cloud-emb" not in [c.name for c in picks]
+
+def test_embedding_local_only_prefers_local_embedder(tmp_path):
+    p = tmp_path / "emb.yaml"; p.write_text(EMB_ROUTING)
+    rt = RoutingTable.from_yaml(p)
+    picks = rt.route("embedding", MatterPolicy(matter_ref="M", classification="LOCAL_ONLY"),
+                     _registry_with_embedders())
+    assert [c.name for c in picks] == ["emb-local"]
+
+def test_local_only_filter_does_not_widen_to_other_classes(tmp_path):
+    # Regression guard: drafting under CLOUD_PERMITTED must still reach the cloud
+    # provider — the new filter is scoped to LOCAL_ONLY_TASKS, not to everything.
+    p = tmp_path / "emb.yaml"; p.write_text(EMB_ROUTING)
+    rt = RoutingTable.from_yaml(p)
+    picks = rt.route("drafting", MatterPolicy(matter_ref="M",
+                                              classification="CLOUD_PERMITTED"),
+                     _registry_with_embedders())
+    assert [c.name for c in picks] == ["cloud-x", "mini1-mlx"]
+
+def test_local_only_tasks_set_contains_embedding():
+    from harness.policy import LOCAL_ONLY_TASKS
+    assert "embedding" in LOCAL_ONLY_TASKS

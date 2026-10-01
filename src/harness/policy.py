@@ -7,6 +7,10 @@ from harness.providers.config import ProviderConfig, ProviderRegistry
 
 Classification = Literal["LOCAL_ONLY", "LOCAL_PREFERRED", "CLOUD_PERMITTED"]
 MECHANICAL_TASKS = {"extraction", "classification", "embedding", "redaction", "grounding_check"}
+# A-4: embedding privileged text via a cloud API is an egress event. These classes are
+# structurally LOCAL_ONLY — the routing table cannot relax this, because an operator
+# editing YAML is not the same authority as the confidentiality rule. See spec §2.
+LOCAL_ONLY_TASKS = frozenset({"embedding"})
 
 class MatterPolicy(BaseModel):
     matter_ref: str
@@ -40,6 +44,10 @@ class RoutingTable:
                 continue
             mechanical_ok = task_class in MECHANICAL_TASKS
             if cfg.admitted == "mechanical-only" and not mechanical_ok:
+                continue
+            # A-4: a LOCAL_ONLY_TASKS class never dispatches to a cloud-tier provider,
+            # whatever the routing table or matter classification says (spec §2).
+            if task_class in LOCAL_ONLY_TASKS and cfg.tier != "local":
                 continue
             out.append(cfg)
         return out
