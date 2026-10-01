@@ -1,4 +1,4 @@
-# Module E persona corpus — provenance
+# Module E port — provenance (personas, skills, tools)
 
 Every file in `personas/_source/` is a byte-for-byte transcription of a single
 string constant from the old IronFleet tree
@@ -53,7 +53,25 @@ Each SKILL.md below is copied from the old tree
 `data/module-e/skills/<name>/SKILL.md`. Only the SKILL.md documents port: the
 old tree's per-skill `scripts/`, `tests/` and `docs/` subdirs and its top-level
 `skill_loader.py`, `manifest.lock` and `__init__.py` do not (the scripts port
-with their tools in the batch task).
+with their tools in the batch task — [BATCH.md](./BATCH.md)).
+
+Deliberately not copied either, measured in the old tree 2026-10-01:
+
+- the per-dir `examples/` in **6** skills (`nz-imca-2016-calculator`,
+  `nz-limitation-act-checker`, `nz-penalty-clause-analyzer`,
+  `nz-security-interest-checker`, `nz-solvency-assessor`,
+  `nz-statutory-demand-validator`) — sample inputs, not behaviour;
+- the per-dir `__init__.py` in **19** skills — package markers for the old
+  tree's `skills.` package import. The copies here are read as standalone
+  documents, and `sync_skills` writes one SKILL.md per directory, so a marker
+  would be dead weight and an unexplained residue.
+
+The one skill-dir top-level file that is neither a document nor a package
+marker is `what_if_dashboard/what_if_dashboard.py` — a real 649-line
+executable that the manifest's `scripts/`-based scan cannot see, which is why
+`tools.yaml` originally classed that whole skill as prompt-only. It is a
+first-class batch item, not a dropped file: see
+[BATCH.md](./BATCH.md) §3 item 21.
 
 These copies are normalised, not byte-parity artifacts: CRLF on disk in the old
 tree is normalised to LF here (consistent with `.gitattributes`). Frontmatter

@@ -44,9 +44,85 @@
 ## dsh
 _(runs only after the P0-6 pre-check clears — **gate NOT cleared as-measured 2026-08-26;
 single critical finding open pending Jonathan's ruling (CR-2). Not run in this session;
-S4 proceeded with OpenCode + OpenHands only, per NEXT_STEPS S1.)_
+S4 proceeded with OpenCode + OpenHands only, per NEXT_STEPS S1. 2026-09-03: ruling closed MOOT
+by the M0 decision — dsh exits the programme unless deliberately reopened.)_
 
 | seam | file/hook touched | core-fork? |
 |---|---|---|
 | _(guard plugin: …)_ | `plugins/ironfleet-…/guard.ts` on tools/post-execute | |
 | _(persona subagent: …)_ | `plugins/…/manifest.json` | |
+
+## OpenCode S7c — Module E ported onto the A-1 mount (2026-09-24..10-01, commits `053baec..` HEAD) — verdict: (a) CONDITIONAL, (b) PASS, no fork
+
+> **S7c seams = 5 new + 6 reused = 11 attachment points** (the spike's 9 above are unchanged;
+> the three guard-hook rows and the persona-subagent row are REUSED, not re-counted as new).
+> The spike's other 5 rows (provider wiring, workspace isolation, newline flatten, tree-kill,
+> >64 KB file transport) are also reused unchanged in kind and are re-listed only to say where
+> S7c touched them.
+>
+> **Why (a) is CONDITIONAL, not PASS.** Acceptance ran 2026-10-01
+> (`scripts/accept_s7c.py`, artifacts `data/eval/S7C-PARITY-2026-10-01/`). Checks 1
+> (persona parity, 30/30 case-pairs on `thomson1-chat`: mount citation_accuracy 0.156 vs house
+> 0.228, grounding 0.383 vs 0.350, 20/30 exact ties), 2 (guard coverage 33/33) and 4 (no bypass,
+> 9 models, `gate-local` only) PASS. **Check 3 (fail-closed) FAILS** — proven NOT the guard:
+> opencode 1.18.33 loses the model's tool call before `tool.execute.before` is ever reachable
+> (the driver captured opencode's own 14-tool request and replayed it straight to Ollama;
+> `finish_reason: tool_calls`, calling `ironfleet_without_prejudice`). The spike proved the
+> block live on 1.18.25 on 2026-09-01. `EXPECTED_VERSION` still reads 1.18.25; the rig
+> (`scripts/verify_opencode_mount.py`) reports the drift and exits 1 — the harness refusing to
+> lie. On 1.18.33 the ported tools and BOTH tool hooks are effectively dead.
+>
+> Rubric exact-passes were 0/30 on BOTH sides — thomson1 rarely emits the exact citation
+> needles, so the 20/30 exact ties are the agreement signal. Structural bar met; a low absolute
+> number is a model property, not a port failure.
+
+| seam | file/hook touched | core-fork? |
+|---|---|---|
+| custom-tools plugin (4-placeholder shim + Python dispatcher) | `data/opencode-a1/opencode.json` mounts `.opencode/plugins/ironfleet-tools.ts` ← `render_tools_plugin(TOOLS_TEMPLATE, ws, python, manifest, ported_rows)` (4 placeholders `__SPIKE_WS__/__PYTHON__/__MANIFEST__/__TOOLS__`; renderer substitutes exactly these four) → one `tool()` per `ported` manifest row (`args: {}` — 1.18.25's `tool()` takes a ZodRawShape, so an empty shape is the per-tool passthrough) → `spawnSync` venv python `-m harness.module_e.dispatch <manifest> <tool> <in> <out>`. The manifest (`data/module-e/tools.yaml`) is the single source of truth for persona enablement, the guard's annotation whitelist AND the tool list — three projections of one load, so they cannot drift | no |
+| skills native discovery | `.opencode/skills/<name>/SKILL.md` — 26 docs copied from the old tree by `harness.module_e.skills.sync_skills`; frontmatter normalised (missing `name:` inserted, CRLF→LF, `description: >` block scalars validated via `yaml.safe_load` because a line-split would measure the literal `>`); `what_if_dashboard` dir renamed `what-if-dashboard`, the one corpus name violating the skill-name rule (its frontmatter already read the hyphenated form) | no |
+| seam tools `route` + `refine_output` | two manifest `ported` rows whose `entry:` is `harness.module_e.supervisor:route_tool` / `harness.module_e.refine:refine_tool` — the SAME dispatch path as the skill tools, no special case. Measured LLM contract: refine's wire model is the BARE alias `gate/<task_class>` (`egress_proxy.py:108 resolve_alias`), matter identity rides the workspace's `matter.json`, `POST {base}/chat/completions stream:false` — and the proxy IS the gate's egress point, the same path opencode itself uses | no |
+| mount model-alias growth | `data/routing-a1.yaml`: 4 new `gate/*` aliases (`drafting`, `classification`, `complex_reasoning`, `summarization`) so the personas' task types route (S7b's table had 5; a drafting rule pointed at unregistered `mini1-mlx` would have refused citation+clerk at acceptance) + `limit.output: 16384` on every model in `data/opencode-a1/opencode.json` (thomson1 needs ≥16k: ~3k+ reasoning tokens precede content) → 9 aliases, the catalog opencode resolves | no |
+| per-decision guard log | same guard plugin → one JSONL line per hook call (`tag`, `decision`, `reason`, `chars`, `sha256_16`, `sha256_out`, `annotated`, `authorities`) → `<ws>/guard-log.jsonl`, sliced per run into `guard-slices/<run>.jsonl`. **SUPERSEDES Task 5's "byte-identical to the spike" pin**: the spike's log had only retry + event-summary lines, so acceptance check 2 had nothing to read. Guard is 158 lines against the spec's ~100 aspiration; the proven sections (serialized chain, retry, file transport, defensive checks, whitelist, block-throws) are untouched and `logDecision` returns its argument unchanged | no |
+| **REUSED** guard hook — tool path (result annotation) | `tool.execute.after` — proven section unchanged from `ironfleet-guard.ts` | no |
+| **REUSED** guard hook — tool path (block decision) | `tool.execute.before` (throw = block) — proven section unchanged; **unreachable on 1.18.33, see the CONDITIONAL note** | no |
+| **REUSED** guard hook — model-output path | `experimental.text.complete` — still the priced M0 hazard 1; fired 33/33 in acceptance | no |
+| **REUSED** persona subagents | 13 primaries + 4 variants + 17 drive twins generated from `personas.yaml`/`_source/` (byte-exact transcription); `hunter` replaces the spike's hand-written twin | no |
+| **REUSED** >64 KB file transport | guard + tools shim both ride temp files (Bun `spawnSync` stdin deadlock, observed live 2026-09-01); tools shim adds the same serialized `Promise` chain the guard uses (concurrent Python spawns observed failing) | no |
+| **REUSED** workspace isolation + tree-kill + newline flatten | `sync_mount` still `git init`s the workspace (no commits — the matter never enters history); supervision and prompt flattening unchanged from the spike driver, reused via `run_opencode`/`flatten_prompt` | no |
+
+### PRICED SEAM (evidence attached): the guard annotates INSIDE structured JSON tool results
+
+`tool.execute.after` writes its annotation into the tool result string, and a custom tool's
+result is JSON. Observed live (Task 10, 2026-09-24): `ironfleet_statutory_demand` returned
+`"issues": [] [UNGROUNDED — not confirmed]`, because `guard_port._citations` treats `[]` as a
+citation envelope and the shipped `allowed.json` authorities are empty. The same result yields
+decision `block` — inert while `block: false`, fail-closed the moment a driver flips it.
+The spec's envelope rule names custom tools as annotation-eligible, so the whitelist stands and
+this is priced rather than patched; the wrinkle is that the annotation is now indistinguishable
+from model-authored JSON to a naive consumer. Acceptance unaffected: parity drives zero-tool
+twins, and blocking never mutates. Task 13's obligation falls out of it — a driver that forgets
+to write authorities annotates-and-blocks every bracket in the response.
+
+### OPERATIONAL HAZARDS at close-out
+
+1. **OPEN — the opencode version drift is now load-bearing.** The global binary auto-updated
+   1.18.25 → 1.18.33 mid-programme (Task 12, ~2026-10-01 00:43): the user's global
+   `~/.config/opencode/opencode.jsonc` carries no `autoupdate: false` — the mount's own setting
+   only protects mount workspaces. Behavioural evidence was re-measured on BOTH versions
+   (mount checks identical); what differs is that 1.18.33 drops model tool calls. **User
+   decisions pending, neither actioned:** (a) `npm i -g opencode-ai@1.18.25`, or a deliberate
+   bump to 1.18.33 after seam re-verification; (b) `autoupdate: false` in the global
+   `opencode.jsonc` — the actual cause. Re-verification path once either lands:
+   `accept_s7c.py --skip-parity` re-proves checks 2–4 (a DEBUG mode — exits 2 and writes no
+   acceptance verdict); the module is acceptance-complete only on a full four-check run
+   exiting 0.
+2. **NEW — child-env credential scrub** (Task 12). The spike scrubbed nothing: opencode
+   activates providers from inherited bearer keys, its own auth store, and the keyless builtin
+   catalog. `child_env(ws)` now copies-on-write and scrubs prefix families including `AWS_`
+   (`AWS_REGION` alone activates 178 bedrock models; the real activators are
+   `AWS_ACCESS_KEY_ID`/`_SECRET`), plus `disabled_providers: ["opencode"]` in the mount config
+   to shut the keyless catalog. Verified by `scripts/verify_opencode_mount.py --live` against
+   the binary (`opencode models` = the union of every activation path).
+3. **Carried** — M0 hazard 1 (`experimental.text.complete` is experimental; pin + re-verify on
+   every upgrade), the SSE adapter stays unit-tested only (S7b CARRIED ruling — the pinned
+   client does not stream).

@@ -252,6 +252,27 @@ def test_static_tier_records_what_the_machine_carries(monkeypatch):
     assert evidence["child_env_bearer_keys"] == []
 
 
+def test_a_sync_failure_cannot_leak_the_throwaway_workspace(monkeypatch):
+    # The live-path sync_mount call used to sit ABOVE the try/finally that rmtree's the
+    # throwaway workspace, so a raised sync leaked a verify-opencode-mount-* tempdir per
+    # failure. Owned workspaces must be cleaned up on the sync path too, not only on the
+    # models path.
+    import scripts.stand_up_opencode as driver
+    from scripts import verify_opencode_mount as rig
+    monkeypatch.setattr(rig, "installed_version", lambda: "1.18.25")
+
+    def boom(ws, mount, **kw):
+        raise RuntimeError("sync failed")
+
+    monkeypatch.setattr(driver, "sync_mount", boom)
+    calls = []
+    monkeypatch.setattr(rig.shutil, "rmtree",
+                        lambda p, ignore_errors=False: calls.append(Path(p)))
+    with pytest.raises(RuntimeError):
+        rig.verify_mount(live=True)
+    assert len(calls) == 1 and "verify-opencode-mount-" in calls[0].name
+
+
 def test_mount_aggregation_reports_a_leak_end_to_end(monkeypatch, tmp_path):
     # verify_mount(live=True) is the unit-tested path to the verdict: workspace synced, child
     # env scrubbed, model list asserted. The binary is stubbed; the plumbing is real.

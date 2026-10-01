@@ -205,8 +205,6 @@ def verify_mount(ws: Path | None = None, live: bool = False) -> tuple[list[str],
             import tempfile
             workspace = Path(tempfile.mkdtemp(prefix="verify-opencode-mount-"))
             owned = True
-        sync_mount(workspace, MOUNT, matter_ref="verify-mount",
-                   classification="LOCAL_PREFERRED", port=PORT)
         env = child_env(workspace)
     else:
         # Nothing is synced on the static tier, and nothing needs to be: the workspace argument
@@ -231,6 +229,11 @@ def verify_mount(ws: Path | None = None, live: bool = False) -> tuple[list[str],
 
     evidence["workspace"] = str(workspace)
     try:
+        # Inside the try: this call used to sit above it, so a sync failure propagated with the
+        # throwaway workspace still on disk (a leaked verify-opencode-mount-* tempdir per
+        # failure). The finally owns everything acquired after `owned` was set.
+        sync_mount(workspace, MOUNT, matter_ref="verify-mount",
+                   classification="LOCAL_PREFERRED", port=PORT)
         model_problems, model_evidence = verify_models(workspace, env)
     finally:
         if owned:
