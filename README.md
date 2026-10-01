@@ -91,6 +91,29 @@ except GateRefusal as e:                # fail-closed: nothing dispatches outsid
 
 Real OpenAI-compatible endpoints do not send `_server_meta`, so per-dispatch provenance is: weights revision as declared (pinned), backend as **discovered by the probe at registration** (`discovered_backend`), `verified=0` unless the wire itself reports a matching revision (S6-2). On Ollama — which cannot report its executing backend — rows read `backend=''`, `verified=0`. That is by design, not a fault. An explicit empty wire value falls through to the probe's finding (the `or` chain treats falsy as absent). An admitted cloud provider records `backend='saas'` — the probe's synthesized tier label, not a local engine.
 
+## Local embeddings (A-4 / S7e)
+
+The `embedding` task class is a **mechanical slot** that runs LOCAL-ONLY. Embedding
+privileged text via a cloud API is an egress event, so the gate enforces this
+structurally — `harness.policy.LOCAL_ONLY_TASKS` drops any cloud-tier provider for the
+class *before* routing-table preferences are honoured. A cloud embedder named in the
+embedding rule's `cloud_permitted` list is unreachable; that is tested adversarially in
+`scripts/accept_s7e.py` (C2), not merely asserted.
+
+`EgressGate.embed()` is a sibling of `dispatch()`: same routing, admission, provenance and
+trace row; only the endpoint (`/embeddings`) and the payload differ. The local embedding
+provider is `ollama-embed` (Ollama, `bge-m3:567m`, 1024-dim), registered through the same
+probe as every other provider. Its admission is honestly `mechanical-only` with
+`verified=0` — Ollama cannot report its executing backend (CR-3), and embeddings are
+deterministic mechanical work, which is precisely what the mechanical tier is for.
+
+`harness.vectors.VectorStore` is the thin local index: float32 vectors as SQLite BLOBs
+(stdlib `array`), pure-Python cosine search, scoped by `matter_ref` — a search for one
+matter never surfaces another's vectors. **Scaling caveat, stated plainly:** this is the
+index A-4 was priced for (thousands to tens of thousands of chunks per matter). Pure-Python
+cosine is O(rows x dims) per query; swap in sqlite-vec or numpy later behind the same
+interface — the interface is the stable surface, the cosine is not.
+
 ## Eval
 
 ```python
