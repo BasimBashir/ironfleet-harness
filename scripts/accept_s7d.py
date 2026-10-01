@@ -8,6 +8,8 @@ the live dispatch itself proves a real migration, not a fresh DB.
   C2 positive exclusivity — `opencode models` resolves EXACTLY gate-local/* under an
      adversarial credential env (finding S1: the trace store can never prove a negative)
   C3 one live dispatch traced completely — incl. backend per the S7d rule
+     (mechanical class, honestly admitted (MECHANICAL_TASKS) — summarization would
+     refuse under CR-3 mechanical-only admission)
   C4 fail-closed still traced — proxy-direct, because opencode cannot request an alias
      absent from its catalog, and adding one to the mount would break C2's exact-9
   C5 legacy migration live — the seeded pre-S7d row survives with backend=''
@@ -158,8 +160,18 @@ def main(argv: list[str] | None = None) -> int:
     cfg = json.loads((ws / "opencode.json").read_text(encoding="utf-8"))
     routing_s7d = _refusal_routing(ws)
     gate.routing = RoutingTable.from_yaml(routing_s7d)
-    proxy = EgressProxy(HOST, PORT, gate, gate.routing, load_aliases(routing_s7d),
-                        ws / "matter.json")
+    # ThreadingHTTPServer binds in its CONSTRUCTOR (start() only spawns the serve_forever
+    # thread), so the guard wraps construction, not start(): a 7373 collision would otherwise
+    # abort with a traceback, unnamed by any check, and leave the seeded workspace on disk.
+    # Mirrors the proven guard in stand_up_opencode.main.
+    try:
+        proxy = EgressProxy(HOST, PORT, gate, gate.routing, load_aliases(routing_s7d),
+                            ws / "matter.json")
+    except OSError as ex:
+        print(f"[accept-s7d] C0: cannot bind {HOST}:{PORT} — a collision would point the "
+              f"mount elsewhere: {ex}", file=sys.stderr)
+        shutil.rmtree(ws, ignore_errors=True)   # the run never started; no seeded tree left
+        return 1
     proxy.start()
     problems: list[str] = []
     try:
@@ -172,9 +184,9 @@ def main(argv: list[str] | None = None) -> int:
 
         prior = len(gate.trace.by_matter(MATTER_REF))          # C3
         code, text = run_opencode_session(
-            ws, "gate/summarization",
-            "Summarise in one sentence: The agreement was signed on 3 March 2026 "
-            "by ACME Ltd and Beta Corp.", 600, env=child_env(ws))
+            ws, "gate/extraction",
+            "Extract the party names as bullets. Text: 'ACME Ltd and Beta Corp "
+            "entered into an agreement on 3 March 2026.'", 600, env=child_env(ws))
         rows = gate.trace.by_matter(MATTER_REF)
         if code != 0:
             problems.append(f"C3: opencode exited {code}; tail: {text[-200:]!r}")
