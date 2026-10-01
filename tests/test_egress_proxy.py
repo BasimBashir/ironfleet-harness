@@ -147,6 +147,11 @@ def test_stream_true_returns_sse_with_one_delta(gate_stack):
                 continue
             chunks.append(json.loads(payload)["choices"][0]["delta"].get("content") or "")
         assert "".join(chunks) == "mock answer citing [Act, s 1]"
+        parsed = [json.loads(l[len("data: "):]) for l in raw.splitlines()
+                  if l.startswith("data: ") and l[len("data: "):] != "[DONE]"]
+        assert parsed[-1]["choices"][0]["finish_reason"] == "stop", \
+            "a non-terminal final chunk would leave the client hanging on the stream"
+        assert parsed[-1]["choices"][0]["delta"] == {}
         assert trace.by_matter("m-stream")
     finally:
         proxy.stop()
