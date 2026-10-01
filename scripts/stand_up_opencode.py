@@ -222,9 +222,9 @@ def _scalar_usage(result: dict) -> dict:
     return result
 
 
-def build_gate(trace_path: Path) -> tuple[EgressGate, RoutingTable, dict]:
-    rt = RoutingTable.from_yaml(ROUTING)
-    aliases = load_aliases(ROUTING)       # the model catalog OpenCode sees
+def build_gate(trace_path: Path, routing: Path | None = None) -> tuple[EgressGate, RoutingTable, dict]:
+    rt = RoutingTable.from_yaml(routing or ROUTING)
+    aliases = load_aliases(routing or ROUTING)   # the model catalog OpenCode sees
     trace = TraceStore(trace_path)
     reg = _probe_ollama()
     gate = EgressGate(reg, rt, trace)          # default transport talks to Ollama
