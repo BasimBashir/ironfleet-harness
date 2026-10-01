@@ -89,7 +89,7 @@ except GateRefusal as e:                # fail-closed: nothing dispatches outsid
     print(f"refused: {e}")
 ```
 
-Real OpenAI-compatible endpoints do not send `_server_meta`, so production trace rows read `verified=0` until a provenance sidecar exists — that is by design, not a fault.
+Real OpenAI-compatible endpoints do not send `_server_meta`, so per-dispatch provenance is: weights revision as declared (pinned), backend as **discovered by the probe at registration** (`discovered_backend`), `verified=0` unless the wire itself reports a matching revision (S6-2). On Ollama — which cannot report its executing backend — rows read `backend=''`, `verified=0`. That is by design, not a fault. An explicit empty wire value falls through to the probe's finding (the `or` chain treats falsy as absent). An admitted cloud provider records `backend='saas'` — the probe's synthesized tier label, not a local engine.
 
 ## Eval
 
