@@ -37,6 +37,7 @@ async def register_provider(
     admission = admission_for(prov, cfg) if (reachable and auth_ok) else "refused"
     if admission != "refused":
         cfg.admitted = admission
+        cfg.discovered_backend = prov.backend     # S7d: the probe's finding survives the upsert
         if isinstance(keychain_set, dict): keychain_set[name] = api_key
         else:
             from harness.keychain import set_key; set_key(name, api_key)
