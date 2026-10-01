@@ -199,11 +199,21 @@ class EgressGate:
                     status="error", error=last_error, latency_ms=int((time.monotonic()-t0)*1000)))
                 continue
             data = result.get("data") or []
+            bad = None
             if len(data) != len(request.texts):
+                bad = (f"embedding endpoint returned {len(data)} vectors "
+                       f"for {len(request.texts)} inputs")
+            else:
+                for i, d in enumerate(data):
+                    if d.get("index", i) != i:
+                        bad = (f"embedding response misaligned at position {i}: "
+                               f"index={d.get('index')!r}, expected {i}")
+                        break
+            if bad is not None:
                 # A short or misordered response corrupts the index while appearing to
-                # succeed — fail to the next candidate rather than embedding garbage.
-                last_error = (f"embedding endpoint returned {len(data)} vectors "
-                              f"for {len(request.texts)} inputs")
+                # succeed — each vector's position ties it to its input text, so fail to
+                # the next candidate rather than embedding garbage.
+                last_error = bad
                 self.trace.append(DispatchRecord(
                     matter_ref=request.matter_ref, task_class="embedding",
                     classification=request.classification, provider=cfg.name, model=payload["model"],

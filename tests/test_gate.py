@@ -219,17 +219,21 @@ def test_embed_request_defaults_to_local_only():
 @pytest.mark.asyncio
 async def test_embed_refuses_cloud_even_under_cloud_permitted(tmp_path):
     # The gate-level view of the spec's C2: routing may list emb-cloud, but embed() must
-    # never dispatch to it. The transport records who actually got called.
-    from harness.gate import EmbeddingRequest
+    # never dispatch to it. The local embedder is made to FAIL so success can only come
+    # from the cloud one — then the refusal proves the filter, not the fixture (the same
+    # negative-control discipline as the C2 check in scripts/accept_s7e.py).
+    from harness.gate import EmbeddingRequest, GateRefusal
     called = []
     async def transport(provider, payload):
         called.append(provider.name)
+        if provider.name == "emb":
+            raise RuntimeError("local embedder is down")
         return {"model": payload["model"], "data": [{"index": 0, "embedding": [1.0]}],
                 "usage": {"prompt_tokens": 1}}
     gate = _emb_gate(tmp_path, transport)
-    res = await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a"],
-                                             classification="CLOUD_PERMITTED"))
-    assert res.provider == "emb"
+    with pytest.raises(GateRefusal):
+        await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a"],
+                                          classification="CLOUD_PERMITTED"))
     assert called == ["emb"], f"cloud embedder was reached: {called}"
 
 @pytest.mark.asyncio
