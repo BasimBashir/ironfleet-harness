@@ -29,6 +29,22 @@ class LLMResponse(BaseModel):
     usage: dict[str, int]
     provenance: ProvenanceReport
 
+class EmbeddingRequest(BaseModel):
+    matter_ref: str
+    texts: list[str]
+    model: str | None = None
+    # The payload IS privileged text, so embeddings default to the strictest tier —
+    # the inverse of LLMRequest's LOCAL_PREFERRED (spec §3).
+    classification: Classification = "LOCAL_ONLY"
+    max_texts: int = 64      # batch ceiling; over-long batches are REFUSED, never truncated
+
+class EmbeddingResponse(BaseModel):
+    vectors: list[list[float]]
+    provider: str
+    model: str
+    usage: dict[str, int]
+    provenance: ProvenanceReport
+
 class GateRefusal(RuntimeError):
     pass
 
@@ -38,9 +54,11 @@ class EgressGate:
     provenance recorded honestly (verified=0 when unverifiable). Fail-closed by design."""
 
     def __init__(self, registry: ProviderRegistry, routing: RoutingTable,
-                 trace: TraceStore, transport: Transport | None = None) -> None:
+                 trace: TraceStore, transport: Transport | None = None,
+                 embedding_transport: Transport | None = None) -> None:
         self.registry, self.routing, self.trace = registry, routing, trace
         self._transport = transport or self._default_transport
+        self._embedding_transport = embedding_transport or self._default_embedding_transport
 
     async def _default_transport(self, provider: ProviderConfig, payload: dict) -> dict:
         from harness.keychain import get_key
@@ -52,6 +70,16 @@ class EgressGate:
         result = await openai_fetch(f"{provider.base_url.rstrip('/')}/chat/completions", headers, payload)
         if result is None:
             raise RuntimeError(f"provider {provider.name} call failed")
+        return result
+
+    async def _default_embedding_transport(self, provider: ProviderConfig, payload: dict) -> dict:
+        from harness.keychain import get_key
+        from harness.providers.http_fetch import openai_fetch
+        key = get_key(provider.name) or ""
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
+        result = await openai_fetch(f"{provider.base_url.rstrip('/')}/embeddings", headers, payload)
+        if result is None:
+            raise RuntimeError(f"provider {provider.name} embeddings call failed")
         return result
 
     def _provenance_of(self, provider: ProviderConfig, result: dict) -> ProvenanceReport:
@@ -121,3 +149,79 @@ class EgressGate:
                                provider=cfg.name, model=result.get("model", payload["model"]),
                                usage=usage, provenance=prov)
         raise GateRefusal(f"all candidates failed; last: {last_error}")
+
+    async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        # A-4 (spec §3): the embedding dispatch path. Routing, admission, provenance, and
+        # the trace row are shared with dispatch(); only the endpoint (/embeddings), the
+        # payload (input list, no max_tokens), and the response shape differ.
+        if not request.texts:
+            self.trace.append(DispatchRecord(
+                matter_ref=request.matter_ref, task_class="embedding",
+                classification=request.classification, provider="-", model="-",
+                status="refused", error="empty embedding request"))
+            raise GateRefusal("empty embedding request — nothing to embed")
+        if len(request.texts) > request.max_texts:
+            # Refuse, never truncate: a prefix-embedded batch produces an index that looks
+            # complete and is not.
+            self.trace.append(DispatchRecord(
+                matter_ref=request.matter_ref, task_class="embedding",
+                classification=request.classification, provider="-", model="-",
+                status="refused",
+                error=f"embedding batch {len(request.texts)} exceeds max_texts {request.max_texts}"))
+            raise GateRefusal(
+                f"embedding batch {len(request.texts)} exceeds max_texts {request.max_texts}")
+        policy = MatterPolicy(matter_ref=request.matter_ref, classification=request.classification)
+        candidates = self.routing.route("embedding", policy, self.registry)
+        if not candidates:
+            self.trace.append(DispatchRecord(
+                matter_ref=request.matter_ref, task_class="embedding",
+                classification=request.classification, provider="-", model="-",
+                status="refused", error="no eligible provider"))
+            raise GateRefusal("no eligible provider for embedding")
+        last_error = ""
+        for cfg in candidates:
+            model = request.model or cfg.model
+            if not model:
+                self.trace.append(DispatchRecord(
+                    matter_ref=request.matter_ref, task_class="embedding",
+                    classification=request.classification, provider=cfg.name, model="-",
+                    status="refused", error=f"no model specified for provider {cfg.name}"))
+                raise GateRefusal(f"no model specified for provider {cfg.name}")
+            payload = {"model": model, "input": request.texts}
+            t0 = time.monotonic()
+            try:
+                result = await self._embedding_transport(cfg, payload)
+            except Exception as ex:                       # noqa: BLE001 — trace, then next candidate
+                last_error = str(ex)
+                self.trace.append(DispatchRecord(
+                    matter_ref=request.matter_ref, task_class="embedding",
+                    classification=request.classification, provider=cfg.name, model=payload["model"],
+                    status="error", error=last_error, latency_ms=int((time.monotonic()-t0)*1000)))
+                continue
+            data = result.get("data") or []
+            if len(data) != len(request.texts):
+                # A short or misordered response corrupts the index while appearing to
+                # succeed — fail to the next candidate rather than embedding garbage.
+                last_error = (f"embedding endpoint returned {len(data)} vectors "
+                              f"for {len(request.texts)} inputs")
+                self.trace.append(DispatchRecord(
+                    matter_ref=request.matter_ref, task_class="embedding",
+                    classification=request.classification, provider=cfg.name, model=payload["model"],
+                    status="error", error=last_error, latency_ms=int((time.monotonic()-t0)*1000)))
+                continue
+            prov = self._provenance_of(cfg, result)
+            usage = result.get("usage", {})
+            self.trace.append(DispatchRecord(
+                matter_ref=request.matter_ref, task_class="embedding",
+                classification=request.classification, provider=cfg.name,
+                model=result.get("model", payload["model"]),
+                weights_revision=prov.weights_revision, engine=prov.engine,
+                backend=prov.backend,
+                verified=1 if prov.verified else 0,
+                tokens_in=usage.get("prompt_tokens", 0), tokens_out=0,   # no completion tokens
+                latency_ms=int((time.monotonic()-t0)*1000)))
+            return EmbeddingResponse(
+                vectors=[d["embedding"] for d in data],
+                provider=cfg.name, model=result.get("model", payload["model"]),
+                usage=usage, provenance=prov)
+        raise GateRefusal(f"all embedding candidates failed; last: {last_error}")

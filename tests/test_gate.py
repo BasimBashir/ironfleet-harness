@@ -156,3 +156,136 @@ async def test_backend_empty_and_unverified_when_no_source(tmp_path):
     assert res.provenance.backend == ""
     row = gate.trace.by_matter("M-8")[0]
     assert row.backend == "" and row.verified == 0
+
+# --- A-4: the embedding dispatch path (gate.embed) ------------------------------------
+
+EMB_ROUTING = """rules:
+  - task_class: embedding
+    local_only: [emb]
+    local_preferred: [emb]
+    cloud_permitted: [emb, emb-cloud]
+defaults:
+  local_only: []
+  local_preferred: []
+  cloud_permitted: []
+"""
+
+def _emb_gate(tmp_path, embedding_transport, routing=EMB_ROUTING):
+    from harness.gate import EgressGate
+    reg = ProviderRegistry()
+    reg.upsert(ProviderConfig(name="emb", base_url="http://m/v1", engine="ollama", tier="local",
+                              model="bge-m3:567m", admitted="mechanical-only"))
+    reg.upsert(ProviderConfig(name="emb-cloud", base_url="https://c/v1", engine="cloud",
+                              tier="cloud", model="cloud-emb-1", admitted="full"))
+    p = tmp_path / "r.yaml"; p.write_text(routing)
+    return EgressGate(registry=reg, routing=RoutingTable.from_yaml(p),
+                      trace=TraceStore(tmp_path / "t.db"), embedding_transport=embedding_transport)
+
+def _emb_transport(vectors):
+    async def _call(provider, payload):
+        return {"model": payload["model"],
+                "data": [{"index": i, "embedding": v} for i, v in enumerate(vectors)],
+                "usage": {"prompt_tokens": 12, "total_tokens": 12}}
+    return _call
+
+@pytest.mark.asyncio
+async def test_embed_returns_vectors_and_traces_one_row(tmp_path):
+    from harness.gate import EmbeddingRequest
+    async def transport(provider, payload):
+        assert payload["input"] == ["a", "b"]
+        assert "max_tokens" not in payload          # embeddings do not generate
+        return {"model": payload["model"],
+                "data": [{"index": 0, "embedding": [1.0, 0.0]},
+                         {"index": 1, "embedding": [0.0, 1.0]}],
+                "usage": {"prompt_tokens": 7, "total_tokens": 7}}
+    gate = _emb_gate(tmp_path, transport)
+    res = await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a", "b"]))
+    assert res.vectors == [[1.0, 0.0], [0.0, 1.0]]
+    assert res.provider == "emb" and res.model == "bge-m3:567m"
+    recs = gate.trace.by_matter("M-1")
+    assert len(recs) == 1
+    r = recs[0]
+    assert r.task_class == "embedding" and r.status == "ok"
+    assert r.tokens_in == 7 and r.tokens_out == 0      # embeddings emit no completion tokens
+
+def test_embed_request_defaults_to_local_only():
+    # Not async — nothing is awaited. (pytest-asyncio in auto mode errors on a sync
+    # function carrying the asyncio marker, so this one stays bare.)
+    from harness.gate import EmbeddingRequest
+    req = EmbeddingRequest(matter_ref="M", texts=["a"])
+    assert req.classification == "LOCAL_ONLY"          # strictest tier, inverted from dispatch
+    assert req.max_texts == 64
+
+@pytest.mark.asyncio
+async def test_embed_refuses_cloud_even_under_cloud_permitted(tmp_path):
+    # The gate-level view of the spec's C2: routing may list emb-cloud, but embed() must
+    # never dispatch to it. The transport records who actually got called.
+    from harness.gate import EmbeddingRequest
+    called = []
+    async def transport(provider, payload):
+        called.append(provider.name)
+        return {"model": payload["model"], "data": [{"index": 0, "embedding": [1.0]}],
+                "usage": {"prompt_tokens": 1}}
+    gate = _emb_gate(tmp_path, transport)
+    res = await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a"],
+                                             classification="CLOUD_PERMITTED"))
+    assert res.provider == "emb"
+    assert called == ["emb"], f"cloud embedder was reached: {called}"
+
+@pytest.mark.asyncio
+async def test_embed_count_mismatch_is_an_error_not_silently_accepted(tmp_path):
+    # An endpoint returning fewer vectors than inputs would corrupt the index while
+    # appearing to succeed — refuse and trace, never silently truncate.
+    from harness.gate import EmbeddingRequest, GateRefusal
+    async def transport(provider, payload):
+        return {"model": payload["model"], "data": [{"index": 0, "embedding": [1.0]}],
+                "usage": {"prompt_tokens": 1}}        # 1 vector for 2 inputs
+    gate = _emb_gate(tmp_path, transport)
+    with pytest.raises(GateRefusal):
+        await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a", "b"]))
+    recs = gate.trace.by_matter("M-1")
+    assert recs[0].status == "error"
+    assert "1 vectors for 2 inputs" in recs[0].error
+
+@pytest.mark.asyncio
+async def test_embed_batch_over_max_texts_is_refused_not_truncated(tmp_path):
+    from harness.gate import EmbeddingRequest, GateRefusal
+    gate = _emb_gate(tmp_path, _emb_transport([[1.0]]))
+    with pytest.raises(GateRefusal):
+        await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a", "b"], max_texts=1))
+    assert gate.trace.by_matter("M-1")[0].status == "refused"
+
+@pytest.mark.asyncio
+async def test_embed_empty_texts_refused(tmp_path):
+    from harness.gate import EmbeddingRequest, GateRefusal
+    gate = _emb_gate(tmp_path, _emb_transport([[1.0]]))
+    with pytest.raises(GateRefusal):
+        await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=[]))
+    assert gate.trace.by_matter("M-1")[0].status == "refused"
+
+@pytest.mark.asyncio
+async def test_embed_without_an_embedding_rule_refuses_and_traces(tmp_path):
+    # A routing table with no embedding rule falls to the empty defaults -> no candidates
+    # -> the SAME refusal path dispatch uses (provider='-', status='refused').
+    from harness.gate import EmbeddingRequest, GateRefusal
+    NO_RULE = "rules: []\ndefaults:\n  local_only: []\n  local_preferred: []\n  cloud_permitted: []\n"
+    gate = _emb_gate(tmp_path, _emb_transport([[1.0]]), routing=NO_RULE)
+    with pytest.raises(GateRefusal):
+        await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a"]))
+    r = gate.trace.by_matter("M-1")[0]
+    assert r.status == "refused" and r.provider == "-"
+
+@pytest.mark.asyncio
+async def test_embed_provenance_uses_the_same_rule_as_dispatch(tmp_path):
+    # Embeddings must not become a second-class dispatch with weaker provenance.
+    from harness.gate import EmbeddingRequest
+    async def transport(provider, payload):
+        return {"model": payload["model"], "data": [{"index": 0, "embedding": [1.0]}],
+                "usage": {"prompt_tokens": 1},
+                "_server_meta": {"engine": "ollama", "weights_revision": "rev-x",
+                                 "backend": ""}}
+    gate = _emb_gate(tmp_path, transport)
+    res = await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a"]))
+    assert res.provenance.engine == "ollama"
+    assert res.provenance.weights_revision == "rev-x"
+    assert res.provenance.backend == ""                # honest: Ollama cannot report it
