@@ -41,7 +41,8 @@ def test_only_ported_tools_are_enabled_in_generated_agents(tmp_path):
     ported = ported_tools(load_manifest(DATA / "module-e" / "tools.yaml"))
     for f in (ws / ".opencode" / "agent").glob("*.md"):
         if f.name.endswith("-drive.md"):
-            continue                       # the drive twin disables everything by construction
+            continue                       # the drive twin enables nothing: all ten builtins
+                                           # AND all four ported tools are written `false`
         md = f.read_text(encoding="utf-8")
         fm = md.split("---\n", 2)[1]
         for line in fm.splitlines():

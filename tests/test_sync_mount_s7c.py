@@ -108,7 +108,8 @@ def test_auditor_is_the_only_persona_with_an_enabled_tool(tmp_path):
     enabled = {}
     for f in sorted(agent.glob("*.md")):
         if f.stem.endswith("-drive"):
-            continue                     # drive twins disable every tool by design
+            continue                     # drive twins carry no `: true` line at all — every
+                                         # builtin AND every ported tool is written `false`
         enabled[f.name] = [l.strip() for l in f.read_text(encoding="utf-8").splitlines()
                            if l.startswith("  ") and l.strip().endswith(": true")]
     assert enabled["auditor.md"] == ["ironfleet_statutory_demand: true"]
@@ -119,6 +120,35 @@ def test_auditor_is_the_only_persona_with_an_enabled_tool(tmp_path):
         assert f"#   - {name}" in body, name
     # the dropped old-tree name is gone, not left dangling
     assert "nz_calendar" not in (agent / "auditor.md").read_text(encoding="utf-8")
+
+
+def test_the_tools_map_is_a_full_override_not_a_whitelist(tmp_path):
+    """Final-review F1: opencode's `tools:` map is an OVERRIDE, not a whitelist — a name it does
+    not list keeps its default (enabled) state. So the generator writes an explicit `false` for
+    every ported tool a persona does not allow, and the drive twin writes `false` for the ten
+    builtins AND all four ported tools: the runtime surface matches the old tree's whitelist
+    semantics, and the twin is genuinely zero-tool."""
+    from harness.module_e.personas import BUILTIN_TOOLS
+    from scripts.stand_up_opencode import sync_mount
+    ws = tmp_path / "ws"
+    sync_mount(ws, DATA / "opencode-a1", "m-test", "LOCAL_PREFERRED", 7373)
+    ported = ported_tools(load_manifest(MANIFEST))
+    rows = lambda fm: [l.strip() for l in fm.splitlines()
+                       if l.startswith("  ") and l.strip().endswith((": true", ": false"))]
+    for f in sorted((ws / ".opencode" / "agent").glob("*.md")):
+        fm = f.read_text(encoding="utf-8").split("---\n", 2)[1]
+        listed = rows(fm)
+        if f.stem.endswith("-drive"):
+            assert len(listed) == len(BUILTIN_TOOLS) + len(ported), f.name
+            assert all(l.endswith(": false") for l in listed), f.name
+        else:
+            # the subagent map is exactly the ported set: `true` where allowed, `false` elsewhere
+            assert sorted(listed) == sorted(
+                f"{t}: " + ("true" if f"  {t}: true" in fm else "false") for t in ported), f.name
+    auditor = (ws / ".opencode" / "agent" / "auditor.md").read_text(encoding="utf-8")
+    assert rows(auditor.split("---\n", 2)[1]) == ["ironfleet_statutory_demand: true",
+                                                  "ironfleet_without_prejudice: false",
+                                                  "refine_output: false", "route: false"]
 
 
 def test_no_agent_file_emits_a_bare_tools_key(tmp_path):

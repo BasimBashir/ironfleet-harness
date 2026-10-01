@@ -2,7 +2,8 @@
 from pathlib import Path
 import pytest
 import yaml
-from harness.module_e.personas import load_index, render_agent_md, generate_all, UnknownTool
+from harness.module_e.personas import (BUILTIN_TOOLS, load_index, render_agent_md, generate_all,
+                                       UnknownTool)
 
 INDEX = """\
 personas:
@@ -72,6 +73,22 @@ def test_only_ported_tools_are_enabled(src):
     # ironfleet_imca_2016 is declared but deferred — no tool ID exists to enable.
     assert "ironfleet_imca_2016" not in fm
 
+def test_a_ported_tool_the_persona_does_not_allow_is_disabled_not_unlisted(src):
+    """OpenCode's `tools:` map is an OVERRIDE, not a whitelist: a name it does not list keeps
+    its default (enabled) state. So the map names EVERY ported tool — the unallowed ones are
+    written `false`, not left out, and the runtime surface is exactly the persona's allowed
+    tools."""
+    p = load_index(src / "personas.yaml")[0]
+    md = render_agent_md(p, model="gate/research", mode="subagent",
+                         declared=DECLARED, ported=PORTED)
+    fm = md.split("---\n", 2)[1]
+    assert "  ironfleet_without_prejudice: true" in fm      # allowed -> enabled
+    assert "  route: false" in fm                           # ported, not allowed -> written off
+    assert sorted(l.strip() for l in fm.splitlines()
+                  if l.startswith("  ") and l.split(":")[1].strip() in ("true", "false")) == \
+        ["ironfleet_without_prejudice: true", "route: false"]
+    assert "tools:" in fm            # the map is populated, never bare (Task 10's live finding)
+
 def test_deferred_tools_are_recorded_not_silently_dropped(src):
     p = load_index(src / "personas.yaml")[0]
     md = render_agent_md(p, model="gate/research", mode="subagent",
@@ -90,6 +107,11 @@ def test_a_tool_the_manifest_never_heard_of_fails_loud(src):
     assert "ironfleet_imca_2016" in str(ex.value)
 
 def test_drive_twin_disables_every_tool(src):
+    """Zero-tool means zero-tool: `tools:` is an override, so the twin must write `false` for
+    EVERY tool the mount can offer — all ten builtins AND every ported custom tool, not just
+    the ones it happens to be offered. PORTED here is {"ironfleet_without_prejudice", "route"}.
+    (Final-review F1: the twin used to write only the builtins, which left the four ported
+    tools selectable at runtime.)"""
     p = load_index(src / "personas.yaml")[0]
     md = render_agent_md(p, model="gate/research", mode="primary",
                          declared=DECLARED, ported=PORTED, source_root=src / "personas")
@@ -99,6 +121,12 @@ def test_drive_twin_disables_every_tool(src):
         if ": false" in line:
             assert line.strip().endswith(": false")
     assert "read: false" in fm and "task: false" in fm and "bash: false" in fm
+    # every ported tool is named and written off too — an unlisted one stays enabled by default
+    for t in sorted(PORTED):
+        assert f"  {t}: false" in fm, t
+    assert len([l for l in fm.splitlines() if l.strip().endswith(": false")]) == \
+        len(BUILTIN_TOOLS) + len(PORTED)
+    assert not [l for l in fm.splitlines() if l.strip().endswith(": true")]
     # the body is still the verbatim persona, and the drive twin carries no deferred ledger
     body = md.split("---\n", 2)[2]
     assert body == "You are @HUNTER.\n\nCite everything.\n"
@@ -133,3 +161,19 @@ def test_variant_body_is_the_variant_text_not_the_primary(src, tmp_path):
     body = (out / "hunter-glass.md").read_text().split("---\n", 2)[2]
     # the deferred ledger prefixes the body; the variant text — not the primary's — ends it.
     assert body.endswith("You are @HUNTER (Glass).\n")
+
+def test_generated_bytes_are_lf_and_carry_the_corpus_bytes_verbatim(src, tmp_path):
+    """Task 2's carried one-liner, finally landed (final-review F2): the byte-parity write path
+    had no regression net. Every other test reads with `read_text`, whose universal-newline
+    translation would silently MASK a dropped `newline=""` on the corpus read or the write — a
+    refactor could ship CRLF workspaces while the suite stays green. So this one reads BYTES."""
+    out = tmp_path / "agent"
+    generate_all(src / "personas.yaml", src / "personas", out,
+                 declared=DECLARED, ported=PORTED)
+    corpus = (src / "personas" / "_source" / "hunter.txt").read_bytes()
+    for name in ["hunter.md", "hunter-drive.md"]:       # subagent (with ledger) and drive twin
+        content = (out / name).read_bytes()
+        assert b"\r\n" not in content, f"{name}: CRLF in a generated agent file"
+        # the deferred-ledger prefix may sit between the frontmatter and the body, so the corpus
+        # bytes are asserted as a substring, not as the whole tail.
+        assert corpus in content, f"{name}: corpus bytes altered"

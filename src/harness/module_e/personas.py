@@ -37,23 +37,36 @@ def _frontmatter(p: Persona, model: str, mode: str,
         unknown = [t for t in p.allowed_tools if t not in declared]
         if unknown:
             raise UnknownTool(f"{p.name}: allowed_tools {unknown} are not in the tool manifest")
-        # `tools:` is only written when there is something under it: opencode 1.18.25 validates a
-        # bare `tools:` as null and rejects the WHOLE configuration ("Expected object | undefined,
+        # `tools:` is an OVERRIDE, not a whitelist: a name the map does not list keeps its
+        # default (enabled) state. So the map must name EVERY ported tool — `true` for the ones
+        # the persona allows, `false` for the rest — or the unlisted ones stay selectable at
+        # runtime. That restores the old tree's whitelist semantics: a persona's runtime tool
+        # surface is exactly its allowed tools. Builtins are not listed (they are governed by
+        # `permission:`); only the ported custom tools are.
+        # The key is still never written bare: opencode 1.18.25 validates a null `tools` as a
+        # schema failure and rejects the WHOLE configuration ("Expected object | undefined,
         # got null tools"), which takes every agent and plugin down with it (observed live with
-        # `opencode agent list` on a mounted workspace).
-        enabled = [f"  {t}: true" for t in sorted(p.allowed_tools) if t in ported]
-        if enabled:
+        # `opencode agent list` on a mounted workspace). With every ported tool now listed, the
+        # map is populated for any persona whenever the manifest ports anything at all — the key
+        # is omitted only when there are no ported rows, i.e. when the map would be truly empty,
+        # not merely bare.
+        rows = [f"  {t}: " + ("true" if t in p.allowed_tools else "false")
+                for t in sorted(ported)]
+        if rows:
             lines.append("tools:")
-            lines += enabled
+            lines += rows
         deny = sorted({DENY_MAP.get(d) for d in p.denied_tools if d in DENY_MAP})
         if deny:
             lines.append("permission:")
             for d in deny:
                 lines.append(f"  {d}: deny")
     else:  # drive twin: the parity comparator is a plain chat call — any tool makes the model
-           # act agentively instead of answering (spike, observed 2026-09-01).
+           # act agentively instead of answering (spike, observed 2026-09-01). Zero-tool means
+           # zero-tool: `tools:` is an override, so EVERY tool the mount can offer — the ten
+           # builtins AND every ported custom tool — must be written `false` explicitly.
+           # An unlisted name would keep its default (enabled) state at runtime.
         lines.append("tools:")
-        for t in BUILTIN_TOOLS:
+        for t in [*BUILTIN_TOOLS, *sorted(ported)]:
             lines.append(f"  {t}: false")
     return "\n".join(lines) + "\n"
 

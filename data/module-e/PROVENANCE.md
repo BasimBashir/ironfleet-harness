@@ -197,3 +197,29 @@ carry ONE deferred reference (`ironfleet_limitation_act`) and no enabled tool.
 Every other persona ends with an empty `allowed_tools`; hunter and clerk have no
 tool references at all, which is correct for the acceptance spine. Exactly one
 persona gains an enabled tool — a measured fact, not a failure.
+
+## The `tools:` map is an override, not a whitelist (final review, 2026-10-01)
+
+A generated agent's `tools:` map OVERRIDES OpenCode's defaults; it does not
+whitelist. A tool the map does not name keeps its default (enabled) state, so
+the first rendering — which wrote only the enabled names, and omitted the key
+entirely for a persona that enabled nothing — left every ported tool not
+explicitly granted selectable at runtime, and left the twelve personas with an
+absent map running with ALL tools enabled. (It never bit in a measured run only
+because the installed opencode loses model tool calls before any hook fires.)
+
+The generator now writes the map as a full projection of the ported set:
+
+- subagent: every ported tool is listed — `true` for the rows in the persona's
+  `allowed_tools`, `false` for the rest. A persona's runtime tool surface is
+  exactly its allowed tools, which is the old tree's whitelist semantics
+  restored. Builtins are not listed here; they are governed by `permission:`.
+- drive twin: `false` for the ten `BUILTIN_TOOLS` AND for every ported tool —
+  14 `false` lines on the shipped manifest (4 ported rows), so the twin is
+  genuinely zero-tool rather than zero-builtins.
+
+Task 10's bare-`tools:` finding still stands and is now narrower: because every
+ported tool is listed, the map is populated for any persona whenever the
+manifest ports anything at all. The key is omitted only when the ported set is
+empty, i.e. when the map would be truly empty — never merely bare. `auditor`'s
+map reads 1 `true` + 3 `false`; `hunter`'s reads 4 `false`.
