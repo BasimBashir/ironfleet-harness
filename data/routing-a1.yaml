@@ -3,6 +3,7 @@
 # Empty defaults: an unrecognised task class has no candidates and REFUSES. Every class
 # the harness uses must be listed explicitly — that is the fail-closed contract.
 aliases:
+  gate/embedding:         {task_class: embedding}
   gate/extraction:        {task_class: extraction}
   gate/classification:    {task_class: classification}
   gate/redaction:         {task_class: redaction}
@@ -49,6 +50,10 @@ rules:
     local_only: [ollama-local]
     local_preferred: [ollama-local]
     cloud_permitted: [ollama-local]
+  - task_class: embedding
+    local_only: [ollama-embed]
+    local_preferred: [ollama-embed]
+    cloud_permitted: [ollama-embed]
 defaults:
   local_only: []
   local_preferred: []

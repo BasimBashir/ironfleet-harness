@@ -23,7 +23,6 @@ from harness.module_e.guard import render_guard_plugin
 from harness.module_e.personas import generate_all
 from harness.module_e.tools import ToolEntry, declared_tools, load_manifest, ported_tools
 from harness.policy import RoutingTable
-from harness.providers.probe import register_provider
 from harness.providers.http_fetch import openai_fetch
 from harness.keychain import get_key
 from harness.trace import TraceStore
@@ -229,47 +228,64 @@ def build_gate(trace_path: Path, routing: Path | None = None) -> tuple[EgressGat
     reg = _probe_ollama()
     gate = EgressGate(reg, rt, trace)          # default transport talks to Ollama
     # The transport seam is the one non-byte-locked place to normalise provider response
-    # shape before gate.dispatch validates it. Wrapping the gate's own default transport
-    # (rather than reimplementing it) keeps the key/baseURL logic in one place.
-    # _default_transport is private in gate.py — this coupling is deliberate and this guard
-    # is the seam's side of it: if gate.py renames or restructures the attribute, fail loudly
-    # and EARLY, here, with something actionable. A bare AttributeError would instead surface
-    # at live-run time, because every suite test stubs build_gate (it probes real Ollama).
-    _ATTR = "_default_transport"
-    _default_transport = getattr(gate, _ATTR, None)
-    if not callable(_default_transport):
+    # shape before the gate validates it. Wrapping the gate's own default transports
+    # (rather than reimplementing them) keeps the key/baseURL logic in one place.
+    # _default_transport / _default_embedding_transport are private in gate.py — this
+    # coupling is deliberate and this guard is the seam's side of it: if gate.py renames
+    # or restructures either attribute, fail loudly and EARLY, here, with something
+    # actionable. A bare AttributeError would instead surface at live-run time, because
+    # every suite test stubs build_gate (it probes real Ollama).
+    _ATTRS = ("_default_transport", "_default_embedding_transport")
+    transports = {}
+    missing = []
+    for _attr in _ATTRS:
+        _t = getattr(gate, _attr, None)
+        if not callable(_t):
+            missing.append(_attr)
+        else:
+            transports[_attr] = _t
+    if missing:
         raise RuntimeError(
-            f"{type(gate).__name__} no longer exposes {_ATTR} — the transport seam in "
-            f"build_gate needs the gate's default transport to wrap. If gate.py renamed or "
-            f"restructured it, re-point this seam (and the {_ATTR} reference) at the "
-            f"replacement; do not silently fall back to an unwrapped transport, or Ollama's "
-            f"nested usage objects will fail validation inside dispatch again.")
+            f"{type(gate).__name__} no longer exposes {', '.join(missing)} — the transport "
+            f"seams in build_gate need the gate's default transports to wrap. If gate.py "
+            f"renamed or restructured these attributes, re-point these seams (and the "
+            f"{_ATTRS} references) at the replacements; do not silently fall back to an "
+            f"unwrapped transport, or Ollama's nested usage objects will fail validation "
+            f"inside dispatch again.")
 
-    async def _transport(provider, payload):
-        result = await _default_transport(provider, payload)
-        return _scalar_usage(result)
-    gate._transport = _transport
+    def _wrap(_t):
+        async def _transport(provider, payload):
+            result = await _t(provider, payload)
+            return _scalar_usage(result)
+        return _transport
+    gate._transport = _wrap(transports["_default_transport"])
+    gate._embedding_transport = _wrap(transports["_default_embedding_transport"])
     return gate, rt, aliases
 
 
 def _probe_ollama():
-    """CR-3: the registry is populated by evidence, never hand-edited."""
+    """CR-3: the registry is populated by evidence, never hand-edited.
+
+    Both providers are registered through the SAME probe: the embedding slot is a
+    gate-classified provider, not a new kind of provider (spec §1 item 3)."""
     from harness.providers.config import ProviderRegistry
+    from harness.providers.probe import register_provider
     reg = ProviderRegistry()
-    key = get_key("ollama-local") or ""
     # register_provider is a coroutine (it awaits openai_fetch over the network); the
     # driver is synchronous, so drive it to completion here. Calling it unawaited would
     # hand back a coroutine object and every attribute read below would blow up at
     # live-run time — the unit tests cannot see this, build_gate is stubbed there.
-    res = asyncio.run(register_provider("ollama-local", OLLAMA_URL, key,
-                                        model="thomson1-chat:latest", engine="ollama",
-                                        registry=reg, fetch=openai_fetch))
-    if res.admission == "refused":
-        print(f"[gate] ollama-local REFUSED: reachable={res.reachable} "
-              f"auth={res.auth_ok} models={res.models}", file=sys.stderr)
-    else:
-        print(f"[gate] ollama-local admitted as {res.admission} "
-              f"(verified={res.provenance.verified})", file=sys.stderr)
+    specs = [("ollama-local", "thomson1-chat:latest"), ("ollama-embed", "bge-m3:567m")]
+    for name, model in specs:
+        res = asyncio.run(register_provider(name, OLLAMA_URL, get_key(name) or "",
+                                            model=model, engine="ollama",
+                                            registry=reg, fetch=openai_fetch))
+        if res.admission == "refused":
+            print(f"[gate] {name} REFUSED: reachable={res.reachable} "
+                  f"auth={res.auth_ok} models={res.models}", file=sys.stderr)
+        else:
+            print(f"[gate] {name} admitted as {res.admission} "
+                  f"(verified={res.provenance.verified})", file=sys.stderr)
     return reg
 
 

@@ -3,7 +3,7 @@ import json
 import pytest
 from pathlib import Path
 from harness.alias import load_aliases, resolve_alias, UnknownAlias
-from harness.policy import RoutingTable, MECHANICAL_TASKS
+from harness.policy import RoutingTable, MECHANICAL_TASKS, MatterPolicy
 
 A1 = Path(__file__).resolve().parent.parent / "data" / "routing-a1.yaml"
 
@@ -40,3 +40,22 @@ def test_a1_extraction_is_mechanical():
     assert resolve_alias("gate/extraction", aliases) in MECHANICAL_TASKS
     with pytest.raises(UnknownAlias):
         resolve_alias("gate/summarising", aliases)   # not a mechanical task we admit
+
+
+def test_a1_embedding_alias_maps_to_the_embedding_rule():
+    aliases = load_aliases(A1)
+    assert resolve_alias("gate/embedding", aliases) == "embedding"
+    rt = RoutingTable.from_yaml(A1)
+    rule_classes = {r["task_class"] for r in rt._rules}
+    assert "embedding" in rule_classes, "gate/embedding needs a routing rule"
+
+def test_a1_embedding_rule_lists_only_local_providers():
+    # The routing-table half of the belt-and-braces LOCAL_ONLY rule (spec §2): the
+    # committed table must not name a cloud provider for the embedding class.
+    from harness.providers.config import ProviderConfig, ProviderRegistry
+    rt = RoutingTable.from_yaml(A1)
+    reg = ProviderRegistry()
+    reg.upsert(ProviderConfig(name="ollama-embed", base_url="http://o/v1", engine="ollama",
+                              tier="local", model="bge-m3:567m", admitted="mechanical-only"))
+    picks = rt.route("embedding", MatterPolicy(matter_ref="M", classification="LOCAL_ONLY"), reg)
+    assert [c.name for c in picks] == ["ollama-embed"]

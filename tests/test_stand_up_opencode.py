@@ -1,5 +1,5 @@
 # tests/test_stand_up_opencode.py
-import json, subprocess, sys
+import asyncio, json, subprocess, sys
 from pathlib import Path
 import pytest
 
@@ -139,6 +139,9 @@ class _FakeGate:
     async def _default_transport(self, provider, payload):
         return self._raw
 
+    async def _default_embedding_transport(self, provider, payload):
+        return self._raw
+
     @classmethod
     def seamless(cls):
         """A gate that no longer exposes the attribute the seam wraps."""
@@ -231,3 +234,53 @@ def test_main_hands_the_scrubbed_env_to_the_session(monkeypatch, tmp_path):
     assert env["PWD"] == str(tmp_path)
     assert env["OPENCODE_DISABLE_MODELS_FETCH"] == "1"
     assert not any(k in env for k in ("ANTHROPIC_API_KEY", "AWS_REGION", "AWS_ACCESS_KEY_ID"))
+
+
+def test_probe_ollama_registers_chat_and_embedding_providers(monkeypatch):
+    # The live registry must be built by evidence in one place; the embedding provider
+    # takes the SAME registration path as the chat provider (spec §1 item 3).
+    # register_provider is imported INSIDE _probe_ollama (stand_up_opencode.py:264), so
+    # patch the source module, not the driver namespace — a drv.register_provider patch
+    # would be a no-op and the test would pass against an unpatched network call.
+    import harness.providers.probe as probe
+    from harness.providers.config import ProviderConfig
+    from harness.providers.probe import ProbeResult
+    from harness.providers.provenance import ProvenanceReport
+    import scripts.stand_up_opencode as drv
+    calls = []
+
+    async def fake_register(name, base_url, api_key, model="", engine=None, **kw):
+        calls.append((name, model, engine, kw.get("registry") is not None))
+        # The real probe upserts into the registry on admission (probe.py:44); mirror that
+        # contract so the assertion below reads the registry the driver actually built.
+        registry = kw.get("registry")
+        if registry is not None:
+            registry.upsert(ProviderConfig(name=name, base_url=base_url, model=model,
+                                           engine=engine, tier="local",
+                                           admitted="mechanical-only"))
+        return ProbeResult(reachable=True, auth_ok=True, models=[model],
+                           provenance=ProvenanceReport(engine=engine or "ollama"),
+                           admission="mechanical-only")
+
+    monkeypatch.setattr(probe, "register_provider", fake_register)
+    monkeypatch.setattr(drv, "get_key", lambda name: "")
+    reg = drv._probe_ollama()
+    assert sorted(c.name for c in reg.list()) == ["ollama-embed", "ollama-local"]
+    assert ("ollama-embed", "bge-m3:567m", "ollama", True) in calls
+    assert ("ollama-local", "thomson1-chat:latest", "ollama", True) in calls
+
+def test_build_gate_wraps_the_embedding_transport_too(tmp_path, monkeypatch):
+    # Verified live 2026-10-01: /v1/embeddings returns FLAT usage, so _scalar_usage is a
+    # no-op there — but the seam must still normalise both paths through one wrapper, so
+    # Ollama's nested usage objects cannot regress on either endpoint.
+    drv, _ = _install_fake_gate(monkeypatch, raw={
+        "model": "bge-m3:567m",
+        "data": [{"index": 0, "embedding": [0.1, 0.2]}],
+        "usage": {"prompt_tokens": 3, "total_tokens": 3,
+                  "prompt_tokens_details": {"cached_tokens": 1}},
+    })
+    gate, _rt, _aliases = drv.build_gate(tmp_path / "trace.db")
+    out = asyncio.run(gate._embedding_transport(object(), {"model": "bge-m3:567m",
+                                                           "input": ["a"]}))
+    assert out["usage"] == {"prompt_tokens": 3, "total_tokens": 3}
+    assert out["data"][0]["embedding"] == [0.1, 0.2]

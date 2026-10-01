@@ -9,6 +9,12 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "IronFleet Gate",
       "models": {
+        "gate/embedding": {
+          "limit": {
+            "context": 32768,
+            "output": 16384
+          }
+        },
         "gate/extraction": {
           "limit": {
             "output": 16384,
