@@ -60,7 +60,10 @@ class EgressGate:
             engine=meta.get("engine") or provider.engine or "",
             weights_revision=meta.get("weights_revision")
                 or provider.declared_provenance.get("weights_revision", ""),
-            backend=meta.get("backend", ""),
+            # S7d: dispatch-time evidence wins over the probe's registration-time finding,
+            # which wins over nothing. Real endpoints send no _server_meta, so the live
+            # value is the probe's; either way the trace records what actually held.
+            backend=meta.get("backend") or provider.discovered_backend or "",
             # S6-2: probe semantics at dispatch time — a server-reported revision only
             # verifies when it MATCHES the declared (pinned) one, not merely exists.
             verified=revision_verified(meta.get("weights_revision", ""),
@@ -110,6 +113,7 @@ class EgressGate:
                 classification=request.classification, provider=cfg.name,
                 model=result.get("model", payload["model"]),
                 weights_revision=prov.weights_revision, engine=prov.engine,
+                backend=prov.backend,
                 verified=1 if prov.verified else 0,
                 tokens_in=usage.get("prompt_tokens", 0), tokens_out=usage.get("completion_tokens", 0),
                 latency_ms=int((time.monotonic()-t0)*1000)))

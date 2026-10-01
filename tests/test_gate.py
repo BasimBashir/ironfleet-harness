@@ -114,3 +114,45 @@ async def test_provider_output_cap_clamps_max_tokens(tmp_path):
     await gate.dispatch(LLMRequest(matter_ref="M-5", task_class="drafting",
                                    messages=[{"role": "user", "content": "x"}], max_tokens=2048))
     assert seen == [4096, 2048]                       # clamped down / request below cap unchanged
+
+@pytest.mark.asyncio
+async def test_backend_wire_meta_wins_over_probe_finding(tmp_path):
+    # Dispatch-time evidence is fresher than registration-time: if the server ever reports
+    # a backend on the wire, it outranks the probe's earlier finding (S7d rule).
+    async def transport(provider, payload):
+        return {"model": payload["model"], "choices": [{"message": {"content": "ans"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                "_server_meta": {"engine": "llamacpp", "backend": "from-wire",
+                                 "weights_revision": "rev-1"}}
+    gate = _gate(tmp_path, transport)
+    gate.registry.upsert(gate.registry.get("mini1").model_copy(
+        update={"discovered_backend": "from-probe"}))
+    res = await gate.dispatch(LLMRequest(matter_ref="M-6", task_class="drafting",
+                                         messages=[{"role": "user", "content": "x"}]))
+    assert res.provenance.backend == "from-wire"
+    assert gate.trace.by_matter("M-6")[0].backend == "from-wire"   # row and response agree
+
+@pytest.mark.asyncio
+async def test_backend_probe_finding_fills_when_wire_silent(tmp_path, fake_transport):
+    # conftest's fake_transport _server_meta carries engine+weights_revision but NO backend
+    # key — the shape of every real OpenAI-compatible endpoint today.
+    gate = _gate(tmp_path, fake_transport)
+    gate.registry.upsert(gate.registry.get("mini1").model_copy(
+        update={"discovered_backend": "from-probe"}))
+    res = await gate.dispatch(LLMRequest(matter_ref="M-7", task_class="drafting",
+                                         messages=[{"role": "user", "content": "x"}]))
+    assert res.provenance.backend == "from-probe"
+    assert gate.trace.by_matter("M-7")[0].backend == "from-probe"
+
+@pytest.mark.asyncio
+async def test_backend_empty_and_unverified_when_no_source(tmp_path):
+    # The Ollama shape: no wire meta, probe found nothing. Both fields stay honest-zeros.
+    async def transport(provider, payload):                # no _server_meta at all
+        return {"model": payload["model"], "choices": [{"message": {"content": "ans"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
+    gate = _gate(tmp_path, transport)
+    res = await gate.dispatch(LLMRequest(matter_ref="M-8", task_class="drafting",
+                                         messages=[{"role": "user", "content": "x"}]))
+    assert res.provenance.backend == ""
+    row = gate.trace.by_matter("M-8")[0]
+    assert row.backend == "" and row.verified == 0
