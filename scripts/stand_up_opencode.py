@@ -44,6 +44,13 @@ TOOLS_TEMPLATE = PLUGIN_SRC / "ironfleet-tools.ts"
 GUARD_CLI = ROOT / "src" / "harness" / "spike" / "guard_cli.py"
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 ROUTING = DATA / "routing-a1.yaml"
+# A-5: the proxy serves a directory of per-matter records. Adding a window is dropping a
+# record here, not editing a registry. Sibling of the workspace's parent, so a workspace
+# tree never collides with the matter registry. sync_mount derives its root from the
+# workspace (ws.parent / "matters") rather than reading this constant, which keeps that
+# equality true in the live driver while a unit test's tmp_path workspace writes only
+# inside its own tmp tree.
+MATTERS_ROOT = Path.home() / "spike-ws-a1" / "matters"
 OLLAMA_URL = "http://127.0.0.1:11434/v1"
 OPENCODE_EXE = os.path.join(os.environ.get("APPDATA", ""), "npm", "opencode.cmd")
 
@@ -146,7 +153,7 @@ def render_tools_plugin(template: str, ws: Path, python: str, manifest: Path,
 
 
 def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
-               port: int = PORT) -> None:
+               port: int = PORT, matters_root: Path | None = None) -> None:
     """Copy the mount into the workspace and write the matter record, then assemble the full
     S7c mount: every persona/variant agent file and its drive twin, the 26 skill documents,
     the guard and tools plugins rendered from the committed templates, and the guard's
@@ -171,10 +178,25 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
     # (src/harness/spike/candidates/opencode/opencode.json).
     cfg = json.loads((mount / "opencode.json").read_text())
     cfg["provider"]["gate-local"].setdefault("options", {})["baseURL"] = \
-        f"http://{HOST}:{port}/v1"
+        f"http://{HOST}:{port}/v1/m/{matter_ref}"
     (ws / "opencode.json").write_text(json.dumps(cfg, indent=2))
     (ws / "matter.json").write_text(json.dumps(
         {"matter_ref": matter_ref, "classification": classification}, indent=2))
+    # A-5 (spec §4): the multi-matter proxy reads a per-matter record directory. Defaults to
+    # ws.parent / "matters" rather than MATTERS_ROOT: in the live driver that root IS the
+    # constant, and a unit test's workspace under tmp_path writes only inside its own tmp
+    # tree — never the real home directory. An explicit matters_root is the acceptance
+    # driver's: it needs two mounts under SEPARATE parents (opencode groups sibling git
+    # repos under one parent into a multi-instance project — the spike's own premise, kept
+    # by giving each mount its own parent) writing into ONE served directory, because a
+    # directory holding only the caller's own record would let the legacy single-record
+    # fallback mask a binary that strips the identity path segment.
+    root = matters_root if matters_root is not None else ws.parent / "matters"
+    matter_dir = root / matter_ref
+    matter_dir.mkdir(parents=True, exist_ok=True)
+    (matter_dir / "matter.json").write_text(json.dumps(
+        {"matter_ref": matter_ref, "classification": classification}, indent=2),
+        encoding="utf-8")
 
     # --- S7c Module E (Task 10). The manifest is loaded ONCE and drives everything below, so
     # the personas' enablement, the guard's annotation whitelist and the tools shim's tool list
@@ -263,6 +285,16 @@ def build_gate(trace_path: Path, routing: Path | None = None) -> tuple[EgressGat
     return gate, rt, aliases
 
 
+def build_scheduler(capacity: "Capacity | None" = None) -> "TurnScheduler":
+    """The scheduler for the live stack, from the real machine's capacity (spec §3).
+
+    Built in the same place build_gate assembles the gate, so one module owns the live
+    system's construction. An explicit capacity is for tests; the live path probes."""
+    from harness.capacity import machine_capacity, Capacity
+    from harness.scheduler import TurnScheduler
+    return TurnScheduler(capacity if capacity is not None else machine_capacity())
+
+
 def _probe_ollama():
     """CR-3: the registry is populated by evidence, never hand-edited.
 
@@ -309,12 +341,14 @@ def main(argv: list[str] | None = None) -> int:
     sync_mount(ws, MOUNT, args.matter_ref, args.classification, PORT)
 
     gate, rt, aliases = build_gate(ws / "trace.db")
+    scheduler = build_scheduler()
     # ThreadingHTTPServer binds in its CONSTRUCTOR, so the port-collision guard must wrap
     # construction, not start() — start() only spawns the serve_forever thread and cannot
     # raise OSError. A bind failure here aborts rather than letting the mount's hardcoded
     # baseURL point at whatever else is listening on 7373.
     try:
-        proxy = EgressProxy(HOST, PORT, gate, rt, aliases, ws / "matter.json")
+        proxy = EgressProxy(HOST, PORT, gate, rt, aliases, ws.parent / "matters",
+                            scheduler=scheduler)
     except OSError as ex:
         print(f"[gate] cannot bind {HOST}:{PORT} — refusing to start a mount that "
               f"would point elsewhere: {ex}", file=sys.stderr)

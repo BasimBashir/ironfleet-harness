@@ -14,7 +14,7 @@ def test_sync_mount_copies_and_substitutes(tmp_path):
     sync_mount(ws, data / "opencode-a1", matter_ref="m-test",
                classification="LOCAL_PREFERRED", port=8123)
     cfg = json.loads((ws / "opencode.json").read_text())
-    assert cfg["provider"]["gate-local"]["options"]["baseURL"] == "http://127.0.0.1:8123/v1"
+    assert cfg["provider"]["gate-local"]["options"]["baseURL"] == "http://127.0.0.1:8123/v1/m/m-test"
     matter = json.loads((ws / "matter.json").read_text())
     assert matter["matter_ref"] == "m-test"
 
@@ -27,7 +27,8 @@ def test_sync_mount_refuses_port_collision_substitution(tmp_path):
     sync_mount(ws, data / "opencode-a1", matter_ref="m-test",
                classification="LOCAL_PREFERRED", port=8123)
     cfg = json.loads((ws / "opencode.json").read_text())
-    assert "127.0.0.1:8123" in cfg["provider"]["gate-local"]["options"]["baseURL"]
+    assert cfg["provider"]["gate-local"]["options"]["baseURL"] == \
+        "http://127.0.0.1:8123/v1/m/m-test"
 
 def test_driver_help_runs(tmp_path):
     # Smoke: the CLI imports cleanly and its --help exits 0.
@@ -284,3 +285,67 @@ def test_build_gate_wraps_the_embedding_transport_too(tmp_path, monkeypatch):
                                                            "input": ["a"]}))
     assert out["usage"] == {"prompt_tokens": 3, "total_tokens": 3}
     assert out["data"][0]["embedding"] == [0.1, 0.2]
+
+
+def test_sync_mount_names_the_matter_in_the_baseURL_path(tmp_path):
+    # A-5 (spec §4): the mount's ONLY provisionable identity channel is the baseURL path —
+    # opencode's ProviderConfig options object has no `headers` key (additionalProperties is
+    # false on a fixed list), so a matter header cannot be provisioned at all. This is the
+    # single test that pins the mount's side of the seam; C7 then proves the binary forwards
+    # it. `@ai-sdk/openai-compatible` joins withoutTrailingSlash(baseURL) + "/chat/completions",
+    # so /v1/m/m-path arrives intact as /v1/m/m-path/chat/completions.
+    from scripts.stand_up_opencode import sync_mount
+    ws = tmp_path / "ws"; ws.mkdir()
+    data = Path(__file__).resolve().parent.parent / "data"
+    sync_mount(ws, data / "opencode-a1", matter_ref="m-path",
+               classification="LOCAL_PREFERRED", port=8123)
+    cfg = json.loads((ws / "opencode.json").read_text())
+    assert cfg["provider"]["gate-local"]["options"]["baseURL"] == \
+        "http://127.0.0.1:8123/v1/m/m-path"
+
+def test_sync_mount_writes_the_per_matter_record(tmp_path):
+    # A-5: the proxy serves a matters DIRECTORY — adding a window is dropping a record,
+    # not editing a registry. The workspace matter.json stays so nothing downstream breaks.
+    from scripts.stand_up_opencode import sync_mount
+    ws = tmp_path / "ws"; ws.mkdir()
+    data = Path(__file__).resolve().parent.parent / "data"
+    sync_mount(ws, data / "opencode-a1", matter_ref="m-multi",
+               classification="LOCAL_PREFERRED", port=8123)
+    ws_matter = json.loads((ws / "matter.json").read_text())
+    assert ws_matter["matter_ref"] == "m-multi"
+    # Default: sibling of the workspace's parent.
+    reg = json.loads((ws.parent / "matters" / "m-multi" / "matter.json").read_text())
+    assert reg["matter_ref"] == "m-multi"
+    assert reg["classification"] == "LOCAL_PREFERRED"
+
+def test_sync_mount_writes_into_an_explicit_matters_root(tmp_path):
+    # The acceptance driver points two mounts at ONE served directory while giving each
+    # mount its own parent (opencode groups sibling git repos under one parent into a
+    # multi-instance project — the spike's premise). An explicit root is how it does that
+    # without the default's ws.parent coupling, and the record must land in the SERVED
+    # tree — the proxy refuses anything not registered.
+    from scripts.stand_up_opencode import sync_mount
+    ws = tmp_path / "run-a" / "opencode"
+    served = tmp_path / "matters"
+    data = Path(__file__).resolve().parent.parent / "data"
+    sync_mount(ws, data / "opencode-a1", matter_ref="m-shared",
+               classification="LOCAL_PREFERRED", port=8123, matters_root=served)
+    reg = json.loads((served / "m-shared" / "matter.json").read_text())
+    assert reg["matter_ref"] == "m-shared"
+    # The default root is NOT used when an explicit one is given — no stray record leaks
+    # into ws.parent / "matters", which for the acceptance driver would be a throwaway
+    # path it never serves.
+    assert not (ws.parent / "matters").exists()
+
+def test_build_gate_and_scheduler_assemble_the_live_stack(tmp_path, monkeypatch):
+    # The scheduler is built from the REAL machine's capacity in the same place the gate is
+    # — one function assembles the live system. The capacity probe is real here (no network
+    # involved), so this asserts the wiring, not a stubbed number.
+    drv, _ = _install_fake_gate(monkeypatch, raw={
+        "model": "thomson1-chat:latest", "choices": [{"message": {"content": "hi"}}],
+        "usage": {"prompt_tokens": 1},
+    })
+    gate, rt, aliases = drv.build_gate(tmp_path / "trace.db")
+    sched = drv.build_scheduler()
+    assert sched.max_concurrent >= 1
+    assert sched.capacity.source_cores          # provenance carried through
