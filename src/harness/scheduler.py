@@ -152,9 +152,13 @@ class TurnScheduler:
                 # cancelled while waiting for either gate: it never ran, and never will.
                 # The future must be resolved here or a caller awaiting wait() blocks
                 # forever — cancel() itself only sets the status and cancels the task.
+                # The guard matters for the running case below, not this one: a turn
+                # cancelled at a gate never started its body, so cancel() has not
+                # resolved anything yet. Checked anyway — one rule for both handlers.
                 if handle.status != "cancelled":
                     handle.status = "cancelled"
-                fut.set_result(None)
+                if not fut.done():
+                    fut.set_result(None)
                 raise
             try:
                 handle.queue_ms = (time.monotonic() - t0) * 1000.0
@@ -176,7 +180,13 @@ class TurnScheduler:
                 fut.set_result(result)
             except asyncio.CancelledError:
                 handle.status = "cancelled"
-                fut.set_result(None)
+                # cancel() already resolved this future synchronously when it cancelled a
+                # RUNNING turn — a second set_result here would raise InvalidStateError out
+                # of the task and it would die erroring instead of cancelled. Whether the
+                # turn had started is a race cancel() cannot settle, so the check lives
+                # here, on the side that knows whether the future is still pending.
+                if not fut.done():
+                    fut.set_result(None)
                 raise
             except Exception as ex:                 # noqa: BLE001 — record, don't raise
                 handle.status = "failed"

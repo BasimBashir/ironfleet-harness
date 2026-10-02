@@ -194,6 +194,31 @@ async def test_cancel_an_unknown_turn_is_false_not_an_error():
 
 
 @pytest.mark.asyncio
+async def test_cancel_a_running_turn_resolves_without_a_double_resolve():
+    # cancel() resolves the future synchronously; _run's own CancelledError handler must not
+    # resolve it a second time. A running turn is the case that trips it — the queued case
+    # never reaches the handler at all. The task must end CANCELLED, not erroring.
+    sched = TurnScheduler(_cap(), max_concurrent=4)
+    inside = asyncio.Event()
+
+    async def _running():
+        inside.set()
+        await asyncio.sleep(1.0)          # cancelled here, past both gates
+        return "unreachable"
+
+    h = sched.submit("M-1", "chat", _running)
+    task = sched._tasks[h.turn_id]        # stored synchronously by submit(); _run pops it on exit
+    await inside.wait()                   # the turn is through both gates and running
+    assert sched.cancel(h.turn_id) is True
+    assert await h.wait() is None         # cancel() resolved it — no hang either way
+    assert h.status == "cancelled"
+    outcome = await asyncio.gather(task, return_exceptions=True)
+    # The guard's proof: without it the handler's second set_result raises InvalidStateError
+    # and the task dies with THAT instead of the cancellation.
+    assert isinstance(outcome[0], asyncio.CancelledError), outcome
+
+
+@pytest.mark.asyncio
 async def test_a_running_turn_failure_is_recorded_not_raised():
     sched = TurnScheduler(_cap())
 
