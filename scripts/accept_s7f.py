@@ -44,9 +44,12 @@ WS = Path.home() / "spike-ws-a1" / "s7f-accept"
 MATTER_A, MATTER_B = "m-s7f-a", "m-s7f-b"
 
 # The module's ledger entry: the capability this module ships, and the maturity it lands
-# at. C7 is the one check a binary seam can fail, so the module is CONDITIONAL by
-# default — a failed C7 is priced as a blocked seam (CR-9), never absorbed, and C1-C6
-# stand as proven either way (spec §5).
+# at. C7 is the one check a binary seam can fail, so the module is CONDITIONAL BY DESIGN
+# until that seam is proven on the installed binary — a failed C7 is priced as a blocked
+# seam (CR-9), never absorbed, and C1-C6 stand as proven either way (spec §5). main()
+# upgrades the verdict to ACCEPTED when C7 passes and names the working identity form
+# (spec §8 criterion 5); a constant cannot know which binary is installed, so it holds the
+# unproven default and the run's verdict is printed alongside it.
 CAPABILITY = "A-5 scheduler caps + same-case queue"
 MATURITY = "CONDITIONAL"
 
@@ -233,7 +236,15 @@ async def check_c6(ws: Path, scheduler: TurnScheduler) -> list[str]:
     problems: list[str] = []
     aliases = load_aliases(ROUTING)
     # One trace store shared by the run, so both matters' rows land in one place.
-    gate2, _rt, _al = build_gate(ws / "trace-c6.db")
+    # build_gate probes Ollama through asyncio.run() internally (_probe_ollama), so it
+    # cannot be called directly inside this async check — the nested asyncio.run raises
+    # "cannot be called from a running event loop" (observed live running this driver:
+    # C6 died at build_gate before a single request went out). The check is async because
+    # it awaits the scheduler, so the gate is built on an executor thread, where no loop
+    # is running and _probe_ollama's own asyncio.run is valid — the S7e nested-loop
+    # lesson, in the one place S7f's async checks need it.
+    gate2, _rt, _al = await asyncio.get_running_loop().run_in_executor(
+        None, build_gate, ws / "trace-c6.db")
     for ref in (MATTER_A, MATTER_B):
         d = MATTERS_ROOT / ref
         d.mkdir(parents=True, exist_ok=True)
@@ -334,7 +345,10 @@ async def check_c7(ws: Path, scheduler: TurnScheduler) -> list[str]:
     # project and can attach the wrong instance (spike, observed 2026-09-01). sync_mount's
     # explicit matters_root is what makes separate parents and one served directory coexist.
     served = ws / "matters"
-    gate, rt, aliases = build_gate(ws / "trace-c7.db")
+    # Built on an executor thread for the same reason as C6's: _probe_ollama's internal
+    # asyncio.run cannot nest inside this check's running loop.
+    gate, rt, aliases = await asyncio.get_running_loop().run_in_executor(
+        None, build_gate, ws / "trace-c7.db")
     proxy = EgressProxy(HOST, 7375, gate, rt, aliases, served, scheduler=scheduler)
     proxy.start()
     try:
@@ -370,6 +384,14 @@ async def check_c7(ws: Path, scheduler: TurnScheduler) -> list[str]:
         # Cross-contamination: a turn from mount A must not have landed under B's ref.
         # (A single row under each ref with the right provider is the positive assertion
         # above; this is the isolation half of the same property.)
+        # Name the working identity form, plainly (spec §8 criterion 5): the mount carries
+        # the matter in the baseURL path (Task 4) — the only channel the config schema
+        # accepts — and a row under EACH ref proves it survived the binary. Printed, never
+        # asserted as a version pin (S7d precedent: the pin is S7c's pending user one).
+        if not any(p.startswith("C7:") for p in problems):
+            print(f"[C7] identity form: baseURL path (/v1/m/<ref>/) — turns landed under "
+                  f"both {MATTER_A} and {MATTER_B} on the installed binary",
+                  file=sys.stderr)
     finally:
         proxy.stop()
     return problems
@@ -407,11 +429,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[accept-s7f] REJECTED: {len(problems)} problem(s). "
               f"MATURITY={MATURITY} ({CAPABILITY})", file=sys.stderr)
         return 1
+    # All seven checks passed, C7 among them: the seam carried identity on THIS binary, so
+    # the run's verdict is ACCEPTED and MATURITY's CONDITIONAL-by-design default is
+    # superseded for this install (the working form is named in [C7] above).
     print("[accept-s7f] ACCEPTED: C1 capacity detected (memory binds on this box); "
           "C2 same-matter FIFO; C3 matters parallel; C4 cap binds globally; C5 fairness + "
           "cancellation; C6 live dispatch traced with honest values; C7 the opencode seam "
           "carries matter identity.", file=sys.stderr)
-    print(f"[accept-s7f] MATURITY={MATURITY} ({CAPABILITY})", file=sys.stderr)
+    print(f"[accept-s7f] MATURITY=ACCEPTED on this binary "
+          f"(CONDITIONAL by design — C7 is the check a binary seam can fail) "
+          f"({CAPABILITY})", file=sys.stderr)
     if not args.keep_ws:
         shutil.rmtree(WS, ignore_errors=True)
     return 0
