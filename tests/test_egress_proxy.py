@@ -6,6 +6,8 @@ from harness.policy import RoutingTable
 from harness.providers.config import ProviderConfig, ProviderRegistry
 from harness.trace import TraceStore, DispatchRecord
 from harness.egress_proxy import EgressProxy, UnknownMatter
+from harness.capacity import Capacity
+from harness.scheduler import TurnScheduler
 
 @pytest.fixture
 def gate_stack(tmp_path, fake_transport):
@@ -197,3 +199,207 @@ def test_concurrent_same_matter_keeps_each_request_own_code(gate_stack):
         assert [r.status for r in rows] == ["error", "refused"]
     finally:
         proxy.stop()
+
+# --- A-5: the proxy is multi-matter, identity from header / path / legacy (spec §4) -----
+
+def _proxy_with_scheduler(gate_stack, matters_dir):
+    """A proxy whose dispatch goes through a scheduler, serving a matters DIRECTORY."""
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    sched = TurnScheduler(Capacity(perf_cores=99, avail_mb=999_999, source_cores="t",
+                                   source_memory="t"), max_concurrent=1)
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matters_dir, scheduler=sched)
+    return proxy, trace, tmp_path
+
+def _write_matters(root, refs):
+    root.mkdir(parents=True, exist_ok=True)
+    for ref in refs:
+        d = root / ref
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "matter.json").write_text(json.dumps(
+            {"matter_ref": ref, "classification": "LOCAL_PREFERRED"}))
+    return root
+
+def _queue_ms(host, port, ref, stream=False):
+    """POST a dispatch and read back the scheduler's queue-wait header."""
+    req = urllib.request.Request(
+        f"http://{host}:{port}/v1/m/{ref}/chat/completions",
+        data=json.dumps({"model": "gate/extraction", "stream": stream,
+                         "messages": [{"role": "user", "content": "Extract"}]}).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        r.read()
+        return float(r.headers.get("X-IronFleet-Queue-Ms", "0"))
+
+def test_header_identifies_the_matter(gate_stack):
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    root = _write_matters(tmp_path / "matters", ["m-hdr", "m-other"])
+    proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        req = urllib.request.Request(f"http://{host}:{port}/v1/chat/completions",
+            data=json.dumps({"model": "gate/extraction",
+                             "messages": [{"role": "user", "content": "Extract"}]}).encode(),
+            headers={"Content-Type": "application/json", "X-IronFleet-Matter": "m-hdr"})
+        r = urllib.request.urlopen(req, timeout=10)
+        assert json.loads(r.read())["choices"][0]["message"]["content"]
+        rows = trace.by_matter("m-hdr")
+        assert len(rows) == 1                      # dispatched under the HEADER's matter
+        assert trace.by_matter("m-other") == []    # and no other matter's record was touched
+    finally:
+        proxy.stop()
+
+def test_path_identifies_the_matter(gate_stack):
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    root = _write_matters(tmp_path / "matters", ["m-path", "m-other"])
+    proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        r = _post(f"http://{host}:{port}/v1/m/m-path/chat/completions",
+                  {"model": "gate/extraction",
+                   "messages": [{"role": "user", "content": "Extract"}]})
+        rows = trace.by_matter("m-path")
+        assert len(rows) == 1
+        assert trace.by_matter("m-other") == []
+    finally:
+        proxy.stop()
+
+def test_header_wins_over_path_when_both_are_present(gate_stack):
+    # Precedence is fixed and deterministic (spec §4): header first, then path, then the
+    # legacy record — so an operator can always tell which form identified the turn.
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    root = _write_matters(tmp_path / "matters", ["m-hdr", "m-path"])
+    proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        req = urllib.request.Request(f"http://{host}:{port}/v1/m/m-path/chat/completions",
+            data=json.dumps({"model": "gate/extraction",
+                             "messages": [{"role": "user", "content": "Extract"}]}).encode(),
+            headers={"Content-Type": "application/json", "X-IronFleet-Matter": "m-hdr"})
+        urllib.request.urlopen(req, timeout=10).read()
+        assert len(trace.by_matter("m-hdr")) == 1
+        assert trace.by_matter("m-path") == []
+    finally:
+        proxy.stop()
+
+def test_unknown_matter_is_500_and_never_dispatches(gate_stack):
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    root = _write_matters(tmp_path / "matters", ["m-known"])
+    proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        with pytest.raises(urllib.error.HTTPError) as ex:
+            _post(f"http://{host}:{port}/v1/m/m-unknown/chat/completions",
+                  {"model": "gate/extraction",
+                   "messages": [{"role": "user", "content": "Extract"}]})
+        assert ex.value.code == 500
+        assert trace.summary()["dispatches"] == 0   # no passthrough, no default matter
+    finally:
+        proxy.stop()
+
+def test_legacy_single_matter_file_still_works(gate_stack):
+    # The S7b form — one matter.json, no matters directory — must keep working so no
+    # existing mount breaks (spec §4).
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    matter = tmp_path / "matter.json"
+    matter.write_text(json.dumps({"matter_ref": "m-legacy", "classification": "LOCAL_PREFERRED"}))
+    sched = TurnScheduler(Capacity(perf_cores=99, avail_mb=999_999, source_cores="t",
+                                   source_memory="t"), max_concurrent=1)
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter, scheduler=sched)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        _post(f"http://{host}:{port}/v1/chat/completions",
+              {"model": "gate/extraction",
+               "messages": [{"role": "user", "content": "Extract"}]})
+        assert len(trace.by_matter("m-legacy")) == 1
+    finally:
+        proxy.stop()
+
+def test_no_identity_in_a_matters_directory_is_refused(gate_stack):
+    # A matters DIRECTORY holding two records, with no identity on the request, must NOT
+    # fall back to either record — there is no default matter (spec §4). The legacy
+    # single-record fallback is a property of the ONE-record form, not of the directory.
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    root = _write_matters(tmp_path / "matters", ["m-one", "m-two"])
+    proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        with pytest.raises(urllib.error.HTTPError) as ex:
+            _post(f"http://{host}:{port}/v1/chat/completions",
+                  {"model": "gate/extraction",
+                   "messages": [{"role": "user", "content": "Extract"}]})
+        assert ex.value.code == 500
+        assert trace.summary()["dispatches"] == 0
+    finally:
+        proxy.stop()
+
+def test_queue_timeout_returns_503_with_retry_after(gate_stack):
+    # A saturated queue makes the client back off with a header it can act on, rather than
+    # piling its own retries onto the queue (spec §3.4).
+    import asyncio, threading, time
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    root = _write_matters(tmp_path / "matters", ["m-q"])
+    sched = TurnScheduler(Capacity(perf_cores=99, avail_mb=999_999, source_cores="t",
+                                   source_memory="t"), max_concurrent=1, queue_timeout=0.05)
+
+    async def slow(provider, payload):
+        await asyncio.sleep(0.3)
+        return {"choices": [{"message": {"content": "ok"}}], "usage": {}, "model": "m"}
+    gate._transport = slow
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, root, scheduler=sched)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        # First turn holds the only slot; the second queues and times out.
+        t = threading.Thread(target=lambda: _post(
+            f"http://{host}:{port}/v1/m/m-q/chat/completions",
+            {"model": "gate/extraction",
+             "messages": [{"role": "user", "content": "Extract"}]}), daemon=True)
+        t.start()
+        time.sleep(0.05)          # let the first dispatch acquire the single slot
+        with pytest.raises(urllib.error.HTTPError) as ex:
+            _post(f"http://{host}:{port}/v1/m/m-q/chat/completions",
+                  {"model": "gate/extraction",
+                   "messages": [{"role": "user", "content": "Extract"}]})
+        assert ex.value.code == 503
+        assert ex.value.headers.get("Retry-After") is not None
+        t.join(timeout=10)
+    finally:
+        proxy.stop()
+
+def test_queue_wait_is_reported_in_a_header(gate_stack):
+    # The scheduler knows how long a turn waited; the response carries it as a header so C6
+    # can assert the queued turn genuinely queued from the scheduler's own measurement
+    # rather than wall-clock inference. A body field would have to be optional in every SDK
+    # consumer; a header touches no schema.
+    import asyncio, threading, time
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    root = _write_matters(tmp_path / "matters", ["m-hdr", "m-queued"])
+    sched = TurnScheduler(Capacity(perf_cores=99, avail_mb=999_999, source_cores="t",
+                                   source_memory="t"), max_concurrent=1)
+
+    async def slow(provider, payload):
+        await asyncio.sleep(0.2)
+        return {"choices": [{"message": {"content": "ok"}}], "usage": {}, "model": "m"}
+    gate._transport = slow
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, root, scheduler=sched)
+    proxy.start(); host, port = proxy.server_address
+    waited = {}
+    try:
+        t = threading.Thread(target=lambda: waited.update(
+            {"a": _queue_ms(host, port, "m-hdr")}), daemon=True)
+        t.start()
+        time.sleep(0.05)          # let the first dispatch take the only slot
+        waited["b"] = _queue_ms(host, port, "m-queued")
+        t.join(timeout=10)
+        # And the header is present on the streaming path too — same uncontended ~0 as A.
+        # Read it HERE, inside the try: the finally below stops the server, so a header
+        # read after it is a connection refused, not a measurement.
+        waited["stream"] = _queue_ms(host, port, "m-hdr", stream=True)
+    finally:
+        proxy.stop()
+    # The turn that had to wait reports a real queue wait; the one that went first reports
+    # only the uncontended lock acquire (microseconds, not a wait). The distinction is
+    # ORDERS OF MAGNITUDE: B waits behind a running turn, A does not — a slack-tolerant
+    # comparison on A would pass even if queue_ms were never recorded at all.
+    assert waited["b"] > 50, waited
+    assert waited["a"] < 5, waited
+    assert waited["stream"] < 5, waited
