@@ -126,3 +126,28 @@ to write authorities annotates-and-blocks every bracket in the response.
 3. **Carried** — M0 hazard 1 (`experimental.text.complete` is experimental; pin + re-verify on
    every upgrade), the SSE adapter stays unit-tested only (S7b CARRIED ruling — the pinned
    client does not stream).
+
+## OpenCode S7f — scheduler caps + same-case queue (2026-10-02, commits `57cd050..` HEAD) — verdict: (a) PASS, (b) PASS, no fork
+
+> **S7f seams = 1 new + 1 reused.** The seam count rises by **exactly one** — the per-matter
+> identity attachment described below. Every other S7f surface is in-process harness code.
+>
+> **Why (a) is PASS.** Acceptance ran 2026-10-02 (`scripts/accept_s7f.py`, exit 0 on all seven
+> checks). C7 — the one check a binary seam can fail — ran two real mounts against the installed
+> opencode 1.18.33 binary and resolved matter identity through the mount's baseURL path form
+> (`/v1/m/<ref>/`); turns landed under both `m-s7f-a` and `m-s7f-b`. The pin decision remains
+> S7c's pending user decision, so the binary version is printed, never asserted.
+
+| seam | file/hook touched | core-fork? |
+|---|---|---|
+| per-matter identity via baseURL path | `stand_up_opencode.py` (`sync_mount`) now writes one `matters/<ref>/matter.json` record per mount and points the mount's provider `baseURL` at `http://<host>:<port>/v1/m/<matter_ref>`, so opencode's own provider wiring carries matter identity to the gate on every dispatch — no header, no plugin, no prompt surgery. The proxy's `/v1/m/<ref>/chat/completions` path form is the matching reader. **New is only the path segment**: the provider/baseURL wiring itself is a REUSED seam from S7b/S7c. No guard hook and no plugin were touched for this module. | no |
+| **REUSED** provider wiring | `opencode.json` custom provider `ollama-local` — unchanged in kind from the spike and S7c; S7f only varies the `baseURL` path segment per matter | no |
+
+### In-process by construction: the scheduler attaches to nothing
+
+`harness.scheduler.TurnScheduler` is in-process harness code with **no opencode attachment
+point** — exactly like S7e's embedding path. It sits below the gate's egress proxy
+(`egress_proxy.py` submits every dispatch as a turn) and above nothing external; opencode
+never sees it. The same is true of `harness.capacity.machine_capacity()`. So the seam count
+does not rise for the scheduler, the capacity probes, the FIFO locks, or the 503/Retry-After
+queue-timeout path — none of them cross the harness boundary.

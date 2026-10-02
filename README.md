@@ -114,6 +114,47 @@ index A-4 was priced for (thousands to tens of thousands of chunks per matter). 
 cosine is O(rows x dims) per query; swap in sqlite-vec or numpy later behind the same
 interface — the interface is the stable surface, the cosine is not.
 
+## Multi-window scheduling (A-5 / S7f)
+
+Different matters run fully in parallel; turns on the **same** matter serialize through a
+per-matter FIFO; and total concurrency is capped by this machine's measured performance
+cores **and** available memory.
+
+`harness.capacity.machine_capacity()` detects both numbers with stdlib per-platform probes
+(`ctypes` on Windows, `sysctl` on macOS, `/proc` on Linux) and records *how* each was
+obtained in a `source_*` string — the same provenance discipline the gate applies to
+providers. The cap is:
+
+```
+max_concurrent = max(1, min(perf_cores // 2, avail_mb // 20480))
+```
+
+The `20480` MB reserve is the served model's measured weight footprint (20,398 MB for
+`thomson1-chat` 34.7B Q4_K_M, rounded up to a whole GiB), so an admitted turn can always
+**cold-load** its model into free RAM rather than betting the server still holds it
+resident. On the dev box (12 performance-class logical CPUs, ~52 GiB available) this makes
+**memory the binding term: the cap is 2.** Two matters run concurrently; a third queues. An
+explicit `HARNESS_MAX_CONCURRENT` env var overrides the derivation.
+
+The scheduler is `harness.scheduler.TurnScheduler`. Each turn acquires its matter's lock and
+then one global semaphore, in that fixed order — which gives same-matter FIFO serialization,
+cross-matter parallelism, and a fairness property that is structural rather than configured:
+a matter holds its own lock only while *running*, so its queued turns wait on the matter lock
+and each matter contributes at most one turn to the global queue. No matter's backlog can
+starve another beyond a single turn.
+
+The egress proxy is **multi-matter**: a request identifies its matter by an
+`X-IronFleet-Matter` header, a `/v1/m/<ref>/chat/completions` path, or the legacy single
+`matter.json` (in that precedence), and an unregistered matter is refused with
+`500 matter_unavailable` — no passthrough, no default matter. Every dispatch is submitted to
+the scheduler as a turn. A turn that waits beyond the queue timeout returns `503` with
+`Retry-After`, so a saturated queue makes the client back off rather than fan retries into
+identical trace rows.
+
+**Honest caveat:** the queue is in-process. If the proxy dies, the queue dies with it — a
+queued turn is re-issued by its window. A persistent job table is deferred to the shell step
+that will consume it.
+
 ## Eval
 
 ```python
