@@ -49,7 +49,6 @@ async def test_different_matters_run_in_parallel():
     # timing — a serialized run would deadlock on barrier.wait() and time out the test.
     sched = TurnScheduler(_cap(), max_concurrent=2)
     barrier = asyncio.Barrier(2)
-    results: list[str] = []
 
     async def _fn(matter):
         async def _body():
@@ -62,7 +61,6 @@ async def test_different_matters_run_in_parallel():
     h2 = sched.submit("M-B", "chat", lambda: _fn("B"))
     r = await asyncio.gather(h1.wait(), h2.wait())
     assert sorted(r) == ["A", "B"]
-    assert results == []                      # placeholder removed; barrier is the proof
 
 
 @pytest.mark.asyncio
@@ -216,6 +214,67 @@ async def test_cancel_a_running_turn_resolves_without_a_double_resolve():
     # The guard's proof: without it the handler's second set_result raises InvalidStateError
     # and the task dies with THAT instead of the cancellation.
     assert isinstance(outcome[0], asyncio.CancelledError), outcome
+
+
+@pytest.mark.asyncio
+async def test_a_cap_blocked_turn_reports_a_real_queue_wait():
+    # The queue covers BOTH gates, and this turn is the one that proves it. M-B has no local
+    # contention — its matter lock is free — so the ONLY thing blocking h2 is the global cap.
+    # A scheduler measuring queue_ms after the matter lock alone would report ~0 here, since
+    # M-B's lock is uncontended (observed against the running proxy: 835ms wall-clock wait,
+    # 0.036ms reported). The 0.1s sleep is a floor, not a timing guess: slow machines only
+    # make the wait longer.
+    sched = TurnScheduler(_cap(), max_concurrent=1)
+    inside = asyncio.Event()
+    hold = asyncio.Event()
+
+    async def _holder():
+        inside.set()
+        await hold.wait()            # holds the single global slot until released
+        return "a"
+
+    h1 = sched.submit("M-A", "chat", _holder)
+    await inside.wait()              # h1 is through both gates and holds the only slot
+    h2 = sched.submit("M-B", "chat", lambda: asyncio.sleep(0))
+    await asyncio.sleep(0.1)         # h2 spends this waiting on the SEMAPHORE, not the lock
+    hold.set()
+    await asyncio.gather(h1.wait(), h2.wait())
+    assert h2.queue_ms > 50, h2.queue_ms
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_turn_waiting_on_the_lock_keeps_a_siblings_lock_held():
+    # The release guard is `owned`, not `mq.lock.locked()`. h2 is cancelled while WAITING on
+    # M-1's lock — it never acquired it, but the lock is still held, by the RUNNING h1 of the
+    # same matter. Releasing on the bare predicate would free h1's lock mid-run and let h3
+    # start beside it, breaking the serialization this module exists to provide.
+    sched = TurnScheduler(_cap(), max_concurrent=4)
+    inside = asyncio.Event()
+    hold = asyncio.Event()
+    started = []
+
+    async def _running():
+        inside.set()
+        await hold.wait()            # holds M-1's lock until released
+        return "h1"
+
+    async def _record():
+        started.append("h3")
+        return "h3"
+
+    h1 = sched.submit("M-1", "chat", _running)
+    await inside.wait()              # h1 is running and holds M-1's lock
+    h2 = sched.submit("M-1", "chat", lambda: asyncio.sleep(0))
+    h3 = sched.submit("M-1", "chat", _record)
+    await asyncio.sleep(0.02)        # h2 and h3 settle onto the lock wait, behind h1
+    assert started == []             # serialization: nothing runs beside h1
+    assert sched.cancel(h2.turn_id) is True
+    await asyncio.sleep(0.02)        # h2's cancellation is processed here
+    assert started == []             # cancelling h2 must NOT release h1's lock
+    hold.set()
+    await asyncio.gather(h1.wait(), h2.wait(), h3.wait())
+    assert started == ["h3"]         # h3 ran once h1 released the lock
+    assert h2.status == "cancelled"
 
 
 @pytest.mark.asyncio
