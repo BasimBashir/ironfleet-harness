@@ -177,3 +177,32 @@ See [SPIKE_PROTOCOL.md](src/harness/spike/SPIKE_PROTOCOL.md) and [SEAM_COUNT.md]
 - **Ops runbook** (`P0-7`, per OS): See [RUNBOOK_P0_7.md](src/harness/ops/RUNBOOK_P0_7.md) — encrypted-at-rest store + versioned backup on macOS (`p07_setup_macos.sh` / `p07_verify_macos.sh`), Windows (`p07_setup_windows.ps1` / `p07_verify_windows.ps1`), and Linux (`p07_setup_linux.sh` / `p07_verify_linux.sh`).
 
 The `HARNESS_HOME` environment variable sets the store root for the Windows and Linux ops scripts (macOS uses the IronFleetPriv volume).
+
+## Store root + macOS packaging (A-6 / S7g)
+
+`harness.paths.resolve_store_root()` returns `(root, source)` — the privileged store
+root and a string naming HOW it was resolved, so the trace can say which, not just what:
+
+```
+HARNESS_HOME                         -> "HARNESS_HOME"
+macOS  /Volumes/IronFleetPriv/harness -> "ironfleetpriv-volume"
+macOS  fallback (volume absent)       -> "library-fallback"   (off the encrypted volume)
+Windows %LOCALAPPDATA%\IronFleet\harness -> "localappdata"
+Linux  ${XDG_DATA_HOME:-~/.local/share}/ironfleet/harness -> "xdg"
+```
+
+On macOS a `library-fallback` source means the store is NOT on the encrypted volume —
+reported, not hidden, so the operator decides (the CR-7 discipline). This is the resolver
+the ops scripts' three-way duplication was waiting for: it supersedes their private copies
+as consumers migrate to it, and it is the substrate RUNBOOK_P0_7's deferred item ("the
+Python core reading HARNESS_HOME") needs. The wiring itself — an actual consumer in the
+session store — lands with that later step; S7g ships the resolver, not the claim that
+the core already reads it.
+
+`harness.packaging.macdist` is the macOS distribution as data: `PINS` (opencode +
+`autoupdate`), the Info.plist and launchd-plist templates, and a `MANIFEST` of the
+bundle layout. `stage_distribution()` writes a validated tree on any OS;
+`validate_distribution()` reports every defect in one pass. The build itself
+(`ops/pack_macos.sh`) refuses to run off macOS, because PyInstaller does not
+cross-compile — the S7g-M tail (build, sign, notarize, DMG, launchd load, live
+acceptance) is ledgered as due-for-Mac in NEXT_STEPS.

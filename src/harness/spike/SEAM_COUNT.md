@@ -151,3 +151,14 @@ point** — exactly like S7e's embedding path. It sits below the gate's egress p
 never sees it. The same is true of `harness.capacity.machine_capacity()`. So the seam count
 does not rise for the scheduler, the capacity probes, the FIFO locks, or the 503/Retry-After
 queue-timeout path — none of them cross the harness boundary.
+
+## S7g (A-6 macOS packaging) — 2026-10-05
+
+**No change.** As predicted in spec §8: the packaging surface attaches to macOS
+install/launch machinery, not to opencode. The mount scaffolding (`baseURL` path form,
+`matter.json`) is REUSED from S7b/S7f; the opencode pin and `autoupdate: false` are
+install-time config with no hook or plugin; the launcher wraps the egress proxy, which
+is in-process harness code with no opencode attachment point — the same shape as S7e's
+embedding path and S7f's scheduler. Confirmed by accept_s7g.py's static layer (exit 2:
+five static checks PASS on Windows, live layer due-for-Mac, no verdict written); the live
+confirmation belongs to S7g-M on a Mac.
