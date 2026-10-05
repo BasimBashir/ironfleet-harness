@@ -232,3 +232,18 @@ def test_is_binary_slot_placeholder_is_false_for_a_real_macho(tmp_path):
     launcher = app / "Contents/MacOS" / LAUNCHER_NAME
     launcher.write_bytes(b"\xcf\xfa\xed\xfe" + b"\x00" * 1024)   # 64-bit Mach-O magic
     assert is_binary_slot_placeholder(app) is False
+
+
+def test_validate_distribution_collects_a_non_dict_plist_root_instead_of_raising(tmp_path):
+    # validate_distribution's contract is collect-don't-raise. A launchd plist whose root
+    # parses to an array (not a dict) used to AttributeError at data.get("Label"), so a
+    # Mac session got a traceback instead of the defect list it asked for. The non-dict
+    # case is already reported by validate_plist_data as "plist root is not a dict", so
+    # there is nothing left to extract — the label scan must just skip it.
+    from harness.packaging.macdist import stage_distribution, validate_distribution
+    root = tmp_path / "dist"
+    stage_distribution(root)
+    agent = root / "IronFleet.app" / f"Contents/Resources/launchd/{LAUNCHD_LABEL}.plist"
+    agent.write_bytes(b"<plist><array><string>x</string></array></plist>")
+    problems = validate_distribution(root)
+    assert any("not a dict" in p for p in problems)

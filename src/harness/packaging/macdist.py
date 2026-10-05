@@ -243,7 +243,7 @@ def validate_distribution(root: Path) -> list[str]:
             validate_plist_data(data, launchd=launchd)
         except PackagingError as exc:
             problems.append(str(exc))
-        if launchd and isinstance(data.get("Label"), str):
+        if launchd and isinstance(data, dict) and isinstance(data.get("Label"), str):
             labels.append(data["Label"])
     try:
         validate_launchd_labels(labels)
