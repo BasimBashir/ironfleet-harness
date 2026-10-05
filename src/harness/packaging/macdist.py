@@ -106,3 +106,154 @@ def manifest_entries() -> list[Entry]:
 
 class PackagingError(ValueError):
     """The recipe is internally inconsistent. The message names the offending key."""
+
+
+_PLACEHOLDER = (
+    f"PLACEHOLDER — {DUE_FOR_MAC}. pack_macos.sh replaces this file with the "
+    f"PyInstaller binary. It is NOT an executable and must not be shipped as-is.\n"
+)
+
+# Mach-O magics, so a Windows staging build can be proven free of a native binary:
+# 32-bit, 64-bit, and fat/universal.
+_MACHO_MAGICS = {b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe",
+                 b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"}
+
+
+def stage_distribution(root: Path, *, launcher: str = LAUNCHER_NAME) -> Path:
+    """Write the bundle layout described by the manifest under `root`.
+
+    Returns the `.app` path. Raises FileNotFoundError if a copy source is missing —
+    a recipe that names a file that isn't there is a build error, not a warning.
+    """
+    app = root / APP_NAME
+    for entry in manifest_entries():
+        target = app / entry.relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if entry.kind == "plist":
+            if entry.relpath == "Contents/Info.plist":
+                data = dict(INFO_PLIST)
+            else:
+                # launchd resolves neither ~ nor relative paths; the absolute bundle
+                # path is known only here, so ProgramArguments is injected, not templated.
+                data = dict(LAUNCHD_PLIST)
+                data["ProgramArguments"] = [str(app / "Contents/MacOS" / launcher)]
+                data["WorkingDirectory"] = str(app / "Contents/Resources")
+            target.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_XML))
+        elif entry.kind == "binary-slot":
+            target.write_text(_PLACEHOLDER, encoding="utf-8")
+        elif entry.kind == "text":
+            target.write_text(entry.payload, encoding="utf-8")
+        elif entry.kind == "pins":
+            lines = [f"opencode={PINS['opencode']}",
+                     f"autoupdate={str(PINS['autoupdate']).lower()}"]
+            target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        elif entry.kind == "copy":
+            src = MANIFEST_COPIES_ROOT / entry.payload
+            if not src.is_file():
+                raise FileNotFoundError(f"manifest copy source missing: {entry.payload}")
+            target.write_bytes(src.read_bytes())
+        else:                                    # pragma: no cover - guarded by a test
+            raise PackagingError(f"unknown manifest kind {entry.kind!r} for {entry.relpath}")
+    return app
+
+
+def is_binary_slot_placeholder(app: Path) -> bool:
+    """True while the launcher is still the placeholder, i.e. S7g-M has not run.
+
+    The property that lets a Windows build be honestly labelled 'not a build': the tree
+    is complete, but the one native thing in it is a note saying it is missing.
+    """
+    launcher = app / "Contents/MacOS" / LAUNCHER_NAME
+    if not launcher.is_file():
+        return False
+    head = launcher.read_bytes()[:4]
+    if head in _MACHO_MAGICS:
+        return False                       # a real Mach-O: the Mac build has run
+    return "PLACEHOLDER" in launcher.read_text(encoding="utf-8")
+
+
+def validate_plist_data(data: Any, *, launchd: bool) -> None:
+    """Schema-check a plist's keys. Raises PackagingError naming the offending key.
+
+    Deliberately narrow: it covers exactly the keys this module's own plists use. It is
+    not a general plist linter — that would be scope the Mac step does not need.
+    """
+    if not isinstance(data, dict):
+        raise PackagingError("plist root is not a dict")
+    if launchd:
+        label = data.get("Label")
+        if not isinstance(label, str) or not label:
+            raise PackagingError("launchd plist: Label missing or empty")
+        args_ = data.get("ProgramArguments")
+        if not (isinstance(args_, list) and args_
+                and all(isinstance(a, str) and a for a in args_)):
+            raise PackagingError(f"launchd plist {label}: ProgramArguments missing or empty")
+        keep_alive = data.get("KeepAlive")
+        if keep_alive is not None and not isinstance(keep_alive, (bool, dict)):
+            raise PackagingError(f"launchd plist {label}: KeepAlive must be bool or dict")
+    else:
+        if not data.get("CFBundleIdentifier"):
+            raise PackagingError("Info.plist: CFBundleIdentifier missing or empty")
+        if not data.get("CFBundleExecutable"):
+            raise PackagingError("Info.plist: CFBundleExecutable missing or empty")
+
+
+def validate_launchd_labels(labels: list[str]) -> None:
+    """Two agents may not share a Label — launchd keys its registry by label."""
+    seen: set[str] = set()
+    for label in labels:
+        if label in seen:
+            raise PackagingError(f"duplicate launchd Label: {label}")
+        seen.add(label)
+
+
+def validate_distribution(root: Path) -> list[str]:
+    """Every problem with a staged tree, or [] if it is sound.
+
+    Collects rather than raising so one run reports every defect — a Mac session should
+    fix the whole list, not iterate one crash at a time.
+    """
+    app = root / APP_NAME
+    problems: list[str] = []
+    expected = {e.relpath for e in manifest_entries()}
+
+    for rel in sorted(expected):
+        if not (app / rel).is_file():
+            problems.append(f"missing staged file: {rel}")
+    for f in sorted(p for p in app.rglob("*") if p.is_file()):
+        # as_posix: MANIFEST relpaths use forward slashes on every OS
+        rel = f.relative_to(app).as_posix()
+        if rel not in expected:
+            problems.append(f"unexpected staged file: {rel}")
+
+    labels: list[str] = []
+    for entry in manifest_entries():
+        if entry.kind != "plist":
+            continue
+        target = app / entry.relpath
+        if not target.is_file():
+            continue                       # already reported as missing
+        try:
+            data = plistlib.loads(target.read_bytes())
+        except Exception as exc:           # plistlib raises several types
+            problems.append(f"plist does not parse: {entry.relpath} ({exc})")
+            continue
+        launchd = entry.relpath != "Contents/Info.plist"
+        try:
+            validate_plist_data(data, launchd=launchd)
+        except PackagingError as exc:
+            problems.append(str(exc))
+        if launchd and isinstance(data.get("Label"), str):
+            labels.append(data["Label"])
+    try:
+        validate_launchd_labels(labels)
+    except PackagingError as exc:
+        problems.append(str(exc))
+
+    for entry in manifest_entries():       # a staged op must match its repo source
+        if entry.kind != "copy":
+            continue
+        target = app / entry.relpath
+        if target.is_file() and target.read_bytes() != (MANIFEST_COPIES_ROOT / entry.payload).read_bytes():
+            problems.append(f"staged copy drifted from source: {entry.relpath}")
+    return problems
