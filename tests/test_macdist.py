@@ -197,3 +197,38 @@ def test_stage_distribution_raises_for_a_missing_copy_source(tmp_path, monkeypat
     with pytest.raises(FileNotFoundError) as exc:
         stage_distribution(tmp_path / "dist")
     assert "does-not-exist.sh" in str(exc.value)
+
+
+def test_validate_plist_data_rejects_a_non_dict_root():
+    # A plist whose root is not a dict is not a launchd or Info plist at all; reading one
+    # back would hand the rest of the pipeline a list where it expects keys.
+    from harness.packaging.macdist import validate_plist_data
+    with pytest.raises(PackagingError) as exc:
+        validate_plist_data(["CFBundleIdentifier"], launchd=False)
+    assert "plist root is not a dict" in str(exc.value)
+
+
+def test_validate_plist_data_rejects_an_info_plist_without_an_executable():
+    # Finder launches CFBundleExecutable; an empty one names no binary to run.
+    from harness.packaging.macdist import validate_plist_data
+    with pytest.raises(PackagingError) as exc:
+        validate_plist_data({"CFBundleIdentifier": BUNDLE_ID}, launchd=False)
+    assert "CFBundleExecutable" in str(exc.value)
+
+
+def test_validate_plist_data_rejects_empty_programarguments():
+    # A present-but-empty list is as broken as a missing one: launchd would run nothing.
+    from harness.packaging.macdist import validate_plist_data
+    with pytest.raises(PackagingError) as exc:
+        validate_plist_data({"Label": LAUNCHD_LABEL, "ProgramArguments": []}, launchd=True)
+    assert "ProgramArguments" in str(exc.value)
+
+
+def test_is_binary_slot_placeholder_is_false_for_a_real_macho(tmp_path):
+    # The negative control for the placeholder check: a real Mach-O magic means
+    # pack_macos.sh has run and the tree is an actual build, not a Windows staging.
+    from harness.packaging.macdist import is_binary_slot_placeholder, stage_distribution
+    app = stage_distribution(tmp_path / "dist")
+    launcher = app / "Contents/MacOS" / LAUNCHER_NAME
+    launcher.write_bytes(b"\xcf\xfa\xed\xfe" + b"\x00" * 1024)   # 64-bit Mach-O magic
+    assert is_binary_slot_placeholder(app) is False
