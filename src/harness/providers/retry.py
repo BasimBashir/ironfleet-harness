@@ -66,8 +66,8 @@ def retrying(inner: Transport, *, attempts: int = 3, base_delay_s: float = 2.0,
             try:
                 result = await inner(provider, payload)
                 exc = None
-            except BaseException as ex:        # noqa: BLE001 — classify, don't swallow
-                result, exc = None, ex
+            except Exception as ex:         # narrow on purpose: CancelledError/KeyboardInterrupt
+                result, exc = None, ex     # must propagate, not be classified as retryable
             if not _is_retryable(result, exc):
                 assert isinstance(result, dict)
                 return result

@@ -1,5 +1,6 @@
 # tests/test_retry.py — retry below the gate (spec §§2.2, 6). The user's cloud endpoint
 # intermittently returns {"error": "upstream failure"} on a 200 and is rate-limited per minute.
+import asyncio
 import pytest
 from harness.gate import Transport
 from harness.providers.config import ProviderConfig
@@ -51,6 +52,21 @@ async def test_a_raised_exception_is_retried():
 
     out = await retrying(inner, attempts=3, base_delay_s=0.0)(CFG, {})
     assert len(calls) == 2 and out["choices"][0]["message"]["content"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_cancellation_propagates_instead_of_being_retried():
+    # CancelledError is a BaseException, not an Exception: a caller's timeout or the user's Ctrl-C
+    # must survive the wrapper, not be classified as retryable and spend the whole budget.
+    calls = []
+
+    async def inner(provider, payload):
+        calls.append(1)
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await retrying(inner, attempts=3, base_delay_s=0.0)(CFG, {})
+    assert len(calls) == 1          # raised on the first call, never retried
 
 
 @pytest.mark.asyncio
