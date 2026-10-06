@@ -60,3 +60,41 @@ def test_model_under_test_defaults_and_roles():
     m = ModelUnderTest(label="x", provider="p", model="m", engine="ollama", output_cap=16384,
                        rate_key="local")
     assert m.role == "candidate" and m.retry_attempts >= 1 and m.min_interval_s == 0.0
+
+
+from harness.eval.substitute import amortized_rate_entry, measured_tokens_per_hour
+
+
+def _blank_local_rate():
+    return RateEntry(blended=True, in_per_m=0.0, out_per_m=0.0, source="derived",
+                     amortization={"hardware_cost_usd": 3000.0, "service_life_hours": 35000.0,
+                                   "utilization": 0.25})
+
+
+def test_measured_throughput_is_tokens_over_seconds_scaled_to_hours():
+    assert measured_tokens_per_hour(tokens_in=3600, tokens_out=3600, seconds=3600.0) == 7200.0
+
+
+def test_amortized_rate_uses_measured_throughput_and_declared_financials():
+    # 3000 USD over (35000 h x 0.25 x 7200 tokens/h = 63e6 tokens) = 4.762e-5 USD/token
+    # = 47.62 USD per 1M. (The task brief printed 240.0 here with the same formula and inputs —
+    # a hand-arithmetic slip: 3000/63e6 is 4.762e-5, and 240 would need served = 12.5e6 tokens,
+    # which these inputs cannot produce. Corrected to match the brief's own formula; see the
+    # task-2 report.)
+    rate = amortized_rate_entry(_blank_local_rate(), tokens_in=3600, tokens_out=3600,
+                                latency_ms_sum=3_600_000.0)
+    assert rate.in_per_m == pytest.approx(3000.0 / (35000.0 * 0.25 * 7200.0) * 1_000_000)
+    assert rate.out_per_m == pytest.approx(3000.0 / (35000.0 * 0.25 * 7200.0) * 1_000_000)
+    assert rate.blended
+    assert "derived" in rate.source
+
+
+def test_amortized_rate_rejects_a_non_blended_rate():
+    with pytest.raises(ValueError, match="blended"):
+        amortized_rate_entry(_cloud_rate(), 100, 100, 1000.0)
+
+
+def test_amortized_rate_rejects_zero_throughput():
+    # nothing was served: dividing by zero throughput would invent a price
+    with pytest.raises(ValueError, match="throughput"):
+        amortized_rate_entry(_blank_local_rate(), 0, 0, 0.0)

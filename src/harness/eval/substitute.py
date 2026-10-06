@@ -71,3 +71,44 @@ def cost_of(tokens_in: int, tokens_out: int, tokens_cache: int, rate: RateEntry)
     in_c = billable / M * rate.in_per_m + cached / M * rate.cached_in_per_m
     out_c = tokens_out / M * rate.out_per_m
     return {"in": in_c, "out": out_c, "total": in_c + out_c}
+
+
+# --- Task 2: local amortization — measured throughput, declared financials (spec §4.2) --------
+
+def measured_tokens_per_hour(tokens_in: int, tokens_out: int, seconds: float) -> float:
+    """The leg's own observed throughput. MEASURED from the run, never assumed — this is the one
+    term that most affects a local model's cost, so it comes from what the leg actually did."""
+    if seconds <= 0:
+        return 0.0
+    return (tokens_in + tokens_out) / seconds * 3600.0
+
+
+def amortized_rate_entry(rate: RateEntry, tokens_in: int, tokens_out: int,
+                         latency_ms_sum: float) -> RateEntry:
+    """A local leg's blended RateEntry, priced from its own measured throughput.
+
+    The dashboard sums each case's tokens and latency_ms from the sidecar, derives a per-token
+    rate from the declared financial assumptions, and returns a priced COPY of the rate entry.
+    The original YAML stays at 0.0 — the price is never hand-written.
+
+    Note for the report: summed latency includes the cold weights load on each local leg's first
+    case (minutes for a 21-27B model), which lowers measured throughput honestly rather than by
+    assumption."""
+    if not rate.blended:
+        raise ValueError("amortization applies to blended (local) rates only")
+    a = rate.amortization or {}
+    try:
+        hardware = float(a["hardware_cost_usd"])
+        life_h = float(a["service_life_hours"])
+        util = float(a["utilization"])
+    except (KeyError, TypeError, ValueError) as ex:
+        raise ValueError(f"blended rate is missing a required amortization assumption: {ex}") from ex
+    tph = measured_tokens_per_hour(tokens_in, tokens_out, latency_ms_sum / 1000.0)
+    served = life_h * max(util, 0.0) * tph
+    if served <= 0:
+        raise ValueError("zero throughput — nothing was served, so no honest price can be derived")
+    per_token = hardware / served
+    return rate.model_copy(update={
+        "in_per_m": per_token * 1_000_000, "out_per_m": per_token * 1_000_000,
+        "source": f"derived from measured throughput ({tph:,.0f} tokens/h) and declared "
+                  f"amortization assumptions; base source: {rate.source}"})
