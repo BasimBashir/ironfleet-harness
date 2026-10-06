@@ -200,9 +200,12 @@ def recommend(bar: BarSpec, summaries: list[LegSummary]) -> dict:
     pool = [by_label[l] for l in meeting
             if l != bar.incumbent and by_label[l].mean_cost is not None]
     if not pool:
+        # `meeting` still holds the incumbent when it cleared its own bar — which is exactly the
+        # case a human reading the dashboard needs to see stated: the incumbent met the bar, the
+        # candidates did not. Never hard-coded to [] (spec §7).
         return {"recommendation": bar.incumbent, "fallback": True,
                 "basis": "no candidate meets the bar — the incumbent is the standing pick",
-                "meeting_bar": [], "gaps": gaps,
+                "meeting_bar": meeting, "gaps": gaps,
                 "ties_broken_by": "mean latency, then mean citation accuracy"}
     pool.sort(key=lambda s: (s.mean_cost, s.mean_latency_ms, -s.mean_citation))
     winner = pool[0]

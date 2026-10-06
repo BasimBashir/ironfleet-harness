@@ -183,6 +183,9 @@ def test_recommend_falls_back_to_the_incumbent_when_nothing_meets_the_bar():
     out = recommend(BarSpec(incumbent="inc"), [inc, weak])
     assert out["recommendation"] == "inc"
     assert out["fallback"] is True and "weak" in out["gaps"]
+    # the fallback branch reports the same meeting_bar contract as the success branch: the
+    # incumbent cleared its own bar, the candidates did not
+    assert "inc" in out["meeting_bar"] and "weak" not in out["meeting_bar"]
 
 
 def test_recommend_excludes_an_unusable_leg_from_the_ranking():
