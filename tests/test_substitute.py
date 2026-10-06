@@ -98,3 +98,97 @@ def test_amortized_rate_rejects_zero_throughput():
     # nothing was served: dividing by zero throughput would invent a price
     with pytest.raises(ValueError, match="throughput"):
         amortized_rate_entry(_blank_local_rate(), 0, 0, 0.0)
+
+
+from harness.eval.substitute import BarSpec, LegSummary, meets_bar, recommend
+
+
+def _rec(cid, *, ca=0.0, gs=0.0, persona=1.0, status="ok", tin=100, tout=50, lat=1000):
+    return {"id": cid, "status": status, "citation_accuracy": ca, "grounding_score": gs,
+            "persona_rate": persona, "tokens_in": tin, "tokens_out": tout, "latency_ms": lat,
+            "checks": {}, "error": ""}
+
+
+def _summary(label, role, n, **kw):
+    return LegSummary.from_records(label, role, [_rec(f"c{i}", **kw) for i in range(n)])
+
+
+def test_leg_summary_means_over_scored_cases_only():
+    s = LegSummary.from_records("leg", "candidate", [
+        _rec("c0", ca=0.5, gs=0.5, persona=1.0),
+        _rec("c1", ca=1.0, gs=0.0, persona=0.5),
+        _rec("c2", status="failed"),
+    ])
+    assert s.n_cases == 3 and s.n_scored == 2
+    assert s.mean_citation == pytest.approx(0.75)
+    assert s.mean_grounding == pytest.approx(0.25)
+    assert s.mean_persona == pytest.approx(0.75)
+    assert s.mean_tokens_in == pytest.approx(100.0)
+    assert s.usable and s.unusable_reason == ""
+
+
+def test_a_leg_that_failed_every_case_is_unusable_not_zero_ranked():
+    s = LegSummary.from_records("leg", "candidate", [_rec("c0", status="failed")])
+    assert not s.usable
+    assert s.mean_cost is None
+    assert s.unusable_reason
+
+
+def test_duplicate_records_take_the_last_one_per_case():
+    # the sidecar is append-only: a --recall rerun leaves the superseded record in the file as an
+    # audit trail, and the LAST record per case id is the effective one
+    s = LegSummary.from_records("leg", "candidate",
+                                [_rec("c0", ca=0.0), _rec("c0", ca=1.0)])
+    assert s.n_cases == 1 and s.mean_citation == pytest.approx(1.0)
+
+
+def test_meets_bar_requires_match_or_beat_on_every_axis():
+    inc = _summary("inc", "incumbent", 3, ca=0.20, gs=0.40, persona=0.90)
+    ok = _summary("cand", "candidate", 3, ca=0.20, gs=0.40, persona=0.90)
+    assert meets_bar(BarSpec(incumbent="inc"), inc, ok) == (True, [])
+    worse = _summary("cand", "candidate", 3, ca=0.19, gs=0.40, persona=0.90)
+    passed, problems = meets_bar(BarSpec(incumbent="inc"), inc, worse)
+    assert not passed and any("citation" in p for p in problems)
+
+
+def test_meets_bar_tolerance_absorbs_a_small_regression():
+    inc = _summary("inc", "incumbent", 3, ca=0.200, gs=0.400, persona=0.900)
+    cand = _summary("cand", "candidate", 3, ca=0.190, gs=0.390, persona=0.890)
+    bar = BarSpec(incumbent="inc", tolerance_citation=0.02, tolerance_grounding=0.02,
+                  tolerance_persona=0.02)
+    assert meets_bar(bar, inc, cand)[0]
+
+
+def test_meets_bar_rejects_an_unusable_candidate():
+    inc = _summary("inc", "incumbent", 3)
+    dead = LegSummary.from_records("cand", "candidate", [_rec("c0", status="failed")])
+    passed, problems = meets_bar(BarSpec(incumbent="inc"), inc, dead)
+    assert not passed and any("unusable" in p.lower() for p in problems)
+
+
+def test_recommend_picks_the_cheapest_leg_meeting_the_bar():
+    inc = _summary("inc", "incumbent", 3, ca=0.2, gs=0.4, persona=0.9)
+    cheap = _summary("cheap", "candidate", 3, ca=0.3, gs=0.5, persona=1.0, tout=10)
+    pricey = _summary("pricey", "candidate", 3, ca=0.3, gs=0.5, persona=1.0, tout=1000)
+    for s in (inc, cheap, pricey):
+        s.mean_cost = 0.01 if s.label == "cheap" else 1.0
+    out = recommend(BarSpec(incumbent="inc"), [inc, cheap, pricey])
+    assert out["recommendation"] == "cheap"
+    assert set(out["meeting_bar"]) == {"inc", "cheap", "pricey"}
+
+
+def test_recommend_falls_back_to_the_incumbent_when_nothing_meets_the_bar():
+    inc = _summary("inc", "incumbent", 3, ca=0.9, gs=0.9, persona=1.0)
+    weak = _summary("weak", "candidate", 3, ca=0.1, gs=0.1, persona=0.1)
+    out = recommend(BarSpec(incumbent="inc"), [inc, weak])
+    assert out["recommendation"] == "inc"
+    assert out["fallback"] is True and "weak" in out["gaps"]
+
+
+def test_recommend_excludes_an_unusable_leg_from_the_ranking():
+    # a leg that produced no scored cases must never be ranked as "cheapest meeting the bar"
+    inc = _summary("inc", "incumbent", 3, ca=0.2, gs=0.4, persona=0.9)
+    inc.mean_cost = 5.0
+    dead = LegSummary.from_records("dead", "candidate", [_rec("c0", status="failed")])
+    out = recommend(BarSpec(incumbent="inc"), [inc, dead])
+    assert out["recommendation"] == "inc" and "dead" not in out["meeting_bar"]

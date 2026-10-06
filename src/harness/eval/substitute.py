@@ -112,3 +112,101 @@ def amortized_rate_entry(rate: RateEntry, tokens_in: int, tokens_out: int,
         "in_per_m": per_token * 1_000_000, "out_per_m": per_token * 1_000_000,
         "source": f"derived from measured throughput ({tph:,.0f} tokens/h) and declared "
                   f"amortization assumptions; base source: {rate.source}"})
+
+
+# --- Task 3: the bar, leg summaries, the recommendation (spec §§5, 7) ---------------------------
+
+class BarSpec(BaseModel):
+    """A candidate must match-or-beat the incumbent on every axis within its tolerance.
+    Default tolerance is 0.0 (strict match-or-beat). The bar is RELATIVE by design: the strict
+    rubric passes 0/30 cases on both known models, so an absolute bar admits nobody (spec §0).
+    Printed in every dashboard — never silent."""
+    incumbent: str
+    tolerance_citation: float = 0.0
+    tolerance_grounding: float = 0.0
+    tolerance_persona: float = 0.0
+
+
+class LegSummary(BaseModel):
+    label: str
+    role: str
+    n_cases: int = 0
+    n_scored: int = 0
+    mean_citation: float = 0.0
+    mean_grounding: float = 0.0
+    mean_persona: float = 0.0
+    mean_tokens_in: float = 0.0
+    mean_tokens_out: float = 0.0
+    mean_latency_ms: float = 0.0
+    mean_cost: float | None = None      # None while UNUSABLE — never a ranked zero
+    usable: bool = True
+    unusable_reason: str = ""
+
+    @classmethod
+    def from_records(cls, label: str, role: str, records: list[dict]) -> "LegSummary":
+        # The sidecar is append-only: the LAST record per case id is the effective one. A --recall
+        # rerun leaves the superseded record in the file as an honest audit trail.
+        by_id: dict[str, dict] = {}
+        for r in records:
+            by_id[r["id"]] = r
+        scored = [r for r in by_id.values() if r.get("status") == "ok"]
+        if not scored:
+            why = (records[0].get("error") if records and records[0].get("error")
+                   else "no case produced a scored answer on this leg")
+            return cls(label=label, role=role, n_cases=len(by_id), n_scored=0, usable=False,
+                       unusable_reason=why)
+        n = len(scored)
+
+        def _mean(field: str) -> float:
+            return sum(float(r.get(field) or 0.0) for r in scored) / n
+
+        return cls(label=label, role=role, n_cases=len(by_id), n_scored=n,
+                   mean_citation=_mean("citation_accuracy"), mean_grounding=_mean("grounding_score"),
+                   mean_persona=_mean("persona_rate"), mean_tokens_in=_mean("tokens_in"),
+                   mean_tokens_out=_mean("tokens_out"), mean_latency_ms=_mean("latency_ms"))
+
+
+def meets_bar(bar: BarSpec, incumbent: LegSummary, candidate: LegSummary) -> tuple[bool, list[str]]:
+    """(passed, problems). problems names each failing axis with the observed delta."""
+    problems: list[str] = []
+    if not candidate.usable:
+        return False, [f"unusable leg ({candidate.unusable_reason}) — excluded, not ranked at zero"]
+    for axis, tol in (("citation", bar.tolerance_citation), ("grounding", bar.tolerance_grounding),
+                      ("persona", bar.tolerance_persona)):
+        cand = getattr(candidate, f"mean_{axis}")
+        inc = getattr(incumbent, f"mean_{axis}")
+        if cand < inc - tol:
+            problems.append(f"{axis}: candidate {cand:.3f} < incumbent {inc:.3f} - tolerance {tol:.3f}")
+    return not problems, problems
+
+
+def recommend(bar: BarSpec, summaries: list[LegSummary]) -> dict:
+    """The cheapest CANDIDATE leg meeting the bar; ties on cost break on latency, then citation
+    accuracy. The incumbent is classified alongside the candidates (it appears in meeting_bar when
+    it clears its own bar) but is never ranked against them — if no candidate meets the bar, the
+    incumbent is the standing pick and every candidate's per-axis gap is reported. The verdict is
+    data for a human decision — nothing is applied here."""
+    by_label = {s.label: s for s in summaries}
+    incumbent = by_label.get(bar.incumbent)
+    if incumbent is None:
+        raise KeyError(f"bar names incumbent {bar.incumbent!r} but no such leg was run")
+    meeting, gaps = [], {}
+    for s in summaries:
+        passed, problems = meets_bar(bar, incumbent, s)
+        if passed:
+            meeting.append(s.label)
+        else:
+            gaps[s.label] = problems
+    pool = [by_label[l] for l in meeting
+            if l != bar.incumbent and by_label[l].mean_cost is not None]
+    if not pool:
+        return {"recommendation": bar.incumbent, "fallback": True,
+                "basis": "no candidate meets the bar — the incumbent is the standing pick",
+                "meeting_bar": [], "gaps": gaps,
+                "ties_broken_by": "mean latency, then mean citation accuracy"}
+    pool.sort(key=lambda s: (s.mean_cost, s.mean_latency_ms, -s.mean_citation))
+    winner = pool[0]
+    return {"recommendation": winner.label, "fallback": False,
+            "basis": "cheapest mean $/case among legs meeting the bar",
+            "meeting_bar": meeting, "gaps": gaps,
+            "ties_broken_by": "mean latency, then mean citation_accuracy"}
