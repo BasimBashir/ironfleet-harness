@@ -1,5 +1,6 @@
 # tests/test_run_ab.py — resumable sidecars, empty-content detection, one stubbed leg end to end.
 # No network: run_leg accepts a pre-built registry + in-memory keys, so the probe is never called.
+import argparse
 import json
 import pytest
 from pathlib import Path
@@ -164,3 +165,80 @@ async def test_resume_skips_completed_cases_and_appends_the_rest(tmp_path):
     ids = [r["id"] for r in recs]
     assert ids == ["c0", "c1", "c2"]        # c0 untouched (not re-dispatched), c1/c2 appended
     assert trace.summary()["dispatches"] == 2
+
+
+# --- review-fix coverage: torn sidecar tails and honest exit codes -------------------------
+
+def test_load_sidecar_skips_a_torn_final_line(tmp_path, capsys):
+    # a run killed mid-flush leaves a partial last line; the relaunch must drop it (named in the
+    # warning) and still load every record that landed intact — resuming is the point of the sidecar
+    sidecar = tmp_path / "A7-stub.jsonl"
+    sidecar.write_text(json.dumps({"id": "c0", "status": "ok"}) + "\n"
+                       + '{"id": "c1", "status": "ok"' + "\n"      # truncated — no closing brace
+                       + json.dumps({"id": "c2", "status": "ok"}) + "\n",
+                       encoding="utf-8")
+    recs = run_ab.load_sidecar(sidecar)
+    assert [r["id"] for r in recs] == ["c0", "c2"]
+    out = capsys.readouterr().out
+    assert "A7-stub.jsonl:2" in out and "unparseable line dropped" in out
+
+
+_RATES = "rates:\n  x:\n    in_per_m: 1.0\n    out_per_m: 2.0\n    source: test\n"
+
+
+def _args(tmp_path, **over):
+    """An argparse.Namespace shaped like parse_args() returns, pointed at tmp_path."""
+    kw = dict(ollama_url="", atria_key="k", only=[], recall=[], legs=[],
+              cases=_cases(tmp_path, 3), out_dir=tmp_path, rates=tmp_path / "rates.yaml")
+    kw.update(over)
+    return argparse.Namespace(**kw)
+
+
+@pytest.mark.asyncio
+async def test_run_returns_nonzero_when_a_leg_dies(tmp_path, monkeypatch):
+    (tmp_path / "rates.yaml").write_text(_RATES, encoding="utf-8")
+
+    async def _dead_leg(*a, **kw):
+        raise RuntimeError("leg blew up")
+
+    monkeypatch.setattr(run_ab, "LEGS", [LEG])
+    monkeypatch.setattr(run_ab, "run_leg", _dead_leg)
+    assert await run_ab.run(_args(tmp_path)) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_returns_nonzero_while_cases_are_pending(tmp_path, monkeypatch):
+    (tmp_path / "rates.yaml").write_text(_RATES, encoding="utf-8")
+
+    async def _partial(leg, cases, out_dir, trace, **kw):
+        (out_dir / f"A7-{leg.label}.jsonl").write_text(
+            json.dumps({"id": cases[0].id, "status": "ok"}) + "\n", encoding="utf-8")
+        return 1                       # one of three cases scored — the run is not complete
+
+    monkeypatch.setattr(run_ab, "LEGS", [LEG])
+    monkeypatch.setattr(run_ab, "run_leg", _partial)
+    assert await run_ab.run(_args(tmp_path)) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_returns_zero_when_every_case_is_accounted_for(tmp_path, monkeypatch, capsys):
+    (tmp_path / "rates.yaml").write_text(_RATES, encoding="utf-8")
+
+    async def _complete(leg, cases, out_dir, trace, **kw):
+        (out_dir / f"A7-{leg.label}.jsonl").write_text(
+            "\n".join(json.dumps({"id": c.id, "status": "ok"}) for c in cases) + "\n",
+            encoding="utf-8")
+        return len(cases)
+
+    monkeypatch.setattr(run_ab, "LEGS", [LEG])      # LEG is engine="cloud"
+    monkeypatch.setattr(run_ab, "run_leg", _complete)
+    assert await run_ab.run(_args(tmp_path)) == 0
+    # deviation 2 is named in the run's output whenever a cloud leg is selected
+    assert "[deviation]" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_run_exits_cleanly_on_a_missing_rate_table(tmp_path):
+    rc = await run_ab.run(_args(tmp_path, rates=tmp_path / "nope.yaml"))
+    assert rc == 1                      # a clean setup failure, never an uncaught traceback
+

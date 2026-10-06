@@ -21,7 +21,10 @@ Usage:
   .venv/Scripts/python.exe scripts/run_ab.py --atria-key $IRONFLEET_ATRIA_KEY
   .venv/Scripts/python.exe scripts/run_ab.py --only gc-liq --recall gc-dir-001
 
-Exit codes: 0 = every leg accounted for all its cases; 1 = setup failure (no cases, no rates).
+Exit codes: 0 = every leg accounted for all its cases; 1 = setup failure (no cases, no rates,
+    no key for a cloud leg) or an incomplete run (a leg that died outright, or cases still
+    pending when the pass finished). The exit status is how a backgrounded live run signals
+    whether it is safe to proceed to the dashboard.
 """
 from __future__ import annotations
 
@@ -30,6 +33,7 @@ import asyncio
 import json
 import os
 import sys
+import yaml
 from datetime import datetime
 from pathlib import Path
 
@@ -82,7 +86,18 @@ LEGS: list[ModelUnderTest] = [
 def load_sidecar(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    # A run killed mid-flush leaves a torn final line; a relaunch must skip it (with the leg and
+    # the dropped line named) rather than die on it — resuming is the whole point of the sidecar.
+    records = []
+    for lineno, l in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not l.strip():
+            continue
+        try:
+            records.append(json.loads(l))
+        except json.JSONDecodeError:
+            print(f"[sidecar] {path.name}:{lineno}: unparseable line dropped "
+                  f"(expected after an interrupted run): {l[:80]!r}")
+    return records
 
 
 def pending(records: list[dict], case_ids: list[str], recall: tuple[str, ...]) -> list[str]:
@@ -278,7 +293,11 @@ async def run(args: argparse.Namespace) -> int:
         print("FAIL: a cloud leg is selected but --atria-key / $IRONFLEET_ATRIA_KEY is empty")
         return 1
     # Rate-table integrity BEFORE any model is billed a token (spec §7).
-    table = RateTable.from_yaml(args.rates)
+    try:
+        table = RateTable.from_yaml(args.rates)
+    except (OSError, ValueError, KeyError, yaml.YAMLError) as ex:
+        print(f"FAIL: cannot load rate table {args.rates} ({type(ex).__name__}: {ex})")
+        return 1
     for leg in legs:
         table.require(leg.rate_key)
 
@@ -287,6 +306,14 @@ async def run(args: argparse.Namespace) -> int:
     print(f"[setup] {len(cases)} case(s) x {len(legs)} leg(s); trace db: {trace.db_path}")
     print("[setup] models on the local server are honestly mechanical-only per CR-3; local legs "
           "carry the recorded in-memory admission override for this eval run")
+    if any(l.engine == "cloud" for l in legs):
+        print("[deviation] the golden corpus is dispatched to api.atria-asi.ai on the user's "
+              "2026-10-06 direction; the corpus is authored from PUBLIC judgments, not client "
+              "matter data, and the API key is held in memory only")
+        print("[probe    ] note: verified=1 on the cloud leg means DECLARED AND RECORDED, not "
+              "cryptographically proven — the dashboard says so")
+    dead_legs = 0
+    unfinished = 0
     for leg in legs:
         print(f"[leg  ] starting {leg.label} ({leg.role}, output_cap={leg.output_cap}, "
               f"min_interval_s={leg.min_interval_s})")
@@ -295,11 +322,17 @@ async def run(args: argparse.Namespace) -> int:
                                    atria_key=args.atria_key, recall=tuple(args.recall))
         except Exception as ex:                                   # noqa: BLE001 — a dead leg is UNUSABLE
             print(f"[leg  ] {leg.label} FAILED as a leg: {ex}")
+            dead_legs += 1
             continue
         total = len(pending(load_sidecar(args.out_dir / f"A7-{leg.label}.jsonl"),
                             [c.id for c in cases], ()))
         print(f"[leg  ] {leg.label} done: {scored} scored, {total} still pending")
+        unfinished += total
     print(f"[done ] sidecars in {args.out_dir}/A7-<label>.jsonl; next: scripts/build_dashboard.py")
+    if dead_legs or unfinished:
+        print(f"FAIL: {dead_legs} leg(s) failed outright, {unfinished} case(s) still pending "
+              f"— the run is not complete; the exit status says so")
+        return 1
     return 0
 
 
