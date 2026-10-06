@@ -23,7 +23,11 @@ class LLMRequest(BaseModel):
     max_tokens: int = 128_000
 
 class LLMResponse(BaseModel):
-    content: str
+    # content is nullable on purpose: a reasoning model can spend its whole output budget on
+    # reasoning_content and return an empty answer channel. That is a CAP failure, not an upstream
+    # failure — callers that care (scripts/run_ab.py) distinguish it from a quality score of 0 by
+    # keeping the response's tokens. Consumers that want a string must handle None themselves.
+    content: str | None
     provider: str
     model: str
     usage: dict[str, int]
