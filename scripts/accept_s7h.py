@@ -190,7 +190,8 @@ async def check_c6(ollama_url: str, atria_key: str) -> list[str]:
         timeout = run_ab.LOCAL_TIMEOUT_S if leg.engine != "cloud" else run_ab.CLOUD_TIMEOUT_S
         gate = EgressGate(registry=registry, routing=run_ab._routing_for(leg.provider),
                           trace=trace,
-                          transport=retrying(run_ab.make_transport(keys, timeout),
+                          transport=retrying(run_ab.make_transport(keys, timeout,
+                                                                  stream=leg.engine == "cloud"),
                                              attempts=leg.retry_attempts,
                                              min_interval_s=leg.min_interval_s))
         try:

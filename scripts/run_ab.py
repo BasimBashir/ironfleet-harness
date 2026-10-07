@@ -49,7 +49,7 @@ from harness.eval.substitute import ModelUnderTest, RateTable               # no
 from harness.gate import EgressGate, GateRefusal, LLMRequest, Transport     # noqa: E402
 from harness.policy import RoutingTable                                     # noqa: E402
 from harness.providers.config import ProviderConfig, ProviderRegistry       # noqa: E402
-from harness.providers.http_fetch import openai_fetch                       # noqa: E402
+from harness.providers.http_fetch import openai_fetch, openai_stream_fetch     # noqa: E402
 from harness.providers.probe import register_provider                       # noqa: E402
 from harness.providers.retry import retrying                                # noqa: E402
 from harness.trace import TraceStore                                        # noqa: E402
@@ -140,15 +140,26 @@ def case_record(case: GoldenCase, leg: ModelUnderTest, *, status: str, error: st
     }
 
 
-def make_transport(keys: dict[str, str], timeout_s: float) -> Transport:
+def make_transport(keys: dict[str, str], timeout_s: float, *, stream: bool = False) -> Transport:
     """A key-bearing transport whose key source is the IN-MEMORY dict — the 'in memory only'
     promise for the cloud key is structural, not aspirational. Mirrors the gate's default transport
-    apart from the key source and the timeout."""
+    apart from the key source and the timeout.
+
+    stream=True is the path the CLOUD leg needs: Atria-Dawn-Preview is a reasoning model that can
+    spend its whole output budget on reasoning_content before the first answer token (measured
+    ~730s at a 32k cap). A buffered POST delivers nothing until generation completes, so the read
+    timeout fires mid-generation and a legitimate call dies as a retryable failure — verified live:
+    non-streaming at 16k timed out past 1500s while the identical streaming request finished in
+    433s. Streaming keeps the connection alive with deltas, so the same timeout bounds a STALLED
+    stream rather than a merely long one. Local legs stay buffered; they answer in seconds and
+    buffering keeps their path identical to the S2 baseline's."""
+    fetch = openai_stream_fetch if stream else openai_fetch
+
     async def _call(provider: ProviderConfig, payload: dict) -> dict:
         key = keys.get(provider.name) or ""
         headers = {"Authorization": f"Bearer {key}"} if key else {}
-        result = await openai_fetch(f"{provider.base_url.rstrip('/')}/chat/completions", headers,
-                                    payload, timeout=timeout_s)
+        result = await fetch(f"{provider.base_url.rstrip('/')}/chat/completions", headers,
+                             payload, timeout=timeout_s)
         if result is None:
             raise RuntimeError(f"provider {provider.name} call failed")
         return result
@@ -205,7 +216,8 @@ async def run_leg(leg: ModelUnderTest, cases: list[GoldenCase], out_dir: Path,
     if gate is None:
         timeout = LOCAL_TIMEOUT_S if leg.engine != "cloud" else CLOUD_TIMEOUT_S
         gate = EgressGate(registry=registry, routing=_routing_for(leg.provider), trace=trace,
-                          transport=retrying(make_transport(keys, timeout),
+                          transport=retrying(make_transport(keys, timeout,
+                                                            stream=leg.engine == "cloud"),
                                              attempts=leg.retry_attempts,
                                              min_interval_s=leg.min_interval_s))
     sidecar_path = out_dir / _sidecar_name(leg.label)
