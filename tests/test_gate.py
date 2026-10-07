@@ -293,3 +293,32 @@ async def test_embed_provenance_uses_the_same_rule_as_dispatch(tmp_path):
     assert res.provenance.engine == "ollama"
     assert res.provenance.weights_revision == "rev-x"
     assert res.provenance.backend == ""                # honest: Ollama cannot report it
+
+
+@pytest.mark.asyncio
+async def test_ollamas_nested_usage_breakdown_is_reduced_to_scalar_counts(tmp_path):
+    # Live-only: Ollama nests prompt_tokens_details: {cached_tokens: 0} inside usage, which the
+    # dict[str,int] contract rejects with ValidationError. Only the scalar counts are consumed by
+    # the trace, the sidecar and the proxy, so the gate reduces usage to those.
+    async def transport(provider, payload):
+        return {"model": payload["model"], "choices": [{"message": {"content": "ans"}}],
+                "usage": {"prompt_tokens": 46, "completion_tokens": 16, "total_tokens": 62,
+                          "prompt_tokens_details": {"cached_tokens": 0}}}
+    gate = _gate(tmp_path, transport)
+    resp = await gate.dispatch(LLMRequest(matter_ref="M-nested", task_class="drafting",
+                                          messages=[{"role": "user", "content": "x"}]))
+    assert resp.usage == {"prompt_tokens": 46, "completion_tokens": 16, "total_tokens": 62}
+    rec = gate.trace.by_matter("M-nested")[0]
+    assert rec.tokens_in == 46 and rec.tokens_out == 16
+
+
+@pytest.mark.asyncio
+async def test_embed_reduces_ollamas_nested_usage_breakdown(tmp_path):
+    from harness.gate import EmbeddingRequest
+    async def transport(provider, payload):
+        return {"model": payload["model"], "data": [{"index": 0, "embedding": [1.0]}],
+                "usage": {"prompt_tokens": 7, "total_tokens": 7,
+                          "prompt_tokens_details": {"cached_tokens": 0}}}
+    gate = _emb_gate(tmp_path, transport)
+    resp = await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a"]))
+    assert resp.usage == {"prompt_tokens": 7, "total_tokens": 7}

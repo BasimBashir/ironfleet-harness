@@ -139,7 +139,13 @@ class EgressGate:
                     status="error", error=last_error, latency_ms=int((time.monotonic()-t0)*1000)))
                 continue
             prov = self._provenance_of(cfg, result)
-            usage = result.get("usage", {})
+            # Ollama nests a per-provider breakdown inside usage (prompt_tokens_details:
+            # {cached_tokens: 0}) that this layer's dict[str,int] contract rejects — a
+            # live-only failure, since every offline test sends flat integer usage. Only the
+            # scalar token counts are consumed by the trace, the sidecar and the proxy; keep
+            # those as ints and drop the nested breakdown nothing reads.
+            usage = {k: int(v) for k, v in (result.get("usage") or {}).items()
+                     if isinstance(v, (int, float))}
             self.trace.append(DispatchRecord(
                 matter_ref=request.matter_ref, task_class=request.task_class,
                 classification=request.classification, provider=cfg.name,
@@ -224,7 +230,13 @@ class EgressGate:
                     status="error", error=last_error, latency_ms=int((time.monotonic()-t0)*1000)))
                 continue
             prov = self._provenance_of(cfg, result)
-            usage = result.get("usage", {})
+            # Ollama nests a per-provider breakdown inside usage (prompt_tokens_details:
+            # {cached_tokens: 0}) that this layer's dict[str,int] contract rejects — a
+            # live-only failure, since every offline test sends flat integer usage. Only the
+            # scalar token counts are consumed by the trace, the sidecar and the proxy; keep
+            # those as ints and drop the nested breakdown nothing reads.
+            usage = {k: int(v) for k, v in (result.get("usage") or {}).items()
+                     if isinstance(v, (int, float))}
             self.trace.append(DispatchRecord(
                 matter_ref=request.matter_ref, task_class="embedding",
                 classification=request.classification, provider=cfg.name,
