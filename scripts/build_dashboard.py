@@ -53,14 +53,20 @@ def leg_summaries(sidecars: dict[str, list[dict]], legs, table: RateTable) -> li
             out.append(summary)
             continue
         rate = table.require(leg.rate_key)
+        # Price the same deduplicated set from_records scored against: the sidecar is append-only,
+        # so a --recall rerun leaves a superseded ok row for the same id in the file as an audit
+        # trail. Summing the raw records would double-count it and inflate mean_cost — the field
+        # recommend() sorts on — by (#ok rows / #scored).
+        by_id = {r["id"]: r for r in records}
+        priced = [r for r in by_id.values() if r.get("status") == "ok"]
         if rate.blended:
-            tin = sum(int(r.get("tokens_in") or 0) for r in records if r.get("status") == "ok")
-            tout = sum(int(r.get("tokens_out") or 0) for r in records if r.get("status") == "ok")
-            lat = sum(float(r.get("latency_ms") or 0) for r in records if r.get("status") == "ok")
+            tin = sum(int(r.get("tokens_in") or 0) for r in priced)
+            tout = sum(int(r.get("tokens_out") or 0) for r in priced)
+            lat = sum(float(r.get("latency_ms") or 0) for r in priced)
             rate = amortized_rate_entry(rate, tin, tout, lat)
         total = sum(cost_of(int(r.get("tokens_in") or 0), int(r.get("tokens_out") or 0),
                             0, rate)["total"]
-                    for r in records if r.get("status") == "ok")
+                    for r in priced)
         summary.mean_cost = total / summary.n_scored
         out.append(summary)
     return out
