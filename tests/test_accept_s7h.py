@@ -1,5 +1,6 @@
 # tests/test_accept_s7h.py — the driver's pure checks against fixtures (spec §11). C6 is live and
 # is exercised only by the driver itself, not here.
+import argparse
 import json
 import pytest
 from pathlib import Path
@@ -136,3 +137,53 @@ def test_c7_empty_content_is_a_cap_failure_not_a_quality_failure(tmp_path):
     assert scored == 0
     assert recs[0]["status"] == "empty_content"
     assert recs[0]["tokens_out"] == 128            # the cap failure kept its token accounting
+
+
+@pytest.mark.asyncio
+async def test_skip_live_writes_no_acceptance_verdict(tmp_path, monkeypatch, capsys):
+    # Every offline check green, C6 skipped. The driver must NOT declare the capability ACCEPTED
+    # off six of seven checks — the flag's own help text promises exit 1 and no verdict.
+    async def _empty(*a, **kw):
+        return []
+
+    monkeypatch.setattr(acc, "_load_committed", lambda: ({"thomson1-chat": []}, ["c0"]))
+    monkeypatch.setattr(acc, "check_c1", lambda sidecars, case_ids: [])
+    monkeypatch.setattr(acc, "check_c2", lambda sidecars, claims, **kw: [])
+    monkeypatch.setattr(acc, "check_c3", lambda sidecars, expected: [])
+    monkeypatch.setattr(acc, "check_c4", _empty)
+    monkeypatch.setattr(acc, "check_c5", lambda: [])
+    monkeypatch.setattr(acc, "check_c7", _empty)
+    monkeypatch.setattr(acc, "_dashboard_claims", lambda: {})
+    monkeypatch.setattr(acc, "_dashboard_recommendation", lambda: "thomson1-chat",
+                        raising=False)             # absent before the fix; raising=False keeps RED clean
+
+    args = argparse.Namespace(skip_live=True, ollama_url="", atria_key="", tmp=str(tmp_path))
+    rc = await acc.run(args)
+    out = capsys.readouterr().out
+    assert rc == 1, "a C6-skipped run must exit 1, never the acceptance exit code"
+    assert "ACCEPTED" not in out, "no acceptance verdict may be written without C6"
+    assert "C6 skipped" in out                     # the reason is named, not a bare failure
+
+
+def _write_report(reports_dir: Path, verdict_line: str, extra: str = "") -> Path:
+    p = reports_dir / "A7-MODEL-SUBSTITUTION-2026-10-06.md"
+    p.write_text("# A-7 model substitution — cost/performance dashboard\n\n"
+                 "## Recommendation\n\n"
+                 f"{verdict_line}\n\n{extra}", encoding="utf-8")
+    return p
+
+
+def test_dashboard_recommendation_parses_the_reported_verdict(tmp_path, monkeypatch):
+    # the exact shape scripts/build_dashboard.render emits, plus a gap line that must NOT match
+    monkeypatch.setattr(acc, "EVAL_DIR", tmp_path)
+    _write_report(tmp_path,
+                  "**Atria-Dawn-Preview** — cheapest mean $/case among legs meeting the bar. "
+                  "Ties break on mean latency, then mean citation accuracy.",
+                  extra="- **qwen3.8:27b**: citation: candidate 0.100 < incumbent 0.500 "
+                        "- tolerance 0.000\n")
+    assert acc._dashboard_recommendation() == "Atria-Dawn-Preview"
+
+
+def test_dashboard_recommendation_returns_none_without_a_report(tmp_path, monkeypatch):
+    monkeypatch.setattr(acc, "EVAL_DIR", tmp_path)
+    assert acc._dashboard_recommendation() is None

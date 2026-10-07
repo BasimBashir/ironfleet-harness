@@ -286,6 +286,21 @@ def _dashboard_claims() -> dict[str, float]:
     return claims
 
 
+def _dashboard_recommendation() -> str | None:
+    """The verdict the dashboard printed, parsed out of its markdown. None when no report exists.
+
+    The line render emits is `**<recommendation>** — <basis>.` — split on the em dash FIRST, then
+    strip the asterisks: strip("*") on the whole line would leave the inner `**` closing the
+    label, since the line does not end in an asterisk."""
+    reports = sorted(EVAL_DIR.glob("A7-MODEL-SUBSTITUTION-*.md"))
+    if not reports:
+        return None
+    for line in reports[-1].read_text(encoding="utf-8").splitlines():
+        if line.startswith("**") and " — " in line:
+            return line.split(" — ")[0].strip().strip("*")
+    return None
+
+
 async def run(args: argparse.Namespace) -> int:
     sidecars, case_ids = _load_committed()
     if not sidecars:
@@ -295,12 +310,14 @@ async def run(args: argparse.Namespace) -> int:
     problems += check_c1(sidecars, case_ids)
     problems += check_c2(sidecars, _dashboard_claims(), in_per_m=CLOUD_IN_PER_M,
                          out_per_m=CLOUD_OUT_PER_M)
-    # C3 recomputes the recommendation the dashboard reported
-    table = RateTable.from_yaml(run_ab.RATES_PATH)
-    summaries = dash.leg_summaries(sidecars, run_ab.LEGS, table)
-    verdict = __import__("harness.eval.substitute", fromlist=["recommend"]).recommend(
-        dash.bar_for(summaries), summaries)
-    problems += check_c3(sidecars, verdict["recommendation"])
+    # C3 recomputes the recommendation the dashboard PRINTED — comparing it against its own
+    # recomputation would be a computation checked against itself.
+    expected = _dashboard_recommendation()
+    if expected is None:
+        problems.append("C3: no committed A7-MODEL-SUBSTITUTION-*.md report found — "
+                        "run scripts/build_dashboard.py first")
+    else:
+        problems += check_c3(sidecars, expected)
     problems += await check_c4()
     problems += check_c5()
     if not args.skip_live:
@@ -310,6 +327,11 @@ async def run(args: argparse.Namespace) -> int:
         print(f"FAIL {CAPABILITY} — {MATURITY}:")
         for p in problems:
             print(f"  {p}")
+        return 1
+    if args.skip_live:
+        # The help text's promise: a C6-skipped run never writes an acceptance verdict. C6 is the
+        # only check that can fail on a live day, so six of seven is not acceptance.
+        print(f"PASS (offline) — {MATURITY}: C6 skipped, so no acceptance verdict is written")
         return 1
     print(f"PASS {CAPABILITY} — ACCEPTED on all seven checks "
           f"({len(case_ids)} cases x {len(run_ab.LEGS)} legs)")
