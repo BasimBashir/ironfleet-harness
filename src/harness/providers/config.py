@@ -13,6 +13,12 @@ class ProviderConfig(BaseModel):
     discovered_backend: str = ""        # S7d: what the probe OBSERVED executing — never
                                         # operator-declared; separate field so discovery
                                         # cannot be laundered into declaration
+    discovered_verified: bool = False   # S7h: the probe's verified verdict on the SAME evidence
+                                        # (declared revision + observed backend). Carried forward at
+                                        # dispatch when the endpoint reports no revision of its own
+                                        # — the live cloud case — so a leg the probe admitted at
+                                        # verified=1 is not silently downgraded to 0 in the trace.
+                                        # A server-reported MISMATCH still overrides this to 0.
     max_output_tokens: int | None = None       # S6-4: provider output ceiling — the gate clamps
                                                # request.max_tokens to it (strict APIs 400 on the
                                                # 128k default); None = provider enforces its own

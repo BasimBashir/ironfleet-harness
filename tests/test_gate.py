@@ -72,6 +72,46 @@ async def test_server_revision_mismatching_declared_is_not_verified(tmp_path):
     assert gate.trace.by_matter("M-4")[0].verified == 0    # reported != declared rev-1
 
 @pytest.mark.asyncio
+async def test_cloud_leg_keeps_the_probes_verdict_when_it_reports_no_revision(tmp_path):
+    # The live cloud endpoint never reports a weights_revision in its response (verified live
+    # against api.atria-asi.ai), and _server_meta is a test-only channel no real endpoint emits.
+    # The probe admits such a leg at verified=1 under the CR-3 cloud rule (declared + saas), so
+    # dispatch must carry that verdict forward — otherwise the trace contradicts the probe that
+    # admitted the provider, and C6 (backend='saas'/verified=1) fails on a healthy endpoint.
+    # A server-reported mismatch still overrides to 0; absence is not evidence either way.
+    async def transport(provider, payload):                # no _server_meta at all
+        return {"model": payload["model"], "choices": [{"message": {"content": "ans"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
+    gate = _gate(tmp_path, transport)
+    # the probe records its findings on the config at registration; mirror that here
+    gate.registry.upsert(ProviderConfig(
+        name="cloud", base_url="https://c/v1", engine="cloud", tier="cloud", model="glm-5.2",
+        admitted="full", declared_provenance={"weights_revision": "glm@1"},
+        discovered_backend="saas", discovered_verified=True))
+    await gate.dispatch(LLMRequest(matter_ref="M-5", task_class="drafting",
+                                   messages=[{"role": "user", "content": "x"}],
+                                   classification="CLOUD_PERMITTED"))
+    row = gate.trace.by_matter("M-5")[0]
+    assert row.provider == "cloud"
+    assert row.backend == "saas"                            # the probe's registration-time finding
+    assert row.weights_revision == "glm@1"
+    assert row.verified == 1                                # carried forward, not recomputed to 0
+
+@pytest.mark.asyncio
+async def test_cloud_leg_reports_a_mismatched_revision_still_unverified(tmp_path):
+    # The carry-forward is a default, not a override: a live endpoint that DOES report a revision
+    # contradicting the pinned one is serving something other than what was probed -> verified=0.
+    async def transport(provider, payload):
+        return {"model": payload["model"], "choices": [{"message": {"content": "ans"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "_server_meta": {"backend": "saas", "weights_revision": "glm@OTHER"}}
+    gate = _gate(tmp_path, transport)
+    await gate.dispatch(LLMRequest(matter_ref="M-6", task_class="drafting",
+                                   messages=[{"role": "user", "content": "x"}],
+                                   classification="CLOUD_PERMITTED"))
+    assert gate.trace.by_matter("M-6")[0].verified == 0    # live evidence beats the probe
+
+@pytest.mark.asyncio
 async def test_missing_model_refuses_instead_of_guessing(tmp_path, fake_transport):
     gate = _gate(tmp_path, fake_transport)
     for c in gate.registry.list():                        # strip default models

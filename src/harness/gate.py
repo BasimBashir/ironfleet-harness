@@ -88,18 +88,27 @@ class EgressGate:
 
     def _provenance_of(self, provider: ProviderConfig, result: dict) -> ProvenanceReport:
         meta = result.get("_server_meta") or {}
+        declared_rev = provider.declared_provenance.get("weights_revision", "")
+        reported_rev = meta.get("weights_revision", "")
+        # S7d: dispatch-time evidence wins over the probe's registration-time finding,
+        # which wins over nothing. Real endpoints send no _server_meta, so the live
+        # value is the probe's; either way the trace records what actually held.
+        # S6-2 + the live cloud case: a server-REPORTED revision verifies only when it
+        # MATCHES the declared (pinned) one. But a real cloud endpoint reports no revision at
+        # all — _server_meta is a test-only channel — so requiring a reported match here would
+        # record verified=0 for a leg the probe admitted at verified=1 under the CR-3 cloud rule
+        # (declared + saas), contradicting the admission and failing C6 on a healthy endpoint.
+        # Absence is not evidence either way: carry the probe's verdict forward, and let live
+        # evidence still override it when the endpoint does speak (a mismatch stays verified=0).
+        if reported_rev:
+            verified = revision_verified(reported_rev, declared_rev)
+        else:
+            verified = provider.discovered_verified
         return ProvenanceReport(
             engine=meta.get("engine") or provider.engine or "",
-            weights_revision=meta.get("weights_revision")
-                or provider.declared_provenance.get("weights_revision", ""),
-            # S7d: dispatch-time evidence wins over the probe's registration-time finding,
-            # which wins over nothing. Real endpoints send no _server_meta, so the live
-            # value is the probe's; either way the trace records what actually held.
+            weights_revision=reported_rev or declared_rev,
             backend=meta.get("backend") or provider.discovered_backend or "",
-            # S6-2: probe semantics at dispatch time — a server-reported revision only
-            # verifies when it MATCHES the declared (pinned) one, not merely exists.
-            verified=revision_verified(meta.get("weights_revision", ""),
-                                       provider.declared_provenance.get("weights_revision", "")),
+            verified=verified,
             raw={"source": "response-meta" if meta else "declared-only"},
         )
 
