@@ -242,3 +242,41 @@ async def test_run_exits_cleanly_on_a_missing_rate_table(tmp_path):
     rc = await run_ab.run(_args(tmp_path, rates=tmp_path / "nope.yaml"))
     assert rc == 1                      # a clean setup failure, never an uncaught traceback
 
+
+# --- NTFS fix: a label containing a colon must not become an ADS stream ---------------------
+
+def test_sidecar_name_sanitizes_a_colon_in_the_label():
+    # NTFS reads "A7-qwen3.8:27b.jsonl" as file A7-qwen3.8 with 27b.jsonl as an alternate data
+    # stream — no .jsonl extension, so the dashboard's A7-*.jsonl glob never sees it.
+    assert run_ab._sidecar_name("qwen3.8:27b") == "A7-qwen3.8-27b.jsonl"
+
+
+def test_sidecar_name_leaves_a_colon_free_label_untouched():
+    # every existing test depends on this exact name
+    assert run_ab._sidecar_name("stub") == "A7-stub.jsonl"
+
+
+@pytest.mark.asyncio
+async def test_run_completes_when_the_leg_label_contains_a_colon(tmp_path, monkeypatch):
+    # the real qwen leg is labelled "qwen3.8:27b". run() re-reads the sidecar by globbable path to
+    # decide completeness, so a colon-bearing label must round-trip to a zero exit — this fails
+    # against the raw f"A7-{leg.label}.jsonl" construction because run() looks for the sanitized
+    # name while the stub wrote the ADS-streamed one (or vice versa).
+    colon_leg = ModelUnderTest(label="qwen3.8:27b", role="candidate", provider="stub",
+                               model="qwen3.8:27b", engine="cloud", output_cap=128,
+                               rate_key="x")
+    (tmp_path / "rates.yaml").write_text(_RATES, encoding="utf-8")
+
+    async def _complete(leg, cases, out_dir, trace, **kw):
+        (out_dir / run_ab._sidecar_name(leg.label)).write_text(
+            "\n".join(json.dumps({"id": c.id, "status": "ok", "leg": leg.label}) for c in cases)
+            + "\n", encoding="utf-8")
+        return len(cases)
+
+    monkeypatch.setattr(run_ab, "LEGS", [colon_leg])
+    monkeypatch.setattr(run_ab, "run_leg", _complete)
+    assert await run_ab.run(_args(tmp_path)) == 0
+    # the record's "leg" field keeps the true canonical label — only the filename is sanitized
+    recs = run_ab.load_sidecar(tmp_path / run_ab._sidecar_name(colon_leg.label))
+    assert [r["leg"] for r in recs] == ["qwen3.8:27b"] * len(recs)
+

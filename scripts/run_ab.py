@@ -83,6 +83,15 @@ LEGS: list[ModelUnderTest] = [
 ]
 
 
+def _sidecar_name(label: str) -> str:
+    # NTFS reads a colon as an alternate-data-stream separator, so a label like
+    # "qwen3.8:27b" would write a file named A7-qwen3.8 with no .jsonl extension —
+    # invisible to the dashboard's A7-*.jsonl glob, while read-back through the same
+    # colon-bearing path still worked (so resume never noticed). The record's "leg"
+    # field keeps the true label; only the filename is sanitized.
+    return f"A7-{label.replace(':', '-')}.jsonl"
+
+
 def load_sidecar(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -199,7 +208,7 @@ async def run_leg(leg: ModelUnderTest, cases: list[GoldenCase], out_dir: Path,
                           transport=retrying(make_transport(keys, timeout),
                                              attempts=leg.retry_attempts,
                                              min_interval_s=leg.min_interval_s))
-    sidecar_path = out_dir / f"A7-{leg.label}.jsonl"
+    sidecar_path = out_dir / _sidecar_name(leg.label)
     todo = pending(load_sidecar(sidecar_path), [c.id for c in cases], recall)
     print(f"[leg  ] {leg.label}: {len(todo)}/{len(cases)} case(s) to run "
           f"({len(cases) - len(todo)} already complete)")
@@ -324,7 +333,7 @@ async def run(args: argparse.Namespace) -> int:
             print(f"[leg  ] {leg.label} FAILED as a leg: {ex}")
             dead_legs += 1
             continue
-        total = len(pending(load_sidecar(args.out_dir / f"A7-{leg.label}.jsonl"),
+        total = len(pending(load_sidecar(args.out_dir / _sidecar_name(leg.label)),
                             [c.id for c in cases], ()))
         print(f"[leg  ] {leg.label} done: {scored} scored, {total} still pending")
         unfinished += total
