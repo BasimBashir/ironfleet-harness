@@ -162,3 +162,21 @@ is in-process harness code with no opencode attachment point — the same shape 
 embedding path and S7f's scheduler. Confirmed by accept_s7g.py's static layer (exit 2:
 five static checks PASS on Windows, live layer due-for-Mac, no verdict written); the live
 confirmation belongs to S7g-M on a Mac.
+
+## S7h (A-7 model substitution) — 2026-10-09
+
+**No change — zero, as predicted in spec §9.** The A/B runner (`scripts/run_ab.py`),
+the dashboard (`scripts/build_dashboard.py`) and the acceptance driver
+(`scripts/accept_s7h.py`) are in-process harness code driving the egress gate
+directly — the same shape as S7e's embedding path, S7f's scheduler and S7g's
+packaging layer. Verified by grep over the A-7 surface: the only occurrences of
+"opencode" in the A-7 scripts are *comparison notes* (the ~8x prompt-scaffolding
+tax and the "no opencode" corpus line in the dashboard), never an attachment
+point — no hook, no plugin, no mount, no provider wiring touched. The golden
+corpus dispatches through `EgressGate` to Ollama and the cloud endpoint exactly
+as S2's baseline runner did; opencode never sees a token.
+
+No new seam surfaced from the live run either. The two live findings (the
+reasoning model's buffered-vs-streamed hang, and carrying the probe's `verified`
+verdict forward) are both inside the gate and the provider layer, which are
+already-counted in-process surfaces.
