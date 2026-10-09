@@ -167,6 +167,62 @@ scores = asyncio.run(run_eval(gate, "data/golden_cases", "report.md"))
 
 Golden-case YAML format doubles as Jonathan's P0-4b authoring template. See `data/golden_cases/` for examples.
 
+## Model substitution A/B (A-7 / S7h)
+
+Three models — the `thomson1-chat` incumbent plus two candidates — run the same 30 golden cases
+through the real gate, and a dashboard recommends the cheapest one that meets a bar relative to
+the incumbent. Nothing is applied automatically: the verdict is an input to a human decision.
+
+```bash
+# 1. Run the A/B (resumable; ~9-25 h with the cloud leg at its 32k reasoning cap)
+.venv/Scripts/python.exe scripts/run_ab.py --atria-key $IRONFLEET_ATRIA_KEY
+
+# 2. Build the dashboard
+.venv/Scripts/python.exe scripts/build_dashboard.py
+# -> data/eval/A7-MODEL-SUBSTITUTION-<date>.md
+```
+
+- **`scripts/run_ab.py`** — every leg registers through the real provenance probe first and prints
+  its honest verdict. Each case writes one re-scorable JSONL record to
+  `data/eval/A7-<leg>.jsonl` — the S2 baseline's shape verbatim, so
+  `scripts/rescore_sidecars.py` works on A-7 sidecars unchanged. Exit 0 means every leg accounted
+  for every case; exit 1 means setup failure or an incomplete run, so a backgrounded run signals
+  whether it is safe to proceed to the dashboard.
+- **`scripts/build_dashboard.py`** — prices every case, applies the relative bar, and writes the
+  report. Local legs are priced at a rate DERIVED from their own measured throughput, so the
+  *ratio* between two local legs is the trustworthy number; the absolute local dollars ride on
+  amortization defaults that are **pending operator confirmation** and are printed in the report.
+- **`data/eval/ab/rates.yaml`** — every price carries a `source`; an unsourced rate is refused at
+  load time. The cloud leg's rates are the user-supplied GLM-5.2 published rates, and the endpoint's
+  promotional free tier is recorded as-billed but deliberately NOT used for ranking — a free tier
+  must not drive a substitution pick.
+
+**Resumability.** Completed cases are never re-run: kill the run and relaunch the identical command
+to pick up where it stopped. `--recall gc-dir-001` re-runs specific cases even if already scored
+(the old record stays in the file as an audit trail; the LAST record per case id is the effective
+one). `--only`/`--legs` narrow the case/leg set by substring.
+
+**Two recorded deviations, both named in the run's output** (spec §1.3): Ollama's honest
+`mechanical-only` admission is overridden in memory only for this eval run (user-directed
+2026-08-28 precedent; the probe, routing and `src/` are untouched, and every local dispatch still
+traces `verified=0`), and the public-derived golden corpus is dispatched to `api.atria-asi.ai` on
+the user's 2026-10-06 direction, with the key held **in memory only** — never the keychain, a file,
+or the repo.
+
+**Why the cloud leg streams.** Atria-Dawn-Preview is a reasoning model that can spend its whole
+output budget on `reasoning_content` before the first answer token (~730 s measured at a 32k cap).
+A buffered POST delivers nothing until generation completes, so the read timeout fires
+mid-generation and a legitimate call dies as a retryable failure — verified live: non-streaming at
+16k timed out past 1500 s while the identical streaming request finished in 433 s. Streaming keeps
+the connection alive with deltas, so the same timeout bounds a STALLED stream rather than a merely
+long one. Local legs stay buffered; they answer in seconds and buffering keeps their path identical
+to the S2 baseline's.
+
+**Acceptance** is `scripts/accept_s7h.py`: seven checks, exit 0 only if all pass, exit 1 with a
+named failure otherwise. Six of the seven run offline against the committed sidecars; C6 is the one
+live check (one real dispatch per leg, traced end to end), so a downed model or endpoint lands the
+module CONDITIONAL rather than absorbing the failure.
+
 ## Spike
 
 See [SPIKE_PROTOCOL.md](src/harness/spike/SPIKE_PROTOCOL.md) and [SEAM_COUNT.md](src/harness/spike/SEAM_COUNT.md) for spike scaffolding and execution protocol (P0-5).
