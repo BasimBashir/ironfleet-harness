@@ -131,8 +131,10 @@ async def check_c2(run_dir: Path) -> list[str]:
     standup.sync_mount(ws, standup.MOUNT, "m-s7i-accept", "LOCAL_PREFERRED", standup.PORT)
     genesis_sub = (ws / ".opencode" / "agent" / f"{AGENT}.md").read_text(encoding="utf-8")
     from harness.agent_memory import BEGIN_PREFIX
-    results["genesis"]["marker_less_mount"] = \
-        not store.get(AGENT)[0] and BEGIN_PREFIX not in genesis_sub
+    if store.get(AGENT)[1] == 0:
+        # genesis is a FRESH-STORE property; a resumed run re-syncs a store that later checks
+        # (C4/C5) have already written to — the flag recorded at the true genesis stands.
+        results["genesis"]["marker_less_mount"] = BEGIN_PREFIX not in genesis_sub
     (run_dir / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
 
     gate = await cli.build_gate(HOME / "trace.db")
@@ -216,10 +218,11 @@ def check_c5(run_dir: Path) -> list[str]:
                                 ws.parent / "matters")
     proxy.start()
     try:
-        # the spike's proven drive form (run_spike_opencode.py:366), subagent instead of twin
+        # the spike's proven drive form (run_spike_opencode.py:366 + run_opencode_session),
+        # subagent instead of twin: model spec is provider-prefixed gate-local/<alias>
         from scripts.run_spike_opencode import flatten_prompt, run_opencode
         code, raw = run_opencode(ws, ["run", "--agent", AGENT,
-                                      "--model", "gate/complex_reasoning",
+                                      "--model", "gate-local/gate/complex_reasoning",
                                       "--auto", "--format", "json",
                                       flatten_prompt("State your standing instruction "
                                                      "in one line.")], 300,
