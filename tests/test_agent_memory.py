@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from harness.agent_memory import (MAX_MEMORY_CHARS, PROBE_SIZE, LegMeans, MemoryStore,
-                                  select_probe)
+from harness.agent_memory import (BEGIN_PREFIX, END_MARKER, MAX_MEMORY_CHARS, PROBE_SIZE,
+                                  LegMeans, MemoryStore, ProposalRejected,
+                                  apply_to_agent_md, render_appendix, select_probe,
+                                  validate_proposal)
+
+MD = "---\ndescription: x\nmode: subagent\n---\nCORPUS BODY\n"
 
 
 @pytest.fixture()
@@ -93,3 +97,44 @@ def test_history_merges_versions_and_decisions(store):
     kinds = [e["kind"] for e in entries]
     assert set(kinds) == {"version", "decision"}
     assert any(e["kind"] == "decision" and e["status"] == "kept" for e in entries)
+
+
+def test_render_appendix_shape():
+    out = render_appendix("notes here", 3)
+    assert out == "<!-- ironfleet:memory:v3 begin -->\nnotes here\n<!-- ironfleet:memory end -->\n"
+
+
+def test_validate_rejects_delimiters_and_oversize():
+    with pytest.raises(ProposalRejected):
+        validate_proposal(f"hello {END_MARKER}")
+    with pytest.raises(ProposalRejected):
+        validate_proposal("x" * (MAX_MEMORY_CHARS + 1))
+    assert validate_proposal("fine") == "fine"
+
+
+def test_apply_adds_exactly_one_section_and_is_idempotent():
+    once = apply_to_agent_md(MD, "note", 1)
+    assert once.count(BEGIN_PREFIX) == 1 and MD.rstrip() in once
+    twice = apply_to_agent_md(once, "note", 1)
+    assert twice == once                      # same body+version → byte-identical
+    thrice = apply_to_agent_md(twice, "note2", 2)
+    assert thrice.count(BEGIN_PREFIX) == 1 and "note2" in thrice and "note\n" not in thrice
+
+
+def test_apply_empty_body_removes_section():
+    with_mem = apply_to_agent_md(MD, "note", 1)
+    stripped = apply_to_agent_md(with_mem, "", 1)
+    assert stripped == MD
+
+
+def test_apply_rewrites_corrupt_span_to_eof():
+    corrupt = MD + f"{BEGIN_PREFIX}v9 begin -->\ngarbage without end\nmore garbage\n"
+    fixed = apply_to_agent_md(corrupt, "note", 1)
+    assert fixed.count(BEGIN_PREFIX) == 1 and "garbage" not in fixed
+
+
+def test_corpus_body_above_markers_is_byte_frozen():
+    for body in ("note", "x" * 1999, ""):
+        out = apply_to_agent_md(MD, body, 7)
+        above = out.split(BEGIN_PREFIX)[0]
+        assert above in (MD, MD.rstrip("\n") + "\n\n")   # nothing above the markers ever moves

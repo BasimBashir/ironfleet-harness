@@ -67,6 +67,39 @@ class LegMeans:
     mean_persona: float
 
 
+class ProposalRejected(ValueError):
+    """A proposal that touches the delimiter namespace or blows the size cap (spec §3.1)."""
+
+
+def validate_proposal(body: str) -> str:
+    if BEGIN_PREFIX in body or END_MARKER in body:
+        raise ProposalRejected("proposal embeds a memory delimiter — rejected before it can "
+                               "ever nest or forge a section boundary")
+    if len(body) > MAX_MEMORY_CHARS:
+        raise ProposalRejected(f"oversize: {len(body)} > MAX_MEMORY_CHARS({MAX_MEMORY_CHARS})")
+    return body
+
+
+def render_appendix(body: str, version: int) -> str:
+    return f"{BEGIN_PREFIX}v{version} begin -->\n{body.rstrip()}\n{END_MARKER}\n"
+
+
+def apply_to_agent_md(md: str, body: str, version: int) -> str:
+    """Idempotent full-section replace (spec §3.2). No markers → append; markers present →
+    replace the span (a begin without an end is stale/corrupt and is rewritten from begin to
+    EOF — nothing may follow the section by construction). Empty body REMOVES the section."""
+    lines = md.splitlines(keepends=True)
+    start = next((i for i, l in enumerate(lines) if l.startswith(BEGIN_PREFIX)), None)
+    if start is None:
+        return md if not body else md.rstrip("\n") + "\n\n" + render_appendix(body, version)
+    end = next((i for i in range(start, len(lines))
+                if lines[i].startswith(END_MARKER)), len(lines) - 1)
+    head = "".join(lines[:start]).rstrip("\n")
+    if not body:
+        return head + "\n" if head else ""
+    return head + "\n\n" + render_appendix(body, version)
+
+
 class MemoryStore:
     """The canon. One row per persona in agent_memory; everything else hangs off it."""
 
