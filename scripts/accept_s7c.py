@@ -147,10 +147,14 @@ def sha16(text: str) -> str:
 
 
 def write_matter(ws: Path, matter_ref: str, classification: str = "LOCAL_PREFERRED") -> None:
-    """Per-case matter identity: the proxy reads matter.json on EVERY request, so each dispatch
-    lands under its own matter_ref and the trace rows stay attributable per case — without
-    re-syncing the mount, which would wipe the guard log."""
-    (ws / "matter.json").write_text(
+    """Per-case matter identity, the S7f registry form: matters/<ref>/matter.json under the
+    directory the proxy serves. An unregistered ref is 500 matter_unavailable (no passthrough,
+    no default matter), and the mount's baseURL dispatches the synced dated ref, so every ref
+    a phase names must be registered before its runs. Without re-syncing the mount, which
+    would wipe the guard log."""
+    d = ws / "matters" / matter_ref
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "matter.json").write_text(
         json.dumps({"matter_ref": matter_ref, "classification": classification}, indent=2),
         encoding="utf-8", newline="")
 
@@ -946,7 +950,8 @@ def main(argv: list[str] | None = None) -> int:
     ws.mkdir(parents=True, exist_ok=True)
     if not args.skip_sync:
         sync_mount(ws, MOUNT, matter_ref=f"{MATTER_PREFIX}-{datetime.now():%Y-%m-%d}",
-                   classification="LOCAL_PREFERRED", port=PORT)
+                   classification="LOCAL_PREFERRED", port=PORT,
+                   matters_root=ws / "matters")
         print(f"[setup] S7c mount synced -> {ws}")
     (ws / "transcripts").mkdir(parents=True, exist_ok=True)
     env = child_env(ws)
@@ -955,7 +960,7 @@ def main(argv: list[str] | None = None) -> int:
     # ThreadingHTTPServer binds in its CONSTRUCTOR: the port guard wraps construction, not
     # start() — start() only spawns the serve_forever thread and cannot raise OSError.
     try:
-        proxy = EgressProxy(HOST, PORT, mount_gate, rt, aliases, ws / "matter.json")
+        proxy = EgressProxy(HOST, PORT, mount_gate, rt, aliases, ws / "matters")
     except OSError as ex:
         print(f"FAIL: port {PORT} is already held — a mount whose baseURL says {PORT} must not "
               f"talk to a stranger: {ex}", file=sys.stderr)

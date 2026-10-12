@@ -78,7 +78,11 @@ These need no batch work beyond a decision: they are already natively discoverab
 `.opencode/skills/`, so the only question is whether any of them should ever become a tool row.
 Default answer: no — a prompt-only skill is a prompt the model reads, not a function it calls.
 
-**21. `what_if_dashboard` is NOT prompt-only.** Task 8's review found the real thing:
+**21. `what_if_dashboard` is NOT prompt-only.** **RULED 2026-10-12 (user): DROP.** No persona
+references it (zero hits, verified below); the docstring's claim is aspirational, and the
+triage below sized the true cost at a 4.5k-line dependency tier for zero callers on the new
+stack. Reversible: the old tree keeps every file, and this triage note IS the port spec if a
+persona ever wants it. Task 8's review found the real thing:
 `skills/what_if_dashboard/what_if_dashboard.py` — **649 lines, 25,752 bytes, sitting at the
 SKILL-DIR TOP LEVEL**, not under `scripts/`. The manifest's executable-skill scan walks
 `<skill>/scripts/*.py`, so this file was invisible to it and `tools.yaml` classed the whole
@@ -123,7 +127,7 @@ Triage note (first-class batch item, not a footnote):
 |---|---|---|---|
 | 22 | `ironfleet_hearing_bundle` | `pypdfium2` (render) + `fpdf` (write), both guarded imports | PDF in AND out. Both are real wheels on Windows, but they are the only new install surface on the ticket outside §5. Decide: `.venv` install + record in the install discipline, or defer the write path and return text-only |
 | 23 | `ironfleet_kreuzberg_ingestor` | `kreuzberg` (guarded import, `extract_file` + `ExtractionConfig`) | Heavy deps behind it. This is ingestion tooling, and A-4 owns the ingestion tier — consider folding it into A-4 rather than porting it standalone |
-| 24 | `ironfleet_nutrient_processor` | `requests` → **`POST https://api.nutrient.io/build`**, gated on `NUTRIENT_DWS_API_KEY` | **A cloud egress event, not a dependency question.** Sending privileged matter text to a SaaS extraction API is exactly what the egress gate exists to classify (S7e's rule). It cannot port as a plain tool row: either it becomes a gate-classified provider, or it is dropped with Jonathan's sign-off. The check-4 static sweep would flag the `requests` import the moment it landed |
+| 24 | `ironfleet_nutrient_processor` | `requests` → **`POST https://api.nutrient.io/build`**, gated on `NUTRIENT_DWS_API_KEY` | **A cloud egress event, not a dependency question.** Sending privileged matter text to a SaaS extraction API is exactly what the egress gate exists to classify (S7e's rule). It cannot port as a plain tool row: either it becomes a gate-classified provider, or it is dropped with Jonathan's sign-off. The check-4 static sweep would flag the `requests` import the moment it landed. **RULED 2026-10-12 (user): DROPPED** — no persona path needs SaaS PDF extraction on this stack; named in the S7j switch-off notes for Jonathan's visibility (the sign-off framing, satisfied by disclosure rather than a blocking ask) |
 
 ## 5. The LLM-bearing item
 
