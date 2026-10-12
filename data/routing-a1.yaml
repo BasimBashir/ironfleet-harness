@@ -13,6 +13,9 @@ aliases:
   gate/analysis:          {task_class: analysis}
   gate/complex_reasoning: {task_class: complex_reasoning}
   gate/summarization:     {task_class: summarization}
+  # S7j-W spec §1: the fail-closed injection leg's class — the ONLY class qwen-local
+  # serves, so parity (research -> ollama-local) and injection never share a candidate.
+  gate/toolpath:           {task_class: toolpath}
 rules:
   - task_class: extraction
     local_only: [ollama-local]
@@ -54,6 +57,13 @@ rules:
     local_only: [ollama-embed]
     local_preferred: [ollama-embed]
     cloud_permitted: [ollama-embed]
+  # S7j-W: the tool-calling injection model. NOT mechanical on purpose — Ollama's honest
+  # mechanical-only verdict must not silently serve it; the recorded in-memory override
+  # admits it, keeping the CR-3 deviation visible.
+  - task_class: toolpath
+    local_only: [qwen-local]
+    local_preferred: [qwen-local]
+    cloud_permitted: [qwen-local]
 defaults:
   local_only: []
   local_preferred: []

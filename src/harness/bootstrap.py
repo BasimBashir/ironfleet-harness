@@ -107,7 +107,10 @@ def _probe_ollama():
     # driver is synchronous, so drive it to completion here. Calling it unawaited would
     # hand back a coroutine object and every attribute read below would blow up at
     # live-run time — the unit tests cannot see this, build_gate is stubbed there.
-    specs = [("ollama-local", "thomson1-chat:latest"), ("ollama-embed", "bge-m3:567m")]
+    specs = [("ollama-local", "thomson1-chat:latest"), ("ollama-embed", "bge-m3:567m"),
+             # S7j-W: the tool-calling injection model — the routing table's toolpath
+             # class names ONLY this provider, so parity never dispatches it.
+             ("qwen-local", "qwen3.8:27b")]
     for name, model in specs:
         res = asyncio.run(register_provider(name, OLLAMA_URL, get_key(name) or "",
                                             model=model, engine="ollama",

@@ -97,6 +97,12 @@ EXPECTED_CASES = 30                 # top-level golden cases; archive/ holds 3 r
 RETIRED_IDS = {"seed-imca-001", "seed-limitation-001", "seed-without-prejudice-001"}
 AGENT = "hunter-drive"              # zero-tool primary-mode twin (persona verbatim)
 MOUNT_MODEL = "gate/research"       # HUNTER's own default_task_type alias (spec §1)
+# S7j-W spec §1: check 3's injection scenarios run under the TOOL-CALLING model (qwen), on
+# the toolpath class — the only class its provider serves, so parity (research ->
+# ollama-local) and injection can never share a candidate. thomson1-chat, the parity model,
+# makes no in-session tool call (S7c's reclassified check-3 finding), so the leg is the
+# recorded-deviation path the user ruled on 2026-10-12.
+INJECT_ALIAS = "gate/toolpath"
 MAX_TOKENS = 16384                  # the mount's output floor (B1): thomson1 needs >=16k
 CASE_TIMEOUT_S = 3600               # one case ceiling on the mount side (tree-killed on overrun)
 MATTER_PREFIX = "s7c-parity"
@@ -611,7 +617,21 @@ FAIL_CLOSED_SCENARIOS: list[tuple[str, str]] = [
 ]
 
 
-def _inject_run(ws: Path, env: dict, name: str, prompt: str, timeout: int) -> dict:
+def inject_model(rt: RoutingTable, registry) -> str:
+    """The provider model the toolpath rule names — the injection leg's target, read off
+    the SAME routing table and registry the gate dispatches through, so the leg cannot
+    name a model the gate would refuse."""
+    for name in rt._pref(INJECT_ALIAS.split("/", 1)[1], "LOCAL_PREFERRED"):
+        cfg = next((c for c in registry.list() if c.name == name), None)
+        if cfg is not None and cfg.admitted != "refused":
+            return cfg.model
+    raise SystemExit(
+        f"FAIL: no admitted provider behind {INJECT_ALIAS} — the injection leg has no "
+        f"model. Is qwen3.8:27b pulled on the local server, and did the probe admit it?")
+
+
+def _inject_run(ws: Path, env: dict, name: str, prompt: str, timeout: int,
+                alias: str = MOUNT_MODEL) -> dict:
     """One injection scenario under BLOCK=true authorities. The ungrounded citation rides in
     the tool ARGS, so tool.execute.before is the surface that must deny it. Authorities are
     written BEFORE the run — a driver that forgets them annotates and blocks every bracket in
@@ -622,7 +642,7 @@ def _inject_run(ws: Path, env: dict, name: str, prompt: str, timeout: int) -> di
     write_allowed(ws, allowed=["Real Authority Act 1908"], block=True)
     before = len(guard_log(ws))
     t0 = time.monotonic()
-    code, raw = run_opencode(ws, ["run", "--model", f"gate-local/{MOUNT_MODEL}", "--auto",
+    code, raw = run_opencode(ws, ["run", "--model", f"gate-local/{alias}", "--auto",
                                   "--format", "json", prompt], timeout=timeout, env=env)
     latency = int((time.monotonic() - t0) * 1000)
     (ws / "transcripts" / f"fail-closed-{name}.jsonl").write_text(raw, encoding="utf-8",
@@ -645,17 +665,19 @@ def _inject_run(ws: Path, env: dict, name: str, prompt: str, timeout: int) -> di
 
 
 def fail_closed(ws: Path, env: dict, timeout: int = 1800, model: str = "",
-                capture_path: Path | None = None) -> dict:
+                capture_path: Path | None = None, alias: str = MOUNT_MODEL) -> dict:
     """Check 3: an ungrounded citation supplied on the TOOL path is BLOCKED by
     tool.execute.before. Scenarios run in order and the first tool-path block wins; a scenario
     where the model never called a tool proves nothing and is reported as such. When NO scenario
-    reached the tool path, the captured request is replayed to the provider directly, so the
-    record shows WHERE the tool call was lost rather than leaving check 3 as an unexplained
-    failure — and the capture is persisted beside the verdict."""
+    reached the tool path, the captured request is replayed to the provider directly (model:
+    the same model that should have made the tool call), so the record shows WHERE the tool
+    call was lost rather than leaving check 3 as an unexplained failure — and the capture is
+    persisted beside the verdict. `alias` is the gate alias the scenarios run under — the
+    qwen leg passes INJECT_ALIAS (S7j-W); the default keeps the parity alias."""
     runs: list[dict] = []
     with RequestCapture() as cap:
         for name, prompt in FAIL_CLOSED_SCENARIOS:
-            runs.append(_inject_run(ws, env, name, prompt, timeout))
+            runs.append(_inject_run(ws, env, name, prompt, timeout, alias=alias))
     good = [r for r in runs if r["block_names_injected"]]
     winner = good[0] if good else runs[-1]
     diagnostic: dict = {"needed": not bool(good)}
@@ -666,6 +688,7 @@ def fail_closed(ws: Path, env: dict, timeout: int = 1800, model: str = "",
         if dumped:
             diagnostic["captured_request"] = str(dumped)
     return {"passed": bool(good) and not any(r["injection_reached_a_result"] for r in runs),
+            "model_alias": alias, "model": model,
             "scenario": winner["scenario"],
             "tool_path_blocks": winner["tool_path_blocks"],
             "block_names_injected": winner["block_names_injected"],
@@ -759,6 +782,16 @@ def build_gates(ws: Path, base_url: str = OLLAMA_URL) -> tuple[EgressGate, Egres
           f"(CR-3; the recorded user-directed Ollama deviation)")
 
     model = mount_gate.registry.get("ollama-local").model
+    # The injection leg's provider, same recorded deviation (S7j-W spec §1.3): toolpath is
+    # deliberately non-mechanical, so without the override route() would silently skip it.
+    qwen = next((c for c in mount_gate.registry.list() if c.name == "qwen-local"), None)
+    if qwen is None:
+        raise SystemExit("FAIL: qwen-local is not in the mount registry — the probe never "
+                         "registered it (bootstrap._probe_ollama); the injection leg cannot run.")
+    honest["inject"] = qwen.admitted
+    qwen.admitted = "full"
+    print(f"[gate] inject probe admission (honest): {honest['inject']} -> overridden to "
+          f"'full' in memory (CR-3; the recorded user-directed Ollama deviation)")
     house_gate, honest_house = asyncio.run(
         persona.build_reference_gate(base_url, model, ws / "trace-house.db"))
     if house_gate is None:
@@ -799,8 +832,9 @@ def write_report(out_dir: Path, bar: dict, cov: dict, fc: dict, nb: dict, model:
              f"- house side: the `run_eval_persona_ollama` dispatch — persona verbatim as the "
              f"system message through `EgressGate.dispatch`, production scorers (S6-normalised)",
              f"- probe admission (honest): mount {honest_admission['mount']}, house "
-             f"{honest_admission['house']} — overridden to 'full' IN MEMORY "
-             f"ONLY on both gates (CR-3: Ollama cannot report its engine; without the override "
+             f"{honest_admission['house']}, inject {honest_admission.get('inject', '-')} — "
+             f"overridden to 'full' IN MEMORY "
+             f"ONLY on the gates (CR-3: Ollama cannot report its engine; without the override "
              f"every non-mechanical class, `research` included, is refused)",
              f"- max_tokens: {MAX_TOKENS} on both sides (the mount's output floor, B1)",
              f"- temperature: unpinned on both sides",
@@ -851,6 +885,10 @@ def write_report(out_dir: Path, bar: dict, cov: dict, fc: dict, nb: dict, model:
                   f"{k} ({v['completions']}/{v['decisions']})"
                   for k, v in sorted(cov["runs"].items())), "",
               "## Check 3 — fail-closed", "",
+              f"- injection model: `{fc.get('model') or '-'}` via "
+              f"`gate-local/{fc.get('model_alias', MOUNT_MODEL)}` — the recorded-deviation "
+              f"leg (S7j-W spec §1): the tool-calling model the spike's block proof used; "
+              f"parity stays on `{model}` on both sides",
               f"**{'PASS' if fc.get('passed') else 'FAIL'}** — "
               f"{len(fc.get('tool_path_blocks', []))} tool.execute.before block decision(s); "
               f"injected authority named in a block reason: "
@@ -972,9 +1010,12 @@ def main(argv: list[str] | None = None) -> int:
     session_runs: set[str] = set()          # check 2 is scoped to THIS acceptance session
     try:
         if not args.skip_probes:
-            print("[check 3] fail-closed injection (block mode)")
-            checks["fail_closed"] = fail_closed(ws, env, model=model,
-                                                capture_path=out_dir / "captured-request.json")
+            print("[check 3] fail-closed injection (block mode, "
+                  f"{inject_model(rt, mount_gate.registry)} via gate-local/{INJECT_ALIAS})")
+            checks["fail_closed"] = fail_closed(
+                ws, env, alias=INJECT_ALIAS,
+                model=inject_model(rt, mount_gate.registry),
+                capture_path=out_dir / "captured-request.json")
             session_runs |= {f"fail-closed-{r['scenario']}" for r in checks["fail_closed"]["runs"]}
             print(f"[check 3] passed={checks['fail_closed']['passed']} "
                   f"(scenario {checks['fail_closed']['scenario']}, "

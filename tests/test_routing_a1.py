@@ -49,6 +49,24 @@ def test_a1_embedding_alias_maps_to_the_embedding_rule():
     rule_classes = {r["task_class"] for r in rt._rules}
     assert "embedding" in rule_classes, "gate/embedding needs a routing rule"
 
+def test_a1_toolpath_rule_names_only_the_qwen_provider():
+    # The injection leg's disjointness property (S7j-W spec §1.2): the toolpath class must
+    # never share a candidate with parity's research class (which names only ollama-local),
+    # or a routing edit could silently move the fail-closed proof onto the
+    # non-tool-calling model.
+    rt = RoutingTable.from_yaml(A1)
+    rule = next(r for r in rt._rules if r["task_class"] == "toolpath")
+    for tier in ("local_only", "local_preferred", "cloud_permitted"):
+        assert rule[tier] == ["qwen-local"], tier
+
+def test_a1_toolpath_is_not_mechanical():
+    # Non-mechanical on purpose: Ollama's honest probe verdict (mechanical-only) must NOT
+    # silently serve this class — the driver's recorded in-memory override is what admits
+    # it, keeping the CR-3 deviation visible instead of implicit.
+    assert "toolpath" not in MECHANICAL_TASKS
+    aliases = load_aliases(A1)
+    assert resolve_alias("gate/toolpath", aliases) == "toolpath"
+
 def test_a1_embedding_rule_lists_only_local_providers():
     # The routing-table half of the belt-and-braces LOCAL_ONLY rule (spec §2): the
     # committed table must not name a cloud provider for the embedding class.

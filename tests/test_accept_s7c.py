@@ -547,3 +547,36 @@ def test_no_plan_date_is_baked_into_the_driver():
     assert mod.EXPECTED_CASES == 30 and mod.AGENT == "hunter-drive"
     assert mod.MOUNT_MODEL == "gate/research" and mod.MAX_TOKENS >= 16384
     assert "S7C-PARITY-" in SCRIPT.read_text(encoding="utf-8")
+
+
+# ── S7j-W: the qwen injection leg ─────────────────────────────────────────────
+
+def test_inject_model_reads_the_toolpath_rule_off_the_registry():
+    # The leg's target model is DERIVED from the same routing table + registry the gate
+    # dispatches through, so the leg cannot name a model the gate would refuse.
+    mod = _load()
+    from harness.policy import RoutingTable
+    from harness.providers.config import ProviderConfig, ProviderRegistry
+    rt = RoutingTable.from_yaml(ROOT / "data" / "routing-a1.yaml")
+    reg = ProviderRegistry()
+    reg.upsert(ProviderConfig(name="qwen-local", base_url="http://o/v1", engine="ollama",
+                              tier="local", model="qwen3.8:27b", admitted="full"))
+    assert mod.inject_model(rt, reg) == "qwen3.8:27b"
+
+
+def test_inject_model_fails_loud_when_nothing_is_admitted():
+    mod = _load()
+    from harness.policy import RoutingTable
+    from harness.providers.config import ProviderRegistry
+    rt = RoutingTable.from_yaml(ROOT / "data" / "routing-a1.yaml")
+    with pytest.raises(SystemExit):
+        mod.inject_model(rt, ProviderRegistry())
+
+
+def test_the_injection_alias_is_disjoint_from_parity():
+    # Parity stays on gate/research (ollama-local / thomson1-chat); the injection leg rides
+    # its own class, so no routing or registry drift can mix the two.
+    mod = _load()
+    assert mod.INJECT_ALIAS == "gate/toolpath"
+    assert mod.INJECT_ALIAS != mod.MOUNT_MODEL
+    assert mod.MOUNT_MODEL == "gate/research"
