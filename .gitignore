@@ -11,3 +11,4 @@ data/eval/*.db*
 
 # S7i acceptance run dir: the run's own store/trace are live evidence on disk, not repo source
 data/eval/S7I-ACCEPTANCE/home/
+data/eval/S7I-ACCEPTANCE/genesis-home/

@@ -180,3 +180,35 @@ No new seam surfaced from the live run either. The two live findings (the
 reasoning model's buffered-vs-streamed hang, and carrying the probe's `verified`
 verdict forward) are both inside the gate and the provider layer, which are
 already-counted in-process surfaces.
+
+## S7i (A-9 self-improving agents) — 2026-10-12
+
+**No new seams — 0 new + 2 reused, as predicted in spec §8.** The memory appendix rides the
+existing S7c persona-subagent seam (new CONTENT in an existing generated file — the S7f
+"only the path segment" standard); the C5 live check reuses the CLI prompt transport. The
+loop, reflector and store are in-process harness code with no opencode attachment point —
+the S7e/S7f/S7h shape. `resolve_store_root()` gained its first core runtime consumer
+(paths.py's deferred-wiring note gets its first tick).
+
+**Byte-lock supersession recorded (spec §8, §2.4 precedent):** `scripts/stand_up_opencode.py`
+was amended (`sync_mount` grew the memory-projection step) under S7i's own acceptance.
+`personas.py`, `gate.py`, `policy.py`, `trace.py`, `providers/` untouched.
+
+**Acceptance CONDITIONAL (exit 1), the S7c pattern — C1-C4+C6 PASS, C5 split:**
+- **The loop is live-proven end to end**: real reflector screen (its first live proposal was
+  a 2,243-char near-verbatim echo of the persona's own system prompt — the oversize guard
+  rejected it exactly as designed, recorded as proposal 1); seeded canary confirm ran its 60
+  real dispatches and the comparator honestly **rolled it back** (tie → rollback, the SRS's
+  "kept only if improved"); revert restored exact bytes as a new version; all 66
+  agent-memory dispatches traced `ollama-local`, zero `verified=1` (CR-3 honest).
+- **C5's mount projection PASSES** (canary in the synced subagent file, asserted every run
+  against a scratch fresh store); **the live session-read leg is BLOCKED BY BINARY — a NEW
+  drift finding:** opencode 1.18.33 falls back to the DEFAULT agent when `--agent` names a
+  subagent (stderr: "Falling back to default agent"), and @-mention delegation rides the
+  dead tool path (S7c check 3). Proven not-the-mount: the drive under the loop's recorded
+  override reached the gate (traced) and the default agent answered "I am opencode…".
+  1.18.25 drove subagents directly (spike-proven) — the full C5 proof lands with the pin
+  decision, alongside S7c's check 3.
+
+**Deferred, named (spec §9):** agent-initiated memory tools (parked on S7c's pin decision);
+live-session transcript harvesting; cross-agent memory sharing; embedding recall over memory.
