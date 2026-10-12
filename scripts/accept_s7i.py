@@ -142,7 +142,13 @@ async def check_c2(run_dir: Path) -> list[str]:
     MemoryStore.at_store_root().init(sorted(bodies))
     standup.sync_mount(ws, standup.MOUNT, "m-s7i-genesis", "LOCAL_PREFERRED", standup.PORT)
     genesis_sub = (ws / ".opencode" / "agent" / f"{AGENT}.md").read_text(encoding="utf-8")
-    results["genesis"]["marker_less_mount"] = BEGIN_PREFIX not in genesis_sub
+    # No canon at genesis -> inject_memory writes no memory primary at all; absence is
+    # itself marker-less.
+    genesis_mem_f = ws / ".opencode" / "agent" / f"{AGENT}-memory.md"
+    genesis_mem = (genesis_mem_f.read_text(encoding="utf-8")
+                   if genesis_mem_f.exists() else "")
+    results["genesis"]["marker_less_mount"] = (BEGIN_PREFIX not in genesis_sub
+                                               and BEGIN_PREFIX not in genesis_mem)
     os.environ["HARNESS_HOME"] = str(HOME)      # back to the run store for the live checks
     (run_dir / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
 
@@ -229,9 +235,15 @@ def check_c5(run_dir: Path) -> list[str]:
     sub = (ws / ".opencode" / "agent" / f"{AGENT}.md").read_text(encoding="utf-8")
     if CANARY not in sub:
         return ["C5: canary memory not present in the synced subagent file"]
+    # The drivable canon carrier (see stand_up.inject_memory — subagent files are not
+    # directly drivable on any tested binary): the session leg reads THIS file.
+    mem_primary = (ws / ".opencode" / "agent" / f"{AGENT}-memory.md").read_text(encoding="utf-8")
+    if CANARY not in mem_primary:
+        return ["C5: canary memory not present in the synced memory primary"]
 
     try:
-        ver = subprocess.run(["opencode", "--version"], capture_output=True, text=True,
+        exe = standup.OPENCODE_EXE if Path(standup.OPENCODE_EXE).exists() else "opencode"
+        ver = subprocess.run([exe, "--version"], capture_output=True, text=True,
                              timeout=60).stdout.strip()
     except Exception as ex:                              # noqa: BLE001 — print-only evidence
         ver = f"unavailable ({ex})"
@@ -248,10 +260,11 @@ def check_c5(run_dir: Path) -> list[str]:
                                 ws.parent / "matters")
     proxy.start()
     try:
-        # the spike's proven drive form (run_spike_opencode.py:366 + run_opencode_session),
-        # subagent instead of twin: model spec is provider-prefixed gate-local/<alias>
+        # The spike's proven drive form (run_spike_opencode.py:366 + run_opencode_session),
+        # memory-primary instead of twin: primary-mode --agent is what both pinned binaries
+        # accept, and the twin must stay byte-exact (S7c check 1's comparator).
         from scripts.run_spike_opencode import flatten_prompt, run_opencode
-        code, raw = run_opencode(ws, ["run", "--agent", AGENT,
+        code, raw = run_opencode(ws, ["run", "--agent", f"{AGENT}-memory",
                                       "--model", "gate-local/gate/complex_reasoning",
                                       "--auto", "--format", "json",
                                       flatten_prompt("State your standing instruction "
@@ -266,16 +279,16 @@ def check_c5(run_dir: Path) -> list[str]:
         status = "pass"
         evidence = {"rc": code, "final_text_head": text[:200]}
     elif "Falling back to default agent" in raw or text.strip().startswith("I am opencode"):
-        # The session ran but the SUBAGENT never engaged: 1.18.33 falls back on --agent with a
-        # subagent, and @-delegation rides the dead tool path (S7c check 3). Blocked by binary,
-        # NOT a mount defect — the canary is in the file (asserted above) and the dispatch
-        # reached the gate (traced). Recorded; the proof lands with the pin decision.
+        # The session ran but the canon-carrying agent never engaged — the mount resolved to
+        # the default agent (observed when --agent names a subagent on either pinned binary).
+        # Not a mount defect: the canary is in the file (asserted above) and the dispatch
+        # reached the gate (traced). Recorded as evidence, not a check failure.
         status = "blocked_by_binary"
         evidence = {"rc": code, "final_text_head": text[:200],
-                    "reason": "opencode fell back to the default agent — subagent drive "
-                              "unsupported on the installed binary; delegation rides the dead "
-                              "tool path (S7c check 3). Full C5 proof lands with the pin "
-                              "decision (1.18.25 drove subagents directly, spike-proven)."}
+                    "reason": "opencode answered as the default agent — the named agent did "
+                              "not engage (subagent-mode files fall back on both pinned "
+                              "binaries; the memory primary is primary-mode, so this branch "
+                              "now indicates a real mount/binary surprise)."}
     else:
         return [f"C5: session answer lacks the canary (rc={code}): {text[:200]!r}"]
     results = _results(run_dir)

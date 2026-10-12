@@ -160,9 +160,17 @@ def render_tools_plugin(template: str, ws: Path, python: str, manifest: Path,
 
 
 def inject_memory(agent_dir: Path, personas_index: Path, store: "MemoryStore | None") -> None:
-    """S7i: project each persona's memory canon into its SUBAGENT files only. Drive twins are
+    """S7i: project each persona's memory canon into its SUBAGENT files. Drive twins are
     parity comparators whose byte-exactness S7c check 1 depends on — never injected. A missing
-    store is genesis (no section, no DB write): the mount reads, the CLI writes (spec §3.2/§5)."""
+    store is genesis (no section, no DB write): the mount reads, the CLI writes (spec §3.2/§5).
+
+    Each persona also gets a CANON-CARRYING PRIMARY `<name>-memory.md`: the drive twin's body
+    (zero-tool, mode: primary — the one form both pinned binaries accept via `--agent`) with
+    the canon section. Correction recorded 2026-10-12, live on 1.18.25 AND 1.18.33: subagent
+    files are NOT directly drivable (`--agent <subagent>` falls back to the default agent —
+    the spec's "spike-proven on hunter" transferred a primary-mode proof to subagent files),
+    and @-delegation rides the tool path the incumbent model never exercises (S7c check 3).
+    Without a drivable carrier the memory section can never reach a real session."""
     from harness.module_e.personas import load_index
     if store is None:
         return
@@ -175,6 +183,11 @@ def inject_memory(agent_dir: Path, personas_index: Path, store: "MemoryStore | N
             if f.exists():
                 f.write_text(apply_to_agent_md(f.read_text(encoding="utf-8"), body, version),
                              encoding="utf-8", newline="")
+        twin = agent_dir / f"{p.name}-drive.md"
+        if twin.exists():
+            (agent_dir / f"{p.name}-memory.md").write_text(
+                apply_to_agent_md(twin.read_text(encoding="utf-8"), body, version),
+                encoding="utf-8", newline="")
 
 
 def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
