@@ -213,7 +213,9 @@ class _Handler(BaseHTTPRequestHandler):
                              messages=raw.get("messages", []),
                              model=raw.get("model_override"),
                              classification=matter.get("classification", "LOCAL_PREFERRED"),
-                             max_tokens=raw.get("max_tokens", 128_000))
+                             max_tokens=raw.get("max_tokens", 128_000),
+                             tools=raw.get("tools") or [],
+                             tool_choice=raw.get("tool_choice"))
         # Snapshot the row count BEFORE dispatching. by_matter() is matter-scoped, not
         # request-scoped — the gate's first append for THIS request is rows[prior], and
         # concurrent requests sharing a matter_ref can append in between. rows[-1] would

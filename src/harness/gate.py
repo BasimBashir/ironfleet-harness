@@ -21,6 +21,11 @@ class LLMRequest(BaseModel):
     # Providers enforce their own output limits; a strict API that rejects the value returns a
     # traced error rather than silent truncation. Override per request when needed.
     max_tokens: int = 128_000
+    # S7j-W (spec 13 §1.7): the client's tool schemas, carried verbatim. Until 2026-10-12
+    # this boundary DROPPED them — the provider never saw a tool to call, so the ported
+    # tools were unreachable through the gate for ANY model, however willing.
+    tools: list[dict] = []
+    tool_choice: str | None = None
 
 class LLMResponse(BaseModel):
     # content is nullable on purpose: a reasoning model can spend its whole output budget on
@@ -141,6 +146,10 @@ class EgressGate:
                     status="refused", error=f"no model specified for provider {cfg.name}"))
                 raise GateRefusal(f"no model specified for provider {cfg.name}")
             payload = {"model": model, "messages": request.messages, "max_tokens": request.max_tokens}
+            if request.tools:
+                payload["tools"] = request.tools
+                if request.tool_choice:
+                    payload["tool_choice"] = request.tool_choice
             if cfg.max_output_tokens is not None:          # S6-4: clamp, never raise
                 payload["max_tokens"] = min(payload["max_tokens"], cfg.max_output_tokens)
             t0 = time.monotonic()

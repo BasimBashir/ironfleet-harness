@@ -518,3 +518,65 @@ def test_plain_content_keeps_stop_finish(tmp_path, gate_stack):
         assert "tool_calls" not in body["choices"][0]["message"]
     finally:
         proxy.stop()
+
+
+# ── the request side: the tools array must REACH the provider payload ────────
+# Second half of the 2026-10-12 finding: opencode sends the 14-tool array, but the
+# proxy built an LLMRequest with no tools field and the gate built the provider
+# payload from that request — so the provider never saw a tool to call, whatever the
+# model. (The driver's replay proved the model calls tools when it CAN see them.)
+
+def test_the_gate_puts_tools_in_the_provider_payload(tmp_path):
+    captured = {}
+
+    async def spy(provider, payload):
+        captured.update(payload)
+        return await _tool_call_transport()(provider, payload)
+
+    gate, rt, aliases, trace = _tool_stack(tmp_path, transport=spy)
+    import asyncio
+    asyncio.run(gate.dispatch(LLMRequest(
+        matter_ref="m-001", task_class="extraction", max_tokens=100,
+        messages=[{"role": "user", "content": "call"}],
+        tools=[{"type": "function", "function": {"name": "ironfleet_without_prejudice",
+                                                 "parameters": {}}}])))
+    assert captured["tools"][0]["function"]["name"] == "ironfleet_without_prejudice"
+
+
+def test_a_toolless_request_sends_no_tools_key(tmp_path, fake_transport):
+    gate, rt, aliases, trace = _tool_stack(tmp_path, transport=fake_transport)
+    captured = {}
+
+    async def spy(provider, payload):
+        captured.update(payload)
+        return await fake_transport(provider, payload)
+
+    gate._transport = spy
+    import asyncio
+    asyncio.run(gate.dispatch(LLMRequest(
+        matter_ref="m-001", task_class="extraction", max_tokens=10,
+        messages=[{"role": "user", "content": "hi"}])))
+    assert "tools" not in captured
+
+
+def test_the_proxy_forwards_the_client_tools_array(tmp_path):
+    seen = {}
+
+    async def spy(provider, payload):
+        seen.update(payload)
+        return await _tool_call_transport()(provider, payload)
+
+    gate, rt, aliases, trace = _tool_stack(tmp_path, transport=spy)
+    matter = tmp_path / "matter.json"
+    matter.write_text(json.dumps({"matter_ref": "m-001", "classification": "LOCAL_PREFERRED"}))
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        _post(f"http://{host}:{port}/v1/chat/completions",
+              {"model": "gate/extraction", "max_tokens": 100,
+               "messages": [{"role": "user", "content": "call"}],
+               "tools": [{"type": "function", "function": {"name": "ironfleet_without_prejudice",
+                                                           "parameters": {}}}]})
+        assert seen["tools"][0]["function"]["name"] == "ironfleet_without_prejudice"
+    finally:
+        proxy.stop()
