@@ -57,9 +57,13 @@ def check_c1(run_dir: Path) -> list[str]:
 def check_c3(run_dir: Path) -> list[str]:
     reasons = " ".join(x.get("reason", "") for x in _results(run_dir).get("rejections", []))
     problems = []
-    for needle in ("delimiter", "oversize", "malformed"):
+    # two validator-level classes; malformed-JSON rejection lives in the REFLECTOR path and is
+    # unit-tested there (test_screen_reflector_garbage_is_recorded_rejected_not_crashed)
+    for needle in ("delimiter", "oversize"):
         if needle not in reasons:
             problems.append(f"no rejection recorded for {needle}")
+    if "NOT-REJECTED" in reasons:
+        problems.append("a rejector-table body unexpectedly PASSED validation")
     return problems
 
 
@@ -159,11 +163,12 @@ async def check_c2(run_dir: Path) -> list[str]:
     results["proposals"].append({"agent": AGENT, "status": verdict})
 
     # --- C3: the rejector table, recorded ---
-    for bad_body, why in [(f"x {END_MARKER}", "delimiter"), ("x" * 2001, "oversize"),
-                          ("}", "malformed")]:
+    for bad_body, why in [(f"x {END_MARKER}", "delimiter"), ("x" * 2001, "oversize")]:
         pid = store.propose(AGENT, bad_body)
         try:
             validate_proposal(bad_body)
+            store.decide(pid, "rejected",
+                         "acceptance driver declined — validation unexpectedly passed")
             results["rejections"].append({"reason": f"NOT-REJECTED: {why}"})
         except ProposalRejected as ex:
             store.decide(pid, "rejected", f"{why}: {ex}")
@@ -189,9 +194,11 @@ async def check_c2(run_dir: Path) -> list[str]:
     return problems
 
 
-async def check_c5(run_dir: Path) -> list[str]:
+def check_c5(run_dir: Path) -> list[str]:
     """The live mount (spec §7 C5): canary into the store (driver write), sync, drive
-    `opencode run --agent <persona>` on the real binary, assert the canary in the answer."""
+    `opencode run --agent <persona>` on the real binary, assert the canary in the answer.
+    SYNC deliberately: standup.build_gate (probe) and run_opencode block — and the probe's
+    asyncio.run inside a running loop is the exact nested-loop trap S7e's controller found."""
     import scripts.stand_up_opencode as standup
     from harness.agent_memory import MemoryStore
 
@@ -245,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
 
     problems: list[str] = []
     problems += asyncio.run(check_c2(RUN_DIR))
-    problems += asyncio.run(check_c5(RUN_DIR))
+    problems += check_c5(RUN_DIR)
     if (RUN_DIR / "results.json").exists():
         problems += check_c1(RUN_DIR)
     for p in problems:
