@@ -399,7 +399,10 @@ def mount_side(ws: Path, case: GoldenCase, env: dict, timeout: int, run_id: str)
     zero-tool drive twin, the research alias. block=false: parity is annotate-only, the deny
     decision is demonstrated separately by fail_closed(). The run's guard-decision slice is
     written beside its transcript for check 2."""
-    write_matter(ws, f"{MATTER_PREFIX}-mount:{run_id}")
+    # Colon-free on purpose: the ref becomes a directory under matters/ and Windows
+    # forbids ':' in names (NotADirectoryError, live 2026-10-12 — the first full parity
+    # run since the S7f registry; the earlier post-registry runs were --skip-parity).
+    write_matter(ws, f"{MATTER_PREFIX}-mount-{run_id}")
     write_allowed(ws, allowed_for(case), block=False)
     before = len(guard_log(ws))
     t0 = time.monotonic()

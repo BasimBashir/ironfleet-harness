@@ -614,3 +614,11 @@ def test_a_real_attempt_is_never_retried(monkeypatch):
     monkeypatch.setattr(mod, "run_opencode", fake)
     mod.run_opencode_retry(Path("ws"), ["x"], 1800, {}, "run-y")
     assert calls == [mod.STARTUP_WATCHDOG_S]
+
+
+def test_no_colon_ever_enters_a_matter_ref():
+    # The registry's refs become directory names under matters/; Windows forbids ':'
+    # (NotADirectoryError, live 2026-10-12). A regression here costs the whole run.
+    mod = _load()
+    assert ":" not in mod.MATTER_PREFIX
+    assert "-mount:" not in SCRIPT.read_text(encoding="utf-8")
