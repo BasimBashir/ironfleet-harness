@@ -16,6 +16,7 @@ import argparse, asyncio, json, os, shutil, subprocess, sys, time
 from pathlib import Path
 
 from harness.alias import load_aliases
+from harness.agent_memory import MemoryStore, apply_to_agent_md
 from harness.egress_proxy import EgressProxy
 from harness.gate import EgressGate
 from harness.module_e.skills import sync_skills
@@ -152,6 +153,24 @@ def render_tools_plugin(template: str, ws: Path, python: str, manifest: Path,
                     .replace("__TOOLS__", tools))
 
 
+def inject_memory(agent_dir: Path, personas_index: Path, store: "MemoryStore | None") -> None:
+    """S7i: project each persona's memory canon into its SUBAGENT files only. Drive twins are
+    parity comparators whose byte-exactness S7c check 1 depends on — never injected. A missing
+    store is genesis (no section, no DB write): the mount reads, the CLI writes (spec §3.2/§5)."""
+    from harness.module_e.personas import load_index
+    if store is None:
+        return
+    for p in load_index(personas_index):
+        body, version = store.get(p.name)
+        if not body:
+            continue
+        for name in [p.name, *[f"{p.name}-{k}" for k in p.variants]]:
+            f = agent_dir / f"{name}.md"
+            if f.exists():
+                f.write_text(apply_to_agent_md(f.read_text(encoding="utf-8"), body, version),
+                             encoding="utf-8", newline="")
+
+
 def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
                port: int = PORT, matters_root: Path | None = None) -> None:
     """Copy the mount into the workspace and write the matter record, then assemble the full
@@ -205,6 +224,12 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
     declared, ported = declared_tools(manifest), ported_tools(manifest)
     generate_all(MODULE_E / "personas.yaml", MODULE_E / "personas", ws / ".opencode" / "agent",
                  declared=declared, ported=ported)
+    # S7i: memory canon → subagent files. open_existing never creates the store; a box without
+    # one syncs exactly as before S7i (the genesis mounts stay marker-less).
+    from harness.paths import resolve_store_root
+    root, _src = resolve_store_root()
+    inject_memory(ws / ".opencode" / "agent", MODULE_E / "personas.yaml",
+                  MemoryStore.open_existing(root / "agent_memory.db"))
     sync_skills(MODULE_E / "skills", ws / ".opencode" / "skills")
     (ws / ".opencode" / "plugins").mkdir(parents=True, exist_ok=True)
     plugins = {
