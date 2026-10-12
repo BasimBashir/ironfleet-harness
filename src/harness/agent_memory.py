@@ -133,6 +133,7 @@ class MemoryStore:
 
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)   # fresh store roots start empty
         self._db = sqlite3.connect(str(self.db_path))
         self._db.row_factory = sqlite3.Row
 
