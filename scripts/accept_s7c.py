@@ -499,12 +499,12 @@ def parity_run(cases: list[GoldenCase], ws: Path, out_dir: Path, gate: EgressGat
             rows.append(rec)
             print(f"[parity {i}/{len(selected)}] {case.id}: "
                   f"mount {'PASS' if mount['passed'] else 'FAIL'}"
-                  f"/cites {mount['citation_accuracy']:.2f}"
-                  f"/gnd {mount['grounding_score']:.2f} ({mount['latency_ms']}ms, "
+                  f"/cites {_fmt(mount['citation_accuracy'])}"
+                  f"/gnd {_fmt(mount['grounding_score'])} ({mount['latency_ms']}ms, "
                   f"{mount['guard_decisions']} text.complete) | "
                   f"house {'PASS' if house['passed'] else 'FAIL'}"
-                  f"/cites {house['citation_accuracy']:.2f}"
-                  f"/gnd {house['grounding_score']:.2f} ({house['latency_ms']}ms)"
+                  f"/cites {_fmt(house['citation_accuracy'])}"
+                  f"/gnd {_fmt(house['grounding_score'])} ({house['latency_ms']}ms)"
                   + (f" | MOUNT ERROR: {mount['error']}" if mount["error"] else "")
                   + (f" | HOUSE ERROR: {house['error']}" if house["error"] else ""))
     return rows, resumed
