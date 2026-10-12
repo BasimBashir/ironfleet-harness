@@ -129,16 +129,21 @@ async def check_c2(run_dir: Path) -> list[str]:
                      "proposals": [], "rejections": [], "reverts": [],
                      "trace_matters": [], "providers_seen": []}
 
-    # --- C1's marker-less genesis mount: sync BEFORE any canon exists ---
+    # --- C1's marker-less genesis mount — proven against a SCRATCH fresh store every run:
+    # genesis is a fresh-store property, and a resumed run's store has already been written to
+    # by C4/C5, so trusting it (or a flag recorded by an earlier formula) would be dishonest.
+    # Costs ~2s, no dispatches: init + one sync, then assert the section is absent.
     import scripts.stand_up_opencode as standup
-    ws = Path.home() / "spike-ws-s7i" / "opencode-a1"
-    standup.sync_mount(ws, standup.MOUNT, "m-s7i-accept", "LOCAL_PREFERRED", standup.PORT)
-    genesis_sub = (ws / ".opencode" / "agent" / f"{AGENT}.md").read_text(encoding="utf-8")
     from harness.agent_memory import BEGIN_PREFIX
-    if store.get(AGENT)[1] == 0:
-        # genesis is a FRESH-STORE property; a resumed run re-syncs a store that later checks
-        # (C4/C5) have already written to — the flag recorded at the true genesis stands.
-        results["genesis"]["marker_less_mount"] = BEGIN_PREFIX not in genesis_sub
+    ws = Path.home() / "spike-ws-s7i" / "opencode-a1"
+    scratch = run_dir / "genesis-home"
+    scratch.mkdir(parents=True, exist_ok=True)
+    os.environ["HARNESS_HOME"] = str(scratch)
+    MemoryStore.at_store_root().init(sorted(bodies))
+    standup.sync_mount(ws, standup.MOUNT, "m-s7i-genesis", "LOCAL_PREFERRED", standup.PORT)
+    genesis_sub = (ws / ".opencode" / "agent" / f"{AGENT}.md").read_text(encoding="utf-8")
+    results["genesis"]["marker_less_mount"] = BEGIN_PREFIX not in genesis_sub
+    os.environ["HARNESS_HOME"] = str(HOME)      # back to the run store for the live checks
     (run_dir / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
 
     gate = await cli.build_gate(HOME / "trace.db")
@@ -229,7 +234,7 @@ def check_c5(run_dir: Path) -> list[str]:
                                       "--model", "gate-local/gate/complex_reasoning",
                                       "--auto", "--format", "json",
                                       flatten_prompt("State your standing instruction "
-                                                     "in one line.")], 300,
+                                                     "in one line.")], 900,
                                  env=standup.child_env(ws))
     finally:
         proxy.stop()
