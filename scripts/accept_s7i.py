@@ -121,7 +121,11 @@ async def check_c2(run_dir: Path) -> list[str]:
         if not store.suite(name):
             store.seed_suite(name, select_probe(name, all_ids))
 
-    results: dict = {"genesis": {"agents": len(bodies), "suites": len(bodies)},
+    # A resumed run keeps the genesis flag recorded by the FRESH pass (genesis is a fresh-store
+    # property — see the sync check below); a fresh run starts it False until proven.
+    prev_genesis = _results(run_dir).get("genesis", {}) if (run_dir / "results.json").exists() else {}
+    results: dict = {"genesis": {"agents": len(bodies), "suites": len(bodies),
+                                 "marker_less_mount": prev_genesis.get("marker_less_mount", False)},
                      "proposals": [], "rejections": [], "reverts": [],
                      "trace_matters": [], "providers_seen": []}
 
@@ -191,7 +195,7 @@ async def check_c2(run_dir: Path) -> list[str]:
 
     (run_dir / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     problems = check_c3(run_dir) + check_c4(run_dir) + check_c6(run_dir)
-    if not results["genesis"]["marker_less_mount"]:
+    if not results["genesis"].get("marker_less_mount"):
         problems.append("C1/C2: genesis mount carried a memory section")
     return problems
 
