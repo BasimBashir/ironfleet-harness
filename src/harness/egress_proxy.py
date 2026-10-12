@@ -122,13 +122,21 @@ def _sse_chunks(resp) -> bytes:
     The gate's transport is batch (it must be — provenance and usage are only known
     once the call completes), so streaming is presentation, not plumbing: the whole
     completion arrives as one chunk. Provider-side streaming would bypass provenance
-    assembly and is deliberately not supported."""
-    delta = {"id": "gate-dispatch", "object": "chat.completion.chunk", "model": resp.model,
-             "choices": [{"index": 0, "finish_reason": None,
-                          "delta": {"role": "assistant", "content": resp.content}}]}
+    assembly and is deliberately not supported.
+
+    S7j-W: a tool-call response rides the delta with stream indexes and
+    finish_reason tool_calls — reassembled by the batch transport exactly like text,
+    so the client's tool path works through the gate."""
+    delta: dict = {"role": "assistant", "content": resp.content}
+    finish = "stop"
+    if resp.tool_calls:
+        delta["tool_calls"] = [{**tc, "index": i} for i, tc in enumerate(resp.tool_calls)]
+        finish = "tool_calls"
+    delta_chunk = {"id": "gate-dispatch", "object": "chat.completion.chunk", "model": resp.model,
+                   "choices": [{"index": 0, "finish_reason": None, "delta": delta}]}
     final = {"id": "gate-dispatch", "object": "chat.completion.chunk", "model": resp.model,
-             "choices": [{"index": 0, "finish_reason": "stop", "delta": {}}]}
-    return (f"data: {json.dumps(delta, ensure_ascii=False)}\n\n"
+             "choices": [{"index": 0, "finish_reason": finish, "delta": {}}]}
+    return (f"data: {json.dumps(delta_chunk, ensure_ascii=False)}\n\n"
             f"data: {json.dumps(final)}\n\ndata: [DONE]\n\n").encode()
 
 
@@ -259,11 +267,15 @@ class _Handler(BaseHTTPRequestHandler):
         # it waited behind a same-matter turn or the global cap. C6 asserts the queued turn
         # genuinely queued; nothing else reads this header.
         self.send_header("X-IronFleet-Queue-Ms", f"{handle.queue_ms:.3f}")
+        message: dict = {"role": "assistant", "content": resp.content}
+        finish = "stop"
+        if resp.tool_calls:
+            message["tool_calls"] = resp.tool_calls
+            finish = "tool_calls"
         body = json.dumps({"id": "gate-dispatch", "object": "chat.completion",
                            "model": resp.model,
-                           "choices": [{"index": 0, "finish_reason": "stop",
-                                        "message": {"role": "assistant",
-                                                    "content": resp.content}}],
+                           "choices": [{"index": 0, "finish_reason": finish,
+                                        "message": message}],
                            "usage": resp.usage}, ensure_ascii=False).encode()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

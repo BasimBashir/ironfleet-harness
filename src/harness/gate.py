@@ -32,6 +32,12 @@ class LLMResponse(BaseModel):
     model: str
     usage: dict[str, int]
     provenance: ProvenanceReport
+    # S7j-W (spec 13 §1.7): the model's requested tool calls, OpenAI message.tool_calls
+    # shape carried verbatim. Live finding 2026-10-12: the batch transport kept only
+    # content, so no model could ever exercise the tool path through the gate. The gate is
+    # the provenance boundary, not the citation enforcer — the args are policed by the
+    # mount's tool.execute.before guard hook.
+    tool_calls: list[dict] = []
 
 class EmbeddingRequest(BaseModel):
     matter_ref: str
@@ -164,9 +170,11 @@ class EgressGate:
                 verified=1 if prov.verified else 0,
                 tokens_in=usage.get("prompt_tokens", 0), tokens_out=usage.get("completion_tokens", 0),
                 latency_ms=int((time.monotonic()-t0)*1000)))
-            return LLMResponse(content=result["choices"][0]["message"]["content"],
+            msg = result["choices"][0]["message"]
+            return LLMResponse(content=msg.get("content"),
                                provider=cfg.name, model=result.get("model", payload["model"]),
-                               usage=usage, provenance=prov)
+                               usage=usage, provenance=prov,
+                               tool_calls=msg.get("tool_calls") or [])
         raise GateRefusal(f"all candidates failed; last: {last_error}")
 
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:

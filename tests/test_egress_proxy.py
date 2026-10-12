@@ -403,3 +403,118 @@ def test_queue_wait_is_reported_in_a_header(gate_stack):
     assert waited["b"] > 50, waited
     assert waited["a"] < 5, waited
     assert waited["stream"] < 5, waited
+
+
+# ── S7j-W: the tool-call carrier ─────────────────────────────────────────────
+# Live finding 2026-10-12: the model emits tool_calls (replay-proven on the captured
+# 14-tool payload -> finish_reason tool_calls), but the gate's batch response kept only
+# content, and the proxy synthesized content-only deltas with a hardcoded "stop" — so NO
+# model could ever exercise the tool path through the gate. The gate now carries the
+# calls verbatim; policing the args stays the mount guard hook's job.
+
+def _tool_call_transport():
+    async def _call(provider, payload):
+        return {
+            "id": "chatcmpl-tool", "object": "chat.completion", "model": payload["model"],
+            "choices": [{"index": 0, "finish_reason": "tool_calls",
+                         "message": {"role": "assistant", "content": "",
+                                     "tool_calls": [{"id": "call_1", "type": "function",
+                                                     "function": {
+                                                         "name": "ironfleet_without_prejudice",
+                                                         "arguments": '{"content": "x", "trust_tier": "T2"}'}}]}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            "_server_meta": {"engine": provider.engine or "unknown",
+                              "weights_revision": provider.declared_provenance.get("weights_revision", "")},
+        }
+    return _call
+
+
+def _tool_stack(tmp_path, transport=None):
+    reg = ProviderRegistry()
+    reg.upsert(ProviderConfig(name="ollama-local", base_url="http://127.0.0.1:11434/v1",
+                              model="thomson1-chat:latest", engine="ollama", tier="local",
+                              admitted="mechanical-only", max_output_tokens=8192))
+    rt = RoutingTable(rules=[{"task_class": "extraction", "local_only": ["ollama-local"],
+                              "local_preferred": ["ollama-local"],
+                              "cloud_permitted": ["ollama-local"]}],
+                      defaults={"local_only": [], "local_preferred": [], "cloud_permitted": []})
+    trace = TraceStore(tmp_path / "trace.db")
+    gate = EgressGate(reg, rt, trace, transport=transport or _tool_call_transport())
+    return gate, rt, {"gate/extraction": {"task_class": "extraction"}}, trace
+
+
+def _tool_proxy(tmp_path):
+    gate, rt, aliases, trace = _tool_stack(tmp_path)
+    matter = tmp_path / "matter.json"
+    matter.write_text(json.dumps({"matter_ref": "m-001", "classification": "LOCAL_PREFERRED"}))
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
+    proxy.start()
+    host, port = proxy.server_address
+    return proxy, f"http://{host}:{port}/v1/chat/completions", trace
+
+
+def test_the_gate_carries_tool_calls_on_the_response(tmp_path, fake_transport):
+    gate, rt, aliases, trace = _tool_stack(tmp_path)
+    import asyncio
+    resp = asyncio.run(gate.dispatch(LLMRequest(
+        matter_ref="m-001", task_class="extraction", max_tokens=100,
+        messages=[{"role": "user", "content": "call the tool"}])))
+    assert resp.tool_calls[0]["function"]["name"] == "ironfleet_without_prejudice"
+    rows = trace.by_matter("m-001")
+    assert len(rows) == 1 and rows[0].status == "ok"   # one gated, traced dispatch
+
+
+def test_the_plain_transport_yields_no_tool_calls(tmp_path, fake_transport):
+    gate, rt, aliases, trace = _tool_stack(tmp_path, transport=fake_transport)
+    import asyncio
+    resp = asyncio.run(gate.dispatch(LLMRequest(
+        matter_ref="m-001", task_class="extraction", max_tokens=10,
+        messages=[{"role": "user", "content": "hi"}])))
+    assert resp.tool_calls == []
+
+
+def test_proxy_json_body_carries_tool_calls_and_finish_reason(tmp_path):
+    proxy, url, trace = _tool_proxy(tmp_path)
+    try:
+        body = json.loads(_post(url, {"model": "gate/extraction", "max_tokens": 100,
+                                      "messages": [{"role": "user", "content": "call"}]}).read())
+        choice = body["choices"][0]
+        assert choice["finish_reason"] == "tool_calls"
+        assert choice["message"]["tool_calls"][0]["function"]["name"] == \
+            "ironfleet_without_prejudice"
+    finally:
+        proxy.stop()
+
+
+def test_proxy_sse_body_carries_indexed_tool_calls(tmp_path):
+    proxy, url, trace = _tool_proxy(tmp_path)
+    try:
+        req = urllib.request.Request(url, data=json.dumps(
+            {"model": "gate/extraction", "stream": True, "max_tokens": 100,
+             "messages": [{"role": "user", "content": "call"}]}).encode(),
+            headers={"Content-Type": "application/json"})
+        raw = urllib.request.urlopen(req, timeout=10).read().decode()
+        chunks = [json.loads(l[len("data: "):]) for l in raw.splitlines()
+                  if l.startswith("data: ") and l != "data: [DONE]"]
+        delta = chunks[0]["choices"][0]["delta"]
+        assert delta["tool_calls"][0]["function"]["name"] == "ironfleet_without_prejudice"
+        assert delta["tool_calls"][0]["index"] == 0    # stream-assembly convention
+        assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
+    finally:
+        proxy.stop()
+
+
+def test_plain_content_keeps_stop_finish(tmp_path, gate_stack):
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    matter = tmp_path / "matter.json"
+    matter.write_text(json.dumps({"matter_ref": "m-001", "classification": "LOCAL_PREFERRED"}))
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        body = json.loads(_post(f"http://{host}:{port}/v1/chat/completions",
+                                {"model": "gate/extraction", "max_tokens": 100,
+                                 "messages": [{"role": "user", "content": "x"}]}).read())
+        assert body["choices"][0]["finish_reason"] == "stop"
+        assert "tool_calls" not in body["choices"][0]["message"]
+    finally:
+        proxy.stop()
