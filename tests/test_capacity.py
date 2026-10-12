@@ -8,7 +8,8 @@ def test_cores_term_binds_when_memory_is_generous():
     assert c.max_concurrent == 6
 
 def test_memory_term_binds_on_this_class_of_machine():
-    # The measured box: 12 perf cores, ~54.9 GB available, 20 GiB reserve.
+    # A class-of-machine input (S7f's live boxes read 53.3–53.5 GB available, so memory
+    # binds the same way): 12 perf cores, ~54.9 GB available, 20 GiB reserve.
     # min(6, 2) = 2 — memory binds, which is the whole reason the reserve exists.
     c = Capacity(perf_cores=12, avail_mb=54_872, source_cores="x", source_memory="y")
     assert c.max_concurrent == 2

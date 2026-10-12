@@ -39,7 +39,7 @@ tools:
   # EXCEPT what_if_dashboard: the old tree holds a real 649-line what_if_dashboard.py at the
   # SKILL-DIR TOP LEVEL, which this manifest's scripts/-based scan cannot see (Task 8 review,
   # 2026-09-24) — no persona references it, so nothing else would ever surface it. It is a
-  # first-class batch item, and not a leaf: ~5,000 guarded lines of old-tree simulations/.
+  # first-class batch item, and not a leaf: 4,556 guarded lines of old-tree simulations/.
   # See data/module-e/BATCH.md §3 item 21.
 
   # --- deferred: the S7c batch task ports these; each needs dependency triage ---

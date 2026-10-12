@@ -52,7 +52,7 @@ by the M0 decision — dsh exits the programme unless deliberately reopened.)_
 | _(guard plugin: …)_ | `plugins/ironfleet-…/guard.ts` on tools/post-execute | |
 | _(persona subagent: …)_ | `plugins/…/manifest.json` | |
 
-## OpenCode S7c — Module E ported onto the A-1 mount (2026-09-24..10-01, commits `053baec..` HEAD) — verdict: (a) CONDITIONAL, (b) PASS, no fork
+## OpenCode S7c — Module E ported onto the A-1 mount (2026-09-24..10-01, commits `053baec..b9590b9`) — verdict: (a) CONDITIONAL, (b) PASS, no fork
 
 > **S7c seams = 5 new + 6 reused = 11 attachment points** (the spike's 9 above are unchanged;
 > the three guard-hook rows and the persona-subagent row are REUSED, not re-counted as new).
