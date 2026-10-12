@@ -46,7 +46,7 @@ if str(ROOT / "src") not in sys.path:
 from harness.eval.golden_case import GoldenCase, load_cases                # noqa: E402
 from harness.eval.scorers import score_case                                # noqa: E402
 from harness.eval.substitute import ModelUnderTest, RateTable               # noqa: E402
-from harness.gate import EgressGate, GateRefusal, LLMRequest, Transport     # noqa: E402
+from harness.gate import EgressGate, LLMRequest, Transport       # noqa: E402
 from harness.policy import RoutingTable                                     # noqa: E402
 from harness.providers.config import ProviderConfig, ProviderRegistry       # noqa: E402
 from harness.providers.http_fetch import openai_fetch, openai_stream_fetch     # noqa: E402
@@ -237,7 +237,9 @@ async def run_leg(leg: ModelUnderTest, cases: list[GoldenCase], out_dir: Path,
                     messages=[{"role": "user", "content": case.prompt}],
                     max_tokens=leg.output_cap,
                     classification="CLOUD_PERMITTED" if leg.engine == "cloud" else "LOCAL_PREFERRED"))
-            except (GateRefusal, Exception) as ex:                 # noqa: BLE001 — record, keep going
+            except Exception as ex:                          # noqa: BLE001 — record, keep going.
+                # GateRefusal subclasses RuntimeError, so it is already covered here; a refusal is
+                # a normal outcome for a leg, not a crash — it is written and the run continues.
                 why = f"dispatch failed ({type(ex).__name__}): {ex}"
                 print(f"[case ] {leg.label}/{case.id}: {why}")
                 rows = trace.by_matter(matter)          # the gate traces even its own refusals

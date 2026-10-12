@@ -103,10 +103,11 @@ def test_amortized_rate_rejects_zero_throughput():
 from harness.eval.substitute import BarSpec, LegSummary, meets_bar, recommend
 
 
-def _rec(cid, *, ca=0.0, gs=0.0, persona=1.0, status="ok", tin=100, tout=50, lat=1000):
+def _rec(cid, *, ca=0.0, gs=0.0, persona=1.0, status="ok", tin=100, tout=50, lat=1000,
+         passed=None, error=""):
     return {"id": cid, "status": status, "citation_accuracy": ca, "grounding_score": gs,
             "persona_rate": persona, "tokens_in": tin, "tokens_out": tout, "latency_ms": lat,
-            "checks": {}, "error": ""}
+            "passed": passed, "checks": {}, "error": error}
 
 
 def _summary(label, role, n, **kw):
@@ -195,3 +196,48 @@ def test_recommend_excludes_an_unusable_leg_from_the_ranking():
     dead = LegSummary.from_records("dead", "candidate", [_rec("c0", status="failed")])
     out = recommend(BarSpec(incumbent="inc"), [inc, dead])
     assert out["recommendation"] == "inc" and "dead" not in out["meeting_bar"]
+
+
+def test_recommend_refuses_when_the_incumbent_itself_is_unusable():
+    # A dead incumbent has 0.0 means, so the bar would degenerate to "mean >= 0" and EVERY
+    # candidate would pass vacuously — reported as a clean win. The recommendation must refuse
+    # rather than print a verdict against a bar that does not exist.
+    dead_inc = LegSummary.from_records("inc", "incumbent", [_rec("c0", status="failed")])
+    great = _summary("great", "candidate", 3, ca=0.9, gs=0.9, persona=1.0)
+    great.mean_cost = 0.01
+    with pytest.raises(ValueError, match="no scored cases"):
+        recommend(BarSpec(incumbent="inc"), [dead_inc, great])
+
+
+def test_meets_bar_refuses_on_an_unusable_incumbent():
+    dead_inc = LegSummary.from_records("inc", "incumbent", [_rec("c0", status="failed")])
+    cand = _summary("cand", "candidate", 3)
+    with pytest.raises(ValueError, match="no relative bar can be applied"):
+        meets_bar(BarSpec(incumbent="inc"), dead_inc, cand)
+
+
+def test_a_missing_axis_is_excluded_from_that_axis_mean_not_scored_as_zero():
+    # an `ok` record with no persona checks would drag the persona mean to zero if a missing axis
+    # were read as 0.0; it must be excluded from the axis instead
+    rows = [_rec("c0", status="ok", ca=0.4, gs=0.5),
+            _rec("c1", status="ok", ca=0.6, gs=0.5, persona=None)]
+    s = LegSummary.from_records("leg", "candidate", rows)
+    assert s.mean_citation == pytest.approx(0.5)          # both records have the axis
+    assert s.mean_persona == pytest.approx(1.0)           # only c0 — c1 excluded, not read as 0
+
+
+def test_unusable_leg_reports_the_last_records_reason_not_the_first():
+    # the sidecar is append-only: records[0] is the stale attempt on a --recall rerun, so the
+    # informative error is the LAST one for a case
+    rows = [_rec("c0", status="ok"), _rec("c0", status="failed", error="stale first attempt"),
+            _rec("c1", status="failed", error="the real reason")]
+    s = LegSummary.from_records("leg", "candidate", rows)
+    assert not s.usable and s.unusable_reason == "the real reason"
+
+
+def test_n_passed_counts_the_strict_rubric_among_scored_cases():
+    rows = [_rec("c0", status="ok", passed=True), _rec("c1", status="ok", passed=False),
+            _rec("c2", status="empty_content"), _rec("c0", status="ok", passed=False)]
+    s = LegSummary.from_records("leg", "candidate", rows)
+    # last-per-id wins: c0's effective record does NOT pass, so the count is 0 of 2 scored
+    assert s.n_scored == 2 and s.n_passed == 0

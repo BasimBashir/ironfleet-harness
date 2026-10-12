@@ -114,7 +114,13 @@ def check_c2(sidecars: dict[str, list[dict]], claims: dict[str, float], *,
 
 
 def check_c3(sidecars: dict[str, list[dict]], expected_recommendation: str) -> list[str]:
-    """Recompute the bar and the recommendation from the sidecars and compare."""
+    """Recompute the bar and the recommendation from the sidecars and compare.
+
+    NOTE on independence: this re-derives the verdict THROUGH the shipped functions
+    (`leg_summaries` + `recommend`), so it proves the printed report is not stale relative to the
+    committed sidecars and that the verdict parses back out — it does NOT independently verify
+    `recommend` itself (a bug in `recommend` would pass C3). C2 is the genuinely independent check:
+    its cost arithmetic is hand-written inline and deliberately bypasses `cost_of`."""
     problems = []
     try:
         table = RateTable.from_yaml(run_ab.RATES_PATH)
@@ -271,33 +277,57 @@ def _load_committed() -> tuple[dict[str, list[dict]], list[str]]:
 
 
 def _dashboard_claims() -> dict[str, float]:
-    """The per-leg mean costs the dashboard printed, parsed back out of its ranked table."""
+    """The per-leg mean costs the dashboard printed, parsed back out of its ranked table.
+
+    The cost column's index is taken from the table's OWN header rather than hardcoded: render's
+    columns have shifted once already (a rubric-pass column added between `scored` and the means
+    moved `mean $/case` from index 6 to 7), and a hardcoded index silently read the persona column
+    as a dollar figure. Anchoring on the header makes the parse shift WITH the table."""
     reports = sorted(EVAL_DIR.glob("A7-MODEL-SUBSTITUTION-*.md"))
     if not reports:
         return {}
     claims: dict[str, float] = {}
+    header: list[str] | None = None
     for line in reports[-1].read_text(encoding="utf-8").splitlines():
-        if line.startswith("| ") and "leg" not in line and "---" not in line:
-            cells = [c.strip() for c in line.strip("|").split("|")]
-            if len(cells) >= 8:
-                try:
-                    claims[cells[0]] = float(cells[6])
-                except ValueError:
-                    continue
+        if not line.startswith("|"):
+            header = None                      # a table ends at the first non-row line
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if header is None:
+            if cells and cells[0] == "leg":
+                header = cells
+            continue
+        if "---" in line:                      # the separator under the header
+            continue
+        try:
+            cost = cells[header.index("mean $/case")]
+        except (ValueError, IndexError):
+            continue
+        try:
+            claims[cells[0]] = float(cost)
+        except ValueError:
+            continue
     return claims
 
 
 def _dashboard_recommendation() -> str | None:
     """The verdict the dashboard printed, parsed out of its markdown. None when no report exists.
 
-    The line render emits is `**<recommendation>** — <basis>.` — split on the em dash FIRST, then
-    strip the asterisks: strip("*") on the whole line would leave the inner `**` closing the
-    label, since the line does not end in an asterisk."""
+    Only lines under the `## Recommendation` heading are considered: render emits other bold
+    em-dash lines elsewhere in the report (the denominator caveat ends in one), and the first
+    such line was being parsed as the verdict. The line render emits is `**<recommendation>** —
+    <basis>.` — split on the em dash FIRST, then strip the asterisks: strip("*") on the whole
+    line would leave the inner `**` closing the label, since the line does not end in an
+    asterisk."""
     reports = sorted(EVAL_DIR.glob("A7-MODEL-SUBSTITUTION-*.md"))
     if not reports:
         return None
+    in_recommendation = False
     for line in reports[-1].read_text(encoding="utf-8").splitlines():
-        if line.startswith("**") and " — " in line:
+        if line.startswith("## "):
+            in_recommendation = line.startswith("## Recommendation")
+            continue
+        if in_recommendation and line.startswith("**") and " — " in line:
             return line.split(" — ")[0].strip().strip("*")
     return None
 

@@ -40,8 +40,8 @@ def test_local_leg_rate_is_derived_from_its_own_measured_throughput(table):
     summaries = dash.leg_summaries(SIDECARS, run_ab.LEGS, table)
     local = [s for s in summaries if s.label == "thomson1-chat"][0]
     # 3000 tokens in + 1500 out over 6 s = 2,700,000 tokens/h; assumptions 3000/35000/0.25
-    # -> 3000 / (8750 * 2.7e6) USD/token * 1e6 = 0.127 per 1M tokens
-    assert local.mean_cost is not None and local.mean_cost > 0
+    # -> 3000 / (8750 * 2.7e6) USD/token * 1e6 = 0.127 per 1M tokens -> $2/7000 per case
+    assert local.mean_cost == pytest.approx(2 / 7000, rel=1e-9)
 
 
 def test_cloud_leg_uses_the_published_split_rates(table):

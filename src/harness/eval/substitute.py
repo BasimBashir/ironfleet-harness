@@ -132,6 +132,8 @@ class LegSummary(BaseModel):
     role: str
     n_cases: int = 0
     n_scored: int = 0
+    n_passed: int = 0                 # strict rubric passes among the scored cases — CONTEXT ONLY,
+                                      # never a bar axis (the bar is relative to the incumbent)
     mean_citation: float = 0.0
     mean_grounding: float = 0.0
     mean_persona: float = 0.0
@@ -151,16 +153,23 @@ class LegSummary(BaseModel):
             by_id[r["id"]] = r
         scored = [r for r in by_id.values() if r.get("status") == "ok"]
         if not scored:
-            why = (records[0].get("error") if records and records[0].get("error")
+            # The informative row on an append-only sidecar is the LAST one for a case, not the
+            # first — a --recall rerun appends, so records[0] is typically the stale attempt.
+            last = by_id[next(reversed(by_id))] if by_id else {}
+            why = (last.get("error") if last.get("error")
                    else "no case produced a scored answer on this leg")
             return cls(label=label, role=role, n_cases=len(by_id), n_scored=0, usable=False,
                        unusable_reason=why)
         n = len(scored)
 
         def _mean(field: str) -> float:
-            return sum(float(r.get(field) or 0.0) for r in scored) / n
+            # A missing axis is EXCLUDED from that axis's mean, not scored as 0 — an `ok` record
+            # with no persona checks would otherwise drag the persona mean to zero.
+            vals = [float(v) for v in (r.get(field) for r in scored) if v is not None]
+            return sum(vals) / len(vals) if vals else 0.0
 
         return cls(label=label, role=role, n_cases=len(by_id), n_scored=n,
+                   n_passed=sum(1 for r in scored if r.get("passed") is True),
                    mean_citation=_mean("citation_accuracy"), mean_grounding=_mean("grounding_score"),
                    mean_persona=_mean("persona_rate"), mean_tokens_in=_mean("tokens_in"),
                    mean_tokens_out=_mean("tokens_out"), mean_latency_ms=_mean("latency_ms"))
@@ -169,6 +178,13 @@ class LegSummary(BaseModel):
 def meets_bar(bar: BarSpec, incumbent: LegSummary, candidate: LegSummary) -> tuple[bool, list[str]]:
     """(passed, problems). problems names each failing axis with the observed delta."""
     problems: list[str] = []
+    if not incumbent.usable:
+        # The bar is RELATIVE to the incumbent. An unusable incumbent has 0.0 means, which would
+        # silently degenerate the bar to "mean >= 0" — every candidate passing vacuously. Refuse
+        # rather than report a verdict against a bar that does not exist.
+        raise ValueError(
+            f"incumbent {incumbent.label!r} is unusable ({incumbent.unusable_reason}) — "
+            "no relative bar can be applied")
     if not candidate.usable:
         return False, [f"unusable leg ({candidate.unusable_reason}) — excluded, not ranked at zero"]
     for axis, tol in (("citation", bar.tolerance_citation), ("grounding", bar.tolerance_grounding),
@@ -190,6 +206,13 @@ def recommend(bar: BarSpec, summaries: list[LegSummary]) -> dict:
     incumbent = by_label.get(bar.incumbent)
     if incumbent is None:
         raise KeyError(f"bar names incumbent {bar.incumbent!r} but no such leg was run")
+    if not incumbent.usable:
+        # meets_bar guards this too; the guard is repeated here so the refusal names the
+        # recommendation, not just the axis comparison — a dashboard built over a dead incumbent
+        # must not print a confident table.
+        raise ValueError(
+            f"incumbent {bar.incumbent!r} produced no scored cases ({incumbent.unusable_reason}) — "
+            "no relative bar can be applied, so no substitution verdict is possible")
     meeting, gaps = [], {}
     for s in summaries:
         passed, problems = meets_bar(bar, incumbent, s)

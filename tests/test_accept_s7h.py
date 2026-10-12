@@ -187,3 +187,74 @@ def test_dashboard_recommendation_parses_the_reported_verdict(tmp_path, monkeypa
 def test_dashboard_recommendation_returns_none_without_a_report(tmp_path, monkeypatch):
     monkeypatch.setattr(acc, "EVAL_DIR", tmp_path)
     assert acc._dashboard_recommendation() is None
+
+
+def test_dashboard_recommendation_ignores_a_bold_em_dash_line_outside_the_section(tmp_path,
+                                                                                  monkeypatch):
+    # render's denominator caveat lives ABOVE the Recommendation heading and is itself a bold
+    # line containing an em dash; the parser must not take it for the verdict (a real regression:
+    # it once did, and C3 compared the recommendation against a sentence).
+    monkeypatch.setattr(acc, "EVAL_DIR", tmp_path)
+    p = tmp_path / "A7-MODEL-SUBSTITUTION-2026-10-06.md"
+    p.write_text(
+        "# A-7 model substitution — cost/performance dashboard\n\n"
+        "## Ranked comparison\n\n"
+        "| leg | role | scored | rubric passed | mean citations |\n"
+        "|---|---|---|---|---|\n"
+        "| Atria-Dawn-Preview | candidate | 24/30 | 0/24 | 0.076 |\n\n"
+        "**Denominator caveat:** Atria-Dawn-Preview bar-compares over fewer scored cases than the "
+        "incumbent (30/30) — read the scored column alongside the verdict.\n\n"
+        "## Recommendation\n\n"
+        "**thomson1-chat** — no candidate meets the bar — the incumbent is the standing pick.\n",
+        encoding="utf-8")
+    assert acc._dashboard_recommendation() == "thomson1-chat"
+
+
+def _write_table_report(reports_dir: Path, table: str) -> Path:
+    """A ranked-comparison table written verbatim, so a test can reproduce the shipped column
+    order — the parser anchors on the header, so a column inserted into render() must shift the
+    parse with the table rather than read a fixed index."""
+    p = reports_dir / "A7-MODEL-SUBSTITUTION-2026-10-06.md"
+    p.write_text(
+        "# A-7 model substitution — cost/performance dashboard\n\n"
+        "## Ranked comparison\n\n"
+        f"{table}\n",
+        encoding="utf-8")
+    return p
+
+
+# The shipped column order as build_dashboard.render emits it TODAY — `mean $/case` sits at index
+# 7, not 6, since the rubric-pass column was added between `scored` and the means.
+_SHIPPED_TABLE = """| leg | role | scored | rubric passed | mean citations | mean grounding | persona | mean $/case | mean latency ms | meets bar |
+|---|---|---|---|---|---|---|---|---|---|
+| thomson1-chat | incumbent | 30/30 | 0/30 | 0.117 | 0.367 | 0.633 | 0.0066 | 69630 | baseline (incumbent) |
+| Atria-Dawn-Preview | candidate | 24/30 | 0/24 | 0.076 | 0.438 | 0.667 | 0.0586 | 1952361 | NO |"""
+
+
+def test_dashboard_claims_anchors_on_the_cost_header_not_a_column_index(tmp_path, monkeypatch):
+    # a hardcoded index read the persona column (0.667) as Atria's cost; the header lookup puts the
+    # parse on `mean $/case` wherever render places it
+    monkeypatch.setattr(acc, "EVAL_DIR", tmp_path)
+    _write_table_report(tmp_path, _SHIPPED_TABLE)
+    claims = acc._dashboard_claims()
+    assert claims["thomson1-chat"] == pytest.approx(0.0066)
+    assert claims["Atria-Dawn-Preview"] == pytest.approx(0.0586)
+
+
+def test_dashboard_claims_tracks_a_cost_column_moved_by_render(tmp_path, monkeypatch):
+    # the same legs with `mean $/case` first among the means, in header AND rows — no code change
+    # should anchor the parse on a position
+    table = """| leg | role | scored | mean $/case | mean citations | mean grounding | persona |
+|---|---|---|---|---|---|---|
+| thomson1-chat | incumbent | 30/30 | 0.0066 | 0.117 | 0.367 | 0.633 |
+| Atria-Dawn-Preview | candidate | 24/30 | 0.0586 | 0.076 | 0.438 | 0.667 |"""
+    monkeypatch.setattr(acc, "EVAL_DIR", tmp_path)
+    _write_table_report(tmp_path, table)
+    claims = acc._dashboard_claims()
+    assert claims["thomson1-chat"] == pytest.approx(0.0066)
+    assert claims["Atria-Dawn-Preview"] == pytest.approx(0.0586)
+
+
+def test_dashboard_claims_returns_none_cost_legs_without_a_report(tmp_path, monkeypatch):
+    monkeypatch.setattr(acc, "EVAL_DIR", tmp_path)
+    assert acc._dashboard_claims() == {}

@@ -15,8 +15,9 @@ class _SSEServer:
     """A minimal loopback SSE server, so the fetch is exercised against a real socket."""
 
     def __init__(self, chunks: list[dict], stall_after: int | None = None,
-                 status: int = 200) -> None:
-        self.chunks, self.stall_after, self.status = chunks, stall_after, status
+                 status: int = 200, send_done: bool = True) -> None:
+        self.chunks, self.stall_after, self.status, self.send_done = (
+            chunks, stall_after, status, send_done)
         self.requests: list[dict] = []
         self.server = None
 
@@ -46,8 +47,9 @@ class _SSEServer:
                     await asyncio.sleep(3)                      # a stall the read timeout must catch
                 writer.write(b"data: " + json.dumps(chunk).encode() + b"\n\n")
                 await writer.drain()
-            writer.write(b"data: [DONE]\n\n")
-            await writer.drain()
+            if self.send_done:
+                writer.write(b"data: [DONE]\n\n")
+                await writer.drain()
             writer.close()
 
         self.server = await asyncio.start_server(handle, "127.0.0.1", 0)   # noqa: F821
@@ -126,3 +128,28 @@ async def test_stream_fetch_a_stall_raises_and_is_retryable():
 async def test_stream_fetch_none_on_http_error():
     async with _SSEServer([], status=500) as srv:
             assert await openai_stream_fetch(srv.url, {}, {"model": "m", "messages": []}) is None
+
+
+async def test_stream_fetch_a_truncated_stream_raises_not_half_assembles():
+    # The server delivered deltas and then closed WITHOUT [DONE] and without naming a finish_reason.
+    # Returning that partial content with a fabricated `finish_reason: "stop"` would score a
+    # truncated answer as a complete result with no tokens, silently corrupting the quality means.
+    # It must raise an httpx.HTTPError so the retry wrapper below the gate redoes the call.
+    import httpx
+    truncated = [{"choices": [{"index": 0, "delta": {"content": "partial ans"}}]},
+                 {"choices": [{"index": 0, "delta": {"content": " more"}}]}]
+    async with _SSEServer(truncated, send_done=False) as srv:
+        with pytest.raises(httpx.HTTPError):
+            await openai_stream_fetch(srv.url, {}, {"model": "m", "messages": []})
+
+
+async def test_stream_fetch_content_without_done_but_with_finish_reason_is_accepted():
+    # Some endpoints omit [DONE] but DO name a finish_reason in the final chunk — that is a
+    # complete generation, and must not be treated as a truncation.
+    import httpx
+    chunks = [{"choices": [{"index": 0, "delta": {"content": "full answer"}}]},
+              {"choices": [{"index": 0, "delta": {}, "finish_reason": "length"}], "model": "m"}]
+    async with _SSEServer(chunks, send_done=False) as srv:
+        result = await openai_stream_fetch(srv.url, {}, {"model": "m", "messages": []})
+    assert result["choices"][0]["message"]["content"] == "full answer"
+    assert result["choices"][0]["finish_reason"] == "length"

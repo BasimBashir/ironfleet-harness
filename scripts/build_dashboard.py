@@ -87,19 +87,32 @@ def render(summaries: list[LegSummary], table: RateTable, bar: BarSpec,
              f"mean grounding and persona-check rate (tolerances "
              f"{bar.tolerance_citation}/{bar.tolerance_grounding}/{bar.tolerance_persona})",
              "- rubric pass rate is reported for context and is NOT a bar axis "
-             "(0/30 on both previously-measured models)", "",
+             "(the bar is relative to the incumbent on the three mean axes below)", "",
              "## Ranked comparison", "",
-             "| leg | role | scored | mean citations | mean grounding | persona | "
+             "| leg | role | scored | rubric passed | mean citations | mean grounding | persona | "
              "mean $/case | mean latency ms | meets bar |",
-             "|---|---|---|---|---|---|---|---|---|"]
+             "|---|---|---|---|---|---|---|---|---|---|"]
     for s in sorted(summaries, key=lambda x: (x.mean_cost is None, x.mean_cost or 0)):
         if s.label == bar.incumbent:
             meets = "baseline (incumbent)"
         else:
             meets = "yes" if s.label in verdict["meeting_bar"] else "NO"
         lines.append(f"| {s.label} | {s.role} | {s.n_scored}/{s.n_cases} | "
+                     f"{s.n_passed}/{s.n_scored} | "
                      f"{s.mean_citation:.3f} | {s.mean_grounding:.3f} | {s.mean_persona:.3f} | "
                      f"{_fmt(s.mean_cost)} | {s.mean_latency_ms:.0f} | {meets} |")
+    # A leg's per-axis means are computed over its SCORED cases only, so a leg that failed cases is
+    # bar-compared on a smaller denominator than the incumbent — survivorship: the cases it failed
+    # cannot drag its means down. State it whenever a bar-eligible leg is not complete, so a reader
+    # never mistakes a narrow lead for a clean one.
+    incomplete = [s.label for s in summaries
+                  if s.usable and s.label != bar.incumbent and s.n_scored < inc.n_scored]
+    if incomplete:
+        lines += ["",
+                  f"**Denominator caveat:** {', '.join(incomplete)} bar-compares over fewer scored "
+                  f"cases than the incumbent ({inc.n_scored}/{inc.n_cases}); its means exclude its "
+                  "own failures. A leg that clears the bar only by failing its hardest cases would "
+                  "still show green here — read the scored column alongside the verdict."]
     lines += ["", "## Recommendation", "",
               f"**{verdict['recommendation']}** — {verdict['basis']}. "
               f"Ties break on {verdict['ties_broken_by']}."]
@@ -148,9 +161,9 @@ def render(summaries: list[LegSummary], table: RateTable, bar: BarSpec,
              "- `minimax-m3:cloud` is excluded and was never dispatched: it is a 0-byte cloud-proxy "
              "entry on the local server, not local weights, and it is an unaudited third-party "
              "endpoint (CR-4). Its absence is a decision, not an oversight.",
-             "- The strict rubric pass rate is 0/30 on previously-measured models; absolute "
-             "citation accuracy near 0.1-0.2 is a property of these models under their output caps, "
-             "not a port or harness defect.",
+             "- The strict rubric pass rate is a per-leg column above (context, not a bar axis); "
+             "absolute citation accuracy near 0.1-0.2 is a property of these models under their "
+             "output caps, not a port or harness defect.",
              "- The recommendation is not applied to any routing table or pin. It is an input to a "
              "human decision.",
              "", f"- sidecars: `data/eval/A7-<leg>.jsonl` (raw completions kept — re-scorable by "

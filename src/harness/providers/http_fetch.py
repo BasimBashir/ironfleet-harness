@@ -52,11 +52,15 @@ async def openai_stream_fetch(url: str, headers: dict, payload: dict | None = No
                 model: str | None = None
                 usage: dict | None = None
                 finish_reason: str | None = None
+                saw_done = False
                 async for line in r.aiter_lines():
                     if not line.startswith("data:"):
                         continue
                     body = line[len("data:"):].strip()
-                    if not body or body == "[DONE]":
+                    if not body:
+                        continue
+                    if body == "[DONE]":
+                        saw_done = True
                         continue
                     try:
                         chunk = json.loads(body)
@@ -73,6 +77,15 @@ async def openai_stream_fetch(url: str, headers: dict, payload: dict | None = No
                             reasoning_parts.append(delta["reasoning_content"])
                         if choice.get("finish_reason"):
                             finish_reason = choice["finish_reason"]
+        if not saw_done and finish_reason is None:
+            # The stream ended without a terminator and without the server naming a finish_reason —
+            # a truncated generation, not a completed one. Handing the partial content on with a
+            # fabricated `finish_reason: "stop"` would score a truncated answer as a real result
+            # with no tokens, silently corrupting the quality means. Raise instead: this is an
+            # httpx.RemoteProtocolError (an httpx.HTTPError), so the retrying wrapper below the
+            # gate redoes the call, and only a persistent truncation reaches the sidecar.
+            raise httpx.RemoteProtocolError(
+                "stream closed without [DONE] or a finish_reason — truncated generation")
         # None (not "") when the answer channel never arrived: a reasoning model that spent the
         # whole budget on reasoning_content is a CAP failure, and the gate distinguishes the two.
         content = "".join(content_parts) if content_parts else None
