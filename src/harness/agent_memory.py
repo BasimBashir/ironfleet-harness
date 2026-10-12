@@ -100,6 +100,34 @@ def apply_to_agent_md(md: str, body: str, version: int) -> str:
     return head + "\n\n" + render_appendix(body, version)
 
 
+class UnusableLeg(ValueError):
+    """A leg with zero scored cases — the comparison refuses rather than degenerate
+    (spec §3.4; the guard S7h's review added to recommend(), applied here from day one)."""
+
+
+def leg_means(records: list[dict], n_cases: int) -> "LegMeans | None":
+    """Zero-fill means (plan Global Constraints): a case this leg failed costs it the score —
+    the survivorship hole the S7h dashboard's denominator caveat names, closed at the source."""
+    scored = [r for r in records if r.get("status") == "scored"]
+    if not scored:
+        return None
+    def axis(field: str) -> float:
+        return sum(r.get(field) or 0.0 for r in scored) / n_cases
+    persona_hits = sum(1 for r in scored if r.get("checks") and all(r["checks"].values()))
+    return LegMeans(n_cases=n_cases, n_scored=len(scored), mean_citations=axis("citation_accuracy"),
+                    mean_grounding=axis("grounding_score"), mean_persona=persona_hits / n_cases)
+
+
+def compare(current: "LegMeans | None", proposed: "LegMeans | None") -> tuple[bool, dict[str, float]]:
+    """Keep iff proposed ≥ current on ALL three axes AND > on at least one; all-tie → rollback
+    (the SRS's 'kept only if they improve', no epsilon — a tie buys nothing and risks drift)."""
+    if current is None or proposed is None:
+        raise UnusableLeg("a leg scored zero cases — no comparison is possible")
+    deltas = {a: round(getattr(proposed, a) - getattr(current, a), 9) for a in AXES}
+    keep = all(d >= 0 for d in deltas.values()) and any(d > 0 for d in deltas.values())
+    return keep, deltas
+
+
 class MemoryStore:
     """The canon. One row per persona in agent_memory; everything else hangs off it."""
 

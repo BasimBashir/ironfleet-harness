@@ -4,9 +4,9 @@ from __future__ import annotations
 import pytest
 
 from harness.agent_memory import (BEGIN_PREFIX, END_MARKER, MAX_MEMORY_CHARS, PROBE_SIZE,
-                                  LegMeans, MemoryStore, ProposalRejected,
-                                  apply_to_agent_md, render_appendix, select_probe,
-                                  validate_proposal)
+                                  LegMeans, MemoryStore, ProposalRejected, UnusableLeg,
+                                  apply_to_agent_md, compare, leg_means, render_appendix,
+                                  select_probe, validate_proposal)
 
 MD = "---\ndescription: x\nmode: subagent\n---\nCORPUS BODY\n"
 
@@ -138,3 +138,53 @@ def test_corpus_body_above_markers_is_byte_frozen():
         out = apply_to_agent_md(MD, body, 7)
         above = out.split(BEGIN_PREFIX)[0]
         assert above in (MD, MD.rstrip("\n") + "\n\n")   # nothing above the markers ever moves
+
+
+def _rec(cid: str, status: str = "scored", ca: float = 0.0, gs: float = 0.0, pr_checks=None):
+    return {"case_id": cid, "status": status, "citation_accuracy": ca,
+            "grounding_score": 0.0, "checks": pr_checks or {}, "passed": False, "error": ""}
+
+
+def _means(ca=0.0, gs=0.0, pr=0.0, n_cases=5, n_scored=5):
+    return LegMeans(n_cases=n_cases, n_scored=n_scored, mean_citations=ca,
+                    mean_grounding=gs, mean_persona=pr)
+
+
+def test_leg_means_zero_fills_unscored_cases():
+    recs = [
+        {"case_id": "a", "status": "scored", "citation_accuracy": 1.0, "grounding_score": 0.0,
+         "checks": {"x": True}, "passed": True, "error": ""},
+        {"case_id": "b", "status": "scored", "citation_accuracy": 0.0, "grounding_score": 0.5,
+         "checks": {}, "passed": False, "error": ""},
+        {"case_id": "c", "status": "empty_content", "citation_accuracy": 0.0,
+         "grounding_score": 0.0, "checks": {}, "passed": False, "error": "cap"},
+        {"case_id": "d", "status": "failed", "citation_accuracy": 0.0, "grounding_score": 0.0,
+         "checks": {}, "passed": False, "error": "boom"},
+        {"case_id": "e", "status": "scored", "citation_accuracy": 0.0, "grounding_score": 0.0,
+         "checks": {"x": True}, "passed": False, "error": ""},
+    ]
+    m = leg_means(recs, n_cases=5)
+    assert (m.n_scored, m.mean_citations, m.mean_grounding, m.mean_persona) == (3, 0.2, 0.1, 0.4)
+
+
+def test_leg_means_all_unscored_is_none():
+    assert leg_means([_rec("a", status="failed")], n_cases=1) is None
+
+
+def test_compare_truth_table():
+    base = _means(0.2, 0.4, 0.6)
+    keep, d = compare(base, _means(0.2, 0.4, 0.8))
+    assert keep and d["mean_persona"] == pytest.approx(0.2)
+    assert compare(base, base) == (False, {"mean_citations": 0.0, "mean_grounding": 0.0,
+                                           "mean_persona": 0.0})          # all-tie → rollback
+    keep, _ = compare(base, _means(0.3, 0.5, 0.7))
+    assert keep                                                     # strictly better everywhere
+    assert compare(base, _means(0.1, 0.4, 0.6))[0] is False         # regression on one axis
+    assert compare(base, _means(0.3, 0.5, 0.4))[0] is False         # better two, worse one
+
+
+def test_compare_refuses_unusable_legs():
+    with pytest.raises(UnusableLeg):
+        compare(None, _means())
+    with pytest.raises(UnusableLeg):
+        compare(_means(), None)
