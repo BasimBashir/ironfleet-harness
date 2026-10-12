@@ -250,3 +250,92 @@ async def propose_cmd(store, gate, agent: str, persona_body: str, cases: list[Go
                                 current_version=cur_ver)
         return {"status": verdict, "proposal_id": pid, "version": store.get(agent)[1]}
     return await screen(store, gate, agent, persona_body, cases)
+
+
+def persona_bodies(index_path: Path, source_dir: Path) -> dict[str, str]:
+    """Name → corpus body, read exactly the way personas.render_agent_md reads the corpus
+    (newline="" — the S7c byte-exact pin)."""
+    from harness.module_e.personas import load_index
+    return {p.name: (source_dir / p.primary).read_text(encoding="utf-8", newline="")
+            for p in load_index(index_path)}
+
+
+def cmd_main(argv: list[str], store: MemoryStore, gate=None) -> int:
+    """The injectable core. `gate=None` is fine for subcommands that dispatch nothing
+    (init/get/history/revert); propose/benchmark build the real gate when gate is None."""
+    ap = argparse.ArgumentParser(prog="agent-memory", description=__doc__)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("init")
+    p_get = sub.add_parser("get");     p_get.add_argument("agent")
+    p_prop = sub.add_parser("propose"); p_prop.add_argument("agent")
+    p_prop.add_argument("--body", default=None, help="manual proposal — skips the reflector")
+    p_prop.add_argument("--no-confirm", action="store_true",
+                        help="screen only; do not spend the full-confirm pair")
+    p_ben = sub.add_parser("benchmark"); p_ben.add_argument("agent")
+    p_ben.add_argument("--proposal", type=int, required=True)
+    p_h = sub.add_parser("history");   p_h.add_argument("agent")
+    p_rev = sub.add_parser("revert");  p_rev.add_argument("agent")
+    p_rev.add_argument("version", type=int)
+    args = ap.parse_args(argv)
+
+    if args.cmd == "init":
+        bodies = persona_bodies(MODULE_E / "personas.yaml", MODULE_E / "personas")
+        store.init(sorted(bodies))
+        all_ids = sorted(c.id for c in load_cases(CASES_DIR))
+        for name in sorted(bodies):
+            if not store.suite(name):
+                store.seed_suite(name, select_probe(name, all_ids))
+        print(f"init: {len(bodies)} personas, suites ready, canon empty")
+        return 0
+    if args.cmd == "get":
+        body, version = store.get(args.agent)
+        print(f"{args.agent}: version {version}\n{'-' * 40}\n{body}")
+        return 0
+    if args.cmd == "history":
+        for e in store.history(args.agent):
+            if e["kind"] == "version":
+                print(f"v{e['version']}  {e['created_at']}  {e['reason']}\n  {e['body'][:80]!r}")
+            else:
+                print(f"proposal {e['id']}: {e['status']}  {e['reason']}")
+        return 0
+    if args.cmd == "revert":
+        snap = next((v for v in store.versions(args.agent) if v["version"] == args.version), None)
+        if snap is None:
+            print(f"revert: no version {args.version} for {args.agent}", file=sys.stderr)
+            return 1
+        ver = store.set(args.agent, snap["body"], f"revert to v{args.version}")
+        print(f"revert: {args.agent} now v{ver} (bytes of v{args.version})")
+        return 0
+
+    # propose / benchmark dispatch — need the gate and the corpus
+    bodies = persona_bodies(MODULE_E / "personas.yaml", MODULE_E / "personas")
+    cases = load_cases(CASES_DIR)
+    if gate is None:
+        gate = asyncio.run(build_gate(store.db_path.with_name("agent_memory_trace.db")))
+
+    async def _go() -> dict:
+        if args.cmd == "propose":
+            return await propose_cmd(store, gate, args.agent, bodies[args.agent], cases,
+                                     args.body)
+        prop = store.proposal(args.proposal)
+        if prop is None or prop["agent"] != args.agent:
+            raise SystemExit(f"no proposal {args.proposal} for {args.agent}")
+        cur_body, cur_ver = store.get(args.agent)
+        verdict = await confirm(store, gate, args.agent, bodies[args.agent], cases,
+                                args.proposal, proposal_body=prop["body"],
+                                current_body=cur_body, current_version=cur_ver)
+        return {"status": verdict, "proposal_id": args.proposal}
+
+    result = asyncio.run(_go())
+    print(json.dumps(result, ensure_ascii=False))
+    return 0 if result.get("status") in ("kept", "rolled_back", "no_proposal",
+                                         "rejected") else 1
+
+
+def main() -> None:
+    store = MemoryStore.at_store_root()
+    raise SystemExit(cmd_main(sys.argv[1:], store))
+
+
+if __name__ == "__main__":
+    main()

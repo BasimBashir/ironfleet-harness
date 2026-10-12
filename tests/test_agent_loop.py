@@ -191,3 +191,41 @@ async def test_confirm_decides_and_records(tmp_path):
     assert verdict == "kept" and store.get("hunter") == (GOOD, 2)
     legs = store.legs(pid, "confirm")
     assert set(legs) == {"current", "proposed"} and legs["current"].n_cases == 2
+
+
+def test_cmd_main_get_and_history(tmp_path, capsys):
+    from harness.agent_memory import MemoryStore
+    store = MemoryStore(tmp_path / "db.sqlite")
+    store.init(["hunter"])
+    assert agent_memory_cli.cmd_main(["get", "hunter"], store) == 0
+    assert "version 0" in capsys.readouterr().out
+    store.set("hunter", "note", "test")
+    assert agent_memory_cli.cmd_main(["history", "hunter"], store) == 0
+    out = capsys.readouterr().out
+    assert "note" in out and "v1" in out
+
+
+def test_cmd_main_init_is_idempotent_and_reports(tmp_path, capsys):
+    from harness.agent_memory import MemoryStore
+    store = MemoryStore(tmp_path / "db.sqlite")
+    assert agent_memory_cli.cmd_main(["init"], store) == 0
+    assert agent_memory_cli.cmd_main(["init"], store) == 0
+    assert "13" in capsys.readouterr().out          # 13 personas from the real personas.yaml
+
+
+def test_cmd_main_revert_restores_exact_bytes(tmp_path, capsys):
+    from harness.agent_memory import MemoryStore
+    store = MemoryStore(tmp_path / "db.sqlite")
+    store.init(["hunter"])
+    store.set("hunter", "old body", "v1")
+    store.set("hunter", "new body", "v2")
+    assert agent_memory_cli.cmd_main(["revert", "hunter", "1"], store) == 0
+    body, version = store.get("hunter")
+    assert (body, version) == ("old body", 3)     # history never rewritten — new version, old bytes
+
+
+def test_cmd_main_unknown_subcommand_fails_loud(tmp_path):
+    from harness.agent_memory import MemoryStore
+    store = MemoryStore(tmp_path / "db.sqlite")
+    with pytest.raises(SystemExit):
+        agent_memory_cli.cmd_main(["wat"], store)
