@@ -189,7 +189,13 @@ async def screen(store, gate, agent: str, persona_body: str, cases: list[GoldenC
     cur_body, cur_ver = store.get(agent)
     current = await drive_leg(gate, system_for(persona_body, cur_body, cur_ver), probe,
                               f"agent-memory:{agent}")
-    raw = await reflect(gate, agent, persona_body, cur_body, _triples(current, probe))
+    try:
+        raw = await reflect(gate, agent, persona_body, cur_body, _triples(current, probe))
+    except ReflectorError as ex:
+        # spec §5: reflector garbage is a RECORDED rejection, never a crashed iteration
+        pid = store.propose(agent, f"<reflector failure: {ex}>")
+        store.decide(pid, "rejected", str(ex))
+        return {"status": "rejected", "reason": str(ex), "proposal_id": pid}
     if raw is None:
         return {"status": "no_proposal"}
     try:

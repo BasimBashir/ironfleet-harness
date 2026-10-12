@@ -229,3 +229,13 @@ def test_cmd_main_unknown_subcommand_fails_loud(tmp_path):
     store = MemoryStore(tmp_path / "db.sqlite")
     with pytest.raises(SystemExit):
         agent_memory_cli.cmd_main(["wat"], store)
+
+
+@pytest.mark.asyncio
+async def test_screen_reflector_garbage_is_recorded_rejected_not_crashed(tmp_path):
+    store = _seeded_store(tmp_path)
+    gate = ScriptedGate({}, reflect_answer="prose, not JSON")
+    result = await screen(store, gate, "hunter", PERSONA, CASES)
+    assert result["status"] == "rejected"
+    assert store.proposal(result["proposal_id"])["status"] == "rejected"
+    assert store.get("hunter") == (CUR, 1)          # canon untouched, iteration survived
