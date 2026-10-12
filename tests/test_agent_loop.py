@@ -1,0 +1,76 @@
+"""S7i: the improvement-loop driver, orchestration against a stub gate (spec 12 §3.3).
+
+No network, ever: the stub gate replaces EgressGate.dispatch. The house rule that drivers'
+main() is never run by the suite holds — these are function-level tests."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+sys_path = Path(__file__).resolve().parents[1] / "scripts"
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+import agent_memory_cli  # noqa: E402
+from agent_memory_cli import drive_leg, system_for  # noqa: E402
+from harness.eval.golden_case import GoldenCase  # noqa: E402
+from harness.gate import LLMResponse, ProvenanceReport  # noqa: E402
+
+CASES = [
+    GoldenCase(id="c1", matter_type="t", task_class="analysis",
+               prompt="p1", expected_citations=["Needle One"],
+               required_grounding=["ground one"], persona_checks={"liable": "liable"}),
+    GoldenCase(id="c2", matter_type="t", task_class="analysis",
+               prompt="p2", expected_citations=[], required_grounding=[], persona_checks={}),
+]
+
+
+class StubGate:
+    """Returns a fixed answer per case id — no network, deterministic scores."""
+    def __init__(self, answers: dict[str, str | None]):
+        self.answers = answers
+        self.requests: list = []
+
+    async def dispatch(self, request):
+        self.requests.append(request)
+        cid = request.matter_ref.rsplit(":", 1)[-1]
+        return LLMResponse(content=self.answers.get(cid), provider="stub", model="stub",
+                           usage={"tokens_in": 1}, provenance=ProvenanceReport())
+
+
+def test_system_for_appends_delimited_memory():
+    sys_prompt = system_for("PERSONA", "note", 2)
+    assert sys_prompt.startswith("PERSONA")
+    assert "<!-- ironfleet:memory:v2 begin -->" in sys_prompt and "note" in sys_prompt
+    assert system_for("PERSONA", "", 0) == "PERSONA"
+
+
+@pytest.mark.asyncio
+async def test_drive_leg_scores_stubs_and_records_failures():
+    gate = StubGate({"c1": "liable. Needle One. ground one", "c2": None})
+    recs = await drive_leg(gate, "SYS", CASES, "agent-memory:hunter")
+    by_id = {r["case_id"]: r for r in recs}
+    assert by_id["c1"]["status"] == "scored" and by_id["c1"]["citation_accuracy"] == 1.0
+    assert by_id["c1"]["checks"] == {"liable": True}
+    assert by_id["c2"]["status"] == "empty_content"          # cap failure, not a quality zero
+    req = gate.requests[0]
+    assert req.matter_ref == "agent-memory:hunter:c1" and req.max_tokens == 16384
+    assert req.messages[0]["role"] == "system" and req.messages[0]["content"] == "SYS"
+
+
+@pytest.mark.asyncio
+async def test_drive_leg_records_dispatch_exception_and_continues():
+    class Boom(StubGate):
+        async def dispatch(self, request):
+            if request.matter_ref.endswith("c1"):
+                raise RuntimeError("proxy down")
+            return await super().dispatch(request)
+
+    gate = Boom({"c2": "anything"})
+    recs = await drive_leg(gate, "SYS", CASES, "agent-memory:hunter")
+    by_id = {r["case_id"]: r for r in recs}
+    assert by_id["c1"]["status"] == "failed" and "proxy down" in by_id["c1"]["error"]
+    assert by_id["c2"]["status"] == "scored"
