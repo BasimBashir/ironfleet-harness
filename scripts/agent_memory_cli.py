@@ -108,3 +108,145 @@ async def drive_leg(gate, system: str, cases: list[GoldenCase],
                         "grounding_score": s.grounding_score,
                         "checks": s.checks, "passed": s.passed, "error": ""})
     return records
+
+
+class ReflectorError(RuntimeError):
+    """The reflector returned neither a decline nor parseable memory JSON (spec §5)."""
+
+
+REFLECT_SYSTEM = (
+    "You maintain the operational memory of a legal-analysis agent. You will see the agent's "
+    "persona, its current memory, and scored probe cases (prompt, output status, per-axis "
+    "scores, expected citations/grounding/persona needles). Propose a REPLACEMENT for the "
+    f"memory: at most {MAX_MEMORY_CHARS} characters, plain prose, no markdown headers, no "
+    "HTML comments, no matter-identifying content. Reply with EXACTLY one JSON object and "
+    "nothing else: {\"decline\": true} if no change would help, or "
+    "{\"memory\": \"<full replacement text>\"}.")
+
+
+def _extract_json(text: str) -> dict:
+    """Tolerate fenced JSON (observed live on thomson1 in the spike); nothing else passes."""
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        if t.startswith("json"):
+            t = t[4:]
+    return json.loads(t.strip())
+
+
+async def reflect(gate, agent: str, persona_body: str, canon: str,
+                  triples: list[dict]) -> str | None:
+    """The reflector's own dispatch is traced like every other (spec §3.4)."""
+    user = json.dumps({"persona": persona_body, "current_memory": canon,
+                       "probe_cases": triples}, ensure_ascii=False)
+    resp = await gate.dispatch(LLMRequest(
+        matter_ref=f"agent-memory:{agent}:reflector", task_class=REFLECTOR_TASK,
+        messages=[{"role": "system", "content": REFLECT_SYSTEM},
+                  {"role": "user", "content": user}],
+        max_tokens=OUTPUT_CAP))
+    if resp.content is None:
+        raise ReflectorError("reflector content channel empty under output cap")
+    try:
+        doc = _extract_json(resp.content)
+    except (ValueError, json.JSONDecodeError) as ex:
+        raise ReflectorError(f"unparseable reflector output: {ex}") from ex
+    if doc.get("decline") is True:
+        return None
+    if not isinstance(doc.get("memory"), str) or not doc["memory"].strip():
+        raise ReflectorError("reflector output has neither decline nor a memory string")
+    return doc["memory"]
+
+
+def _triples(records: list[dict], cases: list[GoldenCase]) -> list[dict]:
+    by_id = {c.id: c for c in cases}
+    return [{"prompt": (c := by_id[r["case_id"]]).prompt, "output_status": r["status"],
+             "citation_accuracy": r["citation_accuracy"],
+             "grounding_score": r["grounding_score"], "checks": r["checks"],
+             "expected_citations": c.expected_citations,
+             "required_grounding": c.required_grounding,
+             "persona_checks": c.persona_checks} for r in records]
+
+
+def _decide_and_record(store, agent, pid, stage,
+                       current_means, proposed_means) -> tuple[bool, dict]:
+    keep, deltas = compare(current_means, proposed_means)
+    store.record_leg(agent, pid, stage, "current", current_means)
+    store.record_leg(agent, pid, stage, "proposed", proposed_means)
+    status = "kept" if keep else "rolled_back"
+    if pid is not None:
+        store.decide(pid, status, f"{stage} deltas {json.dumps(deltas)}")
+    return keep, deltas
+
+
+async def screen(store, gate, agent: str, persona_body: str, cases: list[GoldenCase]) -> dict:
+    """One propose iteration (spec §3.4): drive the current canon over the probe suite,
+    reflect, validate, drive the proposal, screen. The screen verdict decides only whether
+    the full confirm is worth its ~70 minutes."""
+    suite_ids = store.suite(agent)
+    probe = [c for c in cases if c.id in set(suite_ids)]
+    if not probe:
+        raise RuntimeError(f"{agent}: no probe suite — genesis (init) first")
+    cur_body, cur_ver = store.get(agent)
+    current = await drive_leg(gate, system_for(persona_body, cur_body, cur_ver), probe,
+                              f"agent-memory:{agent}")
+    raw = await reflect(gate, agent, persona_body, cur_body, _triples(current, probe))
+    if raw is None:
+        return {"status": "no_proposal"}
+    try:
+        body = validate_proposal(raw)
+    except ProposalRejected as ex:
+        pid = store.propose(agent, raw)          # stored as-is for the audit trail, never applied
+        store.decide(pid, "rejected", str(ex))
+        return {"status": "rejected", "reason": str(ex), "proposal_id": pid}
+    pid = store.propose(agent, body)
+    proposed = await drive_leg(gate, system_for(persona_body, body, pid), probe,
+                               f"agent-memory:{agent}:p{pid}")
+    try:
+        keep, _ = _decide_and_record(store, agent, pid, "screen",
+                                     leg_means(current, len(probe)),
+                                     leg_means(proposed, len(probe)))
+    except UnusableLeg as ex:
+        store.decide(pid, "rejected", f"unusable screen leg: {ex}")
+        return {"status": "rejected", "reason": str(ex), "proposal_id": pid}
+    if not keep:
+        return {"status": "rolled_back", "proposal_id": pid}
+    verdict = await confirm(store, gate, agent, persona_body, cases, pid,
+                            proposal_body=body, current_body=cur_body, current_version=cur_ver)
+    return {"status": verdict, "proposal_id": pid, "version": store.get(agent)[1]}
+
+
+async def confirm(store, gate, agent: str, persona_body: str, cases: list[GoldenCase],
+                  pid: int, *, proposal_body: str, current_body: str,
+                  current_version: int) -> str:
+    """The full-corpus pair; ITS verdict is the decision (spec §3.4)."""
+    current = await drive_leg(gate, system_for(persona_body, current_body, current_version),
+                              cases, f"agent-memory:{agent}:confirm-c{pid}")
+    proposed = await drive_leg(gate, system_for(persona_body, proposal_body, pid),
+                               cases, f"agent-memory:{agent}:confirm-p{pid}")
+    keep, _ = _decide_and_record(store, agent, pid, "confirm",
+                                 leg_means(current, len(cases)),
+                                 leg_means(proposed, len(cases)))
+    if keep:
+        store.set(agent, proposal_body, f"proposal {pid} confirmed")
+        return "kept"
+    return "rolled_back"
+
+
+async def propose_cmd(store, gate, agent: str, persona_body: str, cases: list[GoldenCase],
+                      manual_body: str | None) -> dict:
+    """`propose` subcommand: the reflector path, or the manual path (--body) a human seeds
+    straight into the confirm (spec §7 C2's seeded variant)."""
+    if manual_body is not None:
+        try:
+            body = validate_proposal(manual_body)
+        except ProposalRejected as ex:
+            pid = store.propose(agent, manual_body)
+            store.decide(pid, "rejected", str(ex))
+            return {"status": "rejected", "reason": str(ex), "proposal_id": pid}
+        pid = store.propose(agent, body)
+        cur_body, cur_ver = store.get(agent)
+        verdict = await confirm(store, gate, agent, persona_body, cases, pid,
+                                proposal_body=body, current_body=cur_body,
+                                current_version=cur_ver)
+        return {"status": verdict, "proposal_id": pid, "version": store.get(agent)[1]}
+    return await screen(store, gate, agent, persona_body, cases)
