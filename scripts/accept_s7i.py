@@ -24,6 +24,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))    # `import scripts.*` — scripts/ carries no __init__.py
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 if str(ROOT / "scripts") not in sys.path:
@@ -100,7 +102,7 @@ async def check_c2(run_dir: Path) -> list[str]:
     else through a seeded canary on the manual path. Either way THIS RUN proves the confirm,
     and the recorded verdict is whatever the comparator actually said."""
     import scripts.agent_memory_cli as cli
-    from harness.agent_memory import (MemoryStore, ProposalRejected, select_probe,
+    from harness.agent_memory import (END_MARKER, MemoryStore, ProposalRejected, select_probe,
                                       validate_proposal)
     from harness.eval.golden_case import load_cases
 
@@ -131,25 +133,33 @@ async def check_c2(run_dir: Path) -> list[str]:
 
     gate = await cli.build_gate(HOME / "trace.db")
 
-    # --- C2a: one real screen iteration (reflector live) ---
-    outcome = await cli.screen(store, gate, AGENT, bodies[AGENT], cases)
-    print(f"[c2] screen outcome: {outcome}")
-    results["screen_outcome"] = outcome
-
-    # --- C2b: the confirm path, proven this run ---
-    if outcome.get("status") == "kept":
-        verdict = "kept"                                  # screen's candidate confirmed through
+    # --- C2a + C2b — resumable (the S7h --recall precedent): when this run's confirm already
+    # has recorded legs, do NOT re-spend ~85 min of dispatches; the recorded outcome IS the
+    # evidence. A fresh run dir always runs the live path.
+    prior = [p for p in store.proposals_for(AGENT) if p["status"] in ("kept", "rolled_back")]
+    if any(store.legs(p["id"], "confirm") for p in prior):
+        verdict = prior[-1]["status"]
+        outcome = {"status": "resumed", "note": f"recorded confirm verdict {verdict} replays "
+                                               "from this run's own store; no re-dispatch"}
+        print(f"[c2] resume: {outcome['note']}")
     else:
-        pid = store.propose(AGENT, CANARY)
-        cur_body, cur_ver = store.get(AGENT)
-        verdict = await cli.confirm(store, gate, AGENT, bodies[AGENT], cases, pid,
-                                    proposal_body=CANARY, current_body=cur_body,
-                                    current_version=cur_ver)
+        # --- C2a: one real screen iteration (reflector live) ---
+        outcome = await cli.screen(store, gate, AGENT, bodies[AGENT], cases)
+        print(f"[c2] screen outcome: {outcome}")
+        # --- C2b: the confirm path, proven this run ---
+        if outcome.get("status") == "kept":
+            verdict = "kept"                              # screen's candidate confirmed through
+        else:
+            pid = store.propose(AGENT, CANARY)
+            cur_body, cur_ver = store.get(AGENT)
+            verdict = await cli.confirm(store, gate, AGENT, bodies[AGENT], cases, pid,
+                                        proposal_body=CANARY, current_body=cur_body,
+                                        current_version=cur_ver)
     print(f"[c2] confirm verdict: {verdict}")
     results["proposals"].append({"agent": AGENT, "status": verdict})
 
     # --- C3: the rejector table, recorded ---
-    for bad_body, why in [(f"x {cli.END_MARKER}", "delimiter"), ("x" * 2001, "oversize"),
+    for bad_body, why in [(f"x {END_MARKER}", "delimiter"), ("x" * 2001, "oversize"),
                           ("}", "malformed")]:
         pid = store.propose(AGENT, bad_body)
         try:

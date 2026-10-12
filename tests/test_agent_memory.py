@@ -188,3 +188,10 @@ def test_compare_refuses_unusable_legs():
         compare(None, _means())
     with pytest.raises(UnusableLeg):
         compare(_means(), None)
+
+
+def test_proposals_for_lists_in_id_order(store):
+    a = store.propose("adversary", "first")
+    b = store.propose("adversary", "second")
+    assert [p["id"] for p in store.proposals_for("adversary")] == [a, b]
+    assert store.proposals_for("hunter") == []

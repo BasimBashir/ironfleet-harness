@@ -216,6 +216,11 @@ class MemoryStore:
                                (proposal_id,)).fetchone()
         return dict(row) if row else None
 
+    def proposals_for(self, agent: str) -> list[dict]:
+        rows = self._db.execute("SELECT * FROM agent_edit_proposals WHERE agent = ? "
+                                "ORDER BY id", (agent,)).fetchall()
+        return [dict(r) for r in rows]
+
     def decide(self, proposal_id: int, status: str, reason: str = "") -> None:
         if status not in ("kept", "rolled_back", "rejected"):
             raise ValueError(f"bad decision status {status!r}")
