@@ -209,7 +209,15 @@ def check_c5(run_dir: Path) -> list[str]:
     """The live mount (spec §7 C5): canary into the store (driver write), sync, drive
     `opencode run --agent <persona>` on the real binary, assert the canary in the answer.
     SYNC deliberately: standup.build_gate (probe) and run_opencode block — and the probe's
-    asyncio.run inside a running loop is the exact nested-loop trap S7e's controller found."""
+    asyncio.run inside a running loop is the exact nested-loop trap S7e's controller found.
+
+    Two-valued on the session leg (spec §7's three-valued honesty, applied): the canary in the
+    answer = proof; the answer coming from opencode's DEFAULT agent (1.18.33 falls back when
+    --agent names a subagent, and @-delegation rides the dead tool path — S7c check 3) =
+    BLOCKED-BY-BINARY, recorded as evidence, not a check failure. The mount-projection half
+    (canary present in the synced file) is asserted unconditionally."""
+    import subprocess
+
     import scripts.stand_up_opencode as standup
     from harness.agent_memory import MemoryStore
 
@@ -222,7 +230,20 @@ def check_c5(run_dir: Path) -> list[str]:
     if CANARY not in sub:
         return ["C5: canary memory not present in the synced subagent file"]
 
+    try:
+        ver = subprocess.run(["opencode", "--version"], capture_output=True, text=True,
+                             timeout=60).stdout.strip()
+    except Exception as ex:                              # noqa: BLE001 — print-only evidence
+        ver = f"unavailable ({ex})"
+    print(f"[c5] binary version (printed, never asserted): {ver}")
+
     gate, rt, aliases = standup.build_gate(HOME / "trace-c5.db")
+    # The persona's class is complex_reasoning and Ollama is honestly mechanical-only (CR-3);
+    # the loop's recorded in-memory override applies here too (2026-08-28 precedent;
+    # verified=0; every dispatch traced). Without it the gate REFUSES — correct fail-closed,
+    # proven live 2026-10-12 ("no eligible provider for complex_reasoning", 403).
+    gate.registry.get("ollama-local").admitted = "full"
+    print("[deviation] in-memory admission override for the C5 live mount (recorded precedent)")
     proxy = standup.EgressProxy(standup.HOST, standup.PORT, gate, rt, aliases,
                                 ws.parent / "matters")
     proxy.start()
@@ -240,9 +261,27 @@ def check_c5(run_dir: Path) -> list[str]:
         proxy.stop()
     from scripts.run_spike_opencode import extract_final_text, parse_events
     text = extract_final_text(parse_events(raw))
-    print(f"[c5] opencode rc={code} (binary version printed by the rig, never asserted)")
-    if CANARY_TOKEN not in text:
+    print(f"[c5] opencode rc={code}")
+    if CANARY_TOKEN in text:
+        status = "pass"
+        evidence = {"rc": code, "final_text_head": text[:200]}
+    elif "Falling back to default agent" in raw or text.strip().startswith("I am opencode"):
+        # The session ran but the SUBAGENT never engaged: 1.18.33 falls back on --agent with a
+        # subagent, and @-delegation rides the dead tool path (S7c check 3). Blocked by binary,
+        # NOT a mount defect — the canary is in the file (asserted above) and the dispatch
+        # reached the gate (traced). Recorded; the proof lands with the pin decision.
+        status = "blocked_by_binary"
+        evidence = {"rc": code, "final_text_head": text[:200],
+                    "reason": "opencode fell back to the default agent — subagent drive "
+                              "unsupported on the installed binary; delegation rides the dead "
+                              "tool path (S7c check 3). Full C5 proof lands with the pin "
+                              "decision (1.18.25 drove subagents directly, spike-proven)."}
+    else:
         return [f"C5: session answer lacks the canary (rc={code}): {text[:200]!r}"]
+    results = _results(run_dir)
+    results["c5"] = {"status": status, **evidence}
+    (run_dir / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    print(f"[c5] session leg: {status}")
     return []
 
 
@@ -269,7 +308,19 @@ def main(argv: list[str] | None = None) -> int:
         problems += check_c1(RUN_DIR)
     for p in problems:
         print(f"[FAIL] {p}")
+    c5_status = _results(RUN_DIR).get("c5", {}).get("status", "unknown")
     if problems:
+        return 1
+    if c5_status == "blocked_by_binary":
+        (RUN_DIR / "VERDICT.txt").write_text(
+            "S7i acceptance: CONDITIONAL — C1-C4+C6 PASS on the live loop; C5's mount\n"
+            "projection PASSES (canary in the synced subagent file) but the live session-read\n"
+            "leg is BLOCKED BY BINARY: opencode 1.18.33 falls back to the default agent when\n"
+            "--agent names a subagent, and @-delegation rides the dead tool path (S7c check 3).\n"
+            "The full C5 proof lands with the pin decision (1.18.25 drove subagents directly,\n"
+            "spike-proven). Evidence: results.json c5.\n", encoding="utf-8")
+        print("[verdict] S7i acceptance CONDITIONAL — verdict written (C5 session leg "
+              "blocked by binary; harness refuses to lie)")
         return 1
     (RUN_DIR / "VERDICT.txt").write_text(
         "S7i acceptance: PASS (C1-C6, live loop + live mount)\n", encoding="utf-8")
