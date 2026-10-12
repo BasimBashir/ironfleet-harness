@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from harness.agent_memory import (MAX_MEMORY_CHARS, PROBE_SIZE, MemoryStore,
+from harness.agent_memory import (MAX_MEMORY_CHARS, PROBE_SIZE, LegMeans, MemoryStore,
                                   select_probe)
 
 
@@ -60,3 +60,36 @@ def test_at_store_root_honours_harness_home(tmp_path, monkeypatch):
     s = MemoryStore.at_store_root()
     s.init(["hunter"])
     assert (tmp_path / "agent_memory.db").exists()
+
+
+def test_propose_and_decide_lifecycle(store):
+    pid = store.propose("adversary", "proposed body")
+    assert store.proposal(pid)["status"] == "pending"
+    store.decide(pid, "kept", "confirm deltas")
+    row = store.proposal(pid)
+    assert row["status"] == "kept" and row["reason"] == "confirm deltas"
+    assert row["decided_at"] is not None
+
+
+def test_proposal_of_unknown_agent_refuses(store):
+    with pytest.raises(ValueError):
+        store.propose("nobody", "body")
+
+
+def test_record_leg_and_read_back(store):
+    pid = store.propose("adversary", "b")
+    m = LegMeans(n_cases=5, n_scored=5, mean_citations=0.2, mean_grounding=0.4, mean_persona=1.0)
+    store.record_leg("adversary", pid, "screen", "proposed", m)
+    back = store.legs(pid, "screen")
+    assert back["proposed"] == m
+    assert store.legs(pid, "confirm") == {}
+
+
+def test_history_merges_versions_and_decisions(store):
+    pid = store.propose("adversary", "b")
+    store.set("adversary", "kept body", f"proposal {pid} confirmed")
+    store.decide(pid, "kept", "ok")
+    entries = store.history("adversary")
+    kinds = [e["kind"] for e in entries]
+    assert set(kinds) == {"version", "decision"}
+    assert any(e["kind"] == "decision" and e["status"] == "kept" for e in entries)

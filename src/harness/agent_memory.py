@@ -137,3 +137,58 @@ class MemoryStore:
         row = self._db.execute("SELECT case_ids FROM agent_probe_suites WHERE agent = ?",
                                (agent,)).fetchone()
         return list(eval(row["case_ids"])) if row else []   # noqa: S307 — repr of a list we wrote
+
+    # --- proposals ---
+    def propose(self, agent: str, body: str) -> int:
+        if self._db.execute("SELECT 1 FROM agent_memory WHERE agent = ?",
+                            (agent,)).fetchone() is None:
+            raise ValueError(f"unknown agent {agent!r} — genesis (init) first")
+        cur = self._db.execute(
+            "INSERT INTO agent_edit_proposals(agent, body, status, proposed_at) "
+            "VALUES (?, ?, 'pending', ?)", (agent, body, _now()))
+        self._db.commit()
+        return int(cur.lastrowid)
+
+    def proposal(self, proposal_id: int) -> dict | None:
+        row = self._db.execute("SELECT * FROM agent_edit_proposals WHERE id = ?",
+                               (proposal_id,)).fetchone()
+        return dict(row) if row else None
+
+    def decide(self, proposal_id: int, status: str, reason: str = "") -> None:
+        if status not in ("kept", "rolled_back", "rejected"):
+            raise ValueError(f"bad decision status {status!r}")
+        with self._db:
+            self._db.execute(
+                "UPDATE agent_edit_proposals SET status = ?, reason = ?, decided_at = ? "
+                "WHERE id = ?", (status, reason, _now(), proposal_id))
+
+    # --- benchmark legs ---
+    def record_leg(self, agent: str, proposal_id: int | None, stage: str, leg: str,
+                   means: LegMeans) -> None:
+        with self._db:
+            self._db.execute(
+                "INSERT INTO benchmark_runs(agent, proposal_id, stage, leg, n_cases, n_scored,"
+                " mean_citations, mean_grounding, mean_persona, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (agent, proposal_id, stage, leg, means.n_cases, means.n_scored,
+                 means.mean_citations, means.mean_grounding, means.mean_persona, _now()))
+
+    def legs(self, proposal_id: int, stage: str) -> dict[str, LegMeans]:
+        rows = self._db.execute(
+            "SELECT * FROM benchmark_runs WHERE proposal_id = ? AND stage = ?",
+            (proposal_id, stage)).fetchall()
+        return {r["leg"]: LegMeans(n_cases=r["n_cases"], n_scored=r["n_scored"],
+                                   mean_citations=r["mean_citations"],
+                                   mean_grounding=r["mean_grounding"],
+                                   mean_persona=r["mean_persona"]) for r in rows}
+
+    # --- audit ---
+    def history(self, agent: str) -> list[dict]:
+        versions = [{**v, "kind": "version"} for v in self.versions(agent)]
+        rows = self._db.execute(
+            "SELECT id, status, reason, proposed_at, decided_at FROM agent_edit_proposals "
+            "WHERE agent = ? ORDER BY id DESC", (agent,)).fetchall()
+        decisions = [{**dict(r), "kind": "decision"} for r in rows]
+        return sorted(versions + decisions,
+                      key=lambda e: e.get("created_at") or e.get("proposed_at") or "",
+                      reverse=True)
