@@ -6,6 +6,25 @@ Phase 0 foundation package for IronFleet harness-core.
 
 Phase 0 of the Rev-2 merged programme. See [specs](../specs/) and [IronFleet_Merged_Programme.pdf](../IronFleet_Merged_Programme.pdf) for full context and architecture.
 
+## Install (Windows, end user — S7j-W step 2)
+
+From the extracted `IronFleet-harness-<version>-windows.zip` (or a checkout):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install_windows.ps1
+```
+
+Idempotent; proves itself with `harness --version`. Prerequisites it checks but does not
+install: CPython ≥ 3.12, Node/npm, and Ollama serving `thomson1-chat` (+ `qwen3.8:27b`
+for the toolpath class, `bge-m3` for embeddings). Then:
+
+```powershell
+.venv\Scripts\harness.exe drive --matter-ref <uuid>   # one live session through the gate
+.venv\Scripts\harness.exe serve                       # the egress proxy on 127.0.0.1:7373
+```
+
+Build the zip: `.venv\Scripts\python.exe scripts\pack_windows.py` (→ `dist/`).
+
 ## Quickstart
 
 ```bash

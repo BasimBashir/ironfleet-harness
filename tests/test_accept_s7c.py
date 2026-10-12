@@ -580,3 +580,37 @@ def test_the_injection_alias_is_disjoint_from_parity():
     assert mod.INJECT_ALIAS == "gate/toolpath"
     assert mod.INJECT_ALIAS != mod.MOUNT_MODEL
     assert mod.MOUNT_MODEL == "gate/research"
+
+
+# ── S7j-W: the opencode startup-hang retry ───────────────────────────────────
+
+def test_a_hung_startup_is_retried_once_at_the_full_timeout(monkeypatch):
+    # Live 2026-10-12: opencode 1.18.25 intermittently hangs after init (~2 in 7
+    # invocations on this box) — zero events, full timeout burned. The driver watchdogs
+    # the first attempt at the startup bound and retries ONCE on that signature.
+    mod = _load()
+    calls = []
+
+    def fake(ws, argv, timeout, env):
+        calls.append(timeout)
+        if len(calls) == 1:
+            return 0, ""                      # watchdog expiry, zero events: the signature
+        return 0, '{"type":"step_finish"}'
+
+    monkeypatch.setattr(mod, "run_opencode", fake)
+    code, raw = mod.run_opencode_retry(Path("ws"), ["x"], 1800, {}, "run-x")
+    assert calls == [mod.STARTUP_WATCHDOG_S, 1800]
+    assert "step_finish" in raw
+
+
+def test_a_real_attempt_is_never_retried(monkeypatch):
+    mod = _load()
+    calls = []
+
+    def fake(ws, argv, timeout, env):
+        calls.append(timeout)
+        return 0, '{"type":"text"}'
+
+    monkeypatch.setattr(mod, "run_opencode", fake)
+    mod.run_opencode_retry(Path("ws"), ["x"], 1800, {}, "run-y")
+    assert calls == [mod.STARTUP_WATCHDOG_S]

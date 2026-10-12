@@ -89,6 +89,21 @@ allowed_for = spike.allowed_for
 write_allowed = spike.write_allowed
 run_opencode = spike.run_opencode
 
+
+def run_opencode_retry(ws: Path, argv: list[str], timeout: int, env: dict,
+                       run_id: str) -> tuple[int, str]:
+    """run_opencode with the startup-hang signature retried once (see STARTUP_WATCHDOG_S).
+    Any parsed event means the session started — a real attempt, never retried; a
+    watchdog expiry with zero events is the hang, and the whole invocation re-runs at the
+    full timeout."""
+    code, raw = run_opencode(ws, argv, timeout=STARTUP_WATCHDOG_S, env=env)
+    if spike.parse_events(raw):
+        return code, raw
+    print(f"[retry] {run_id}: no events within the {STARTUP_WATCHDOG_S}s watchdog — "
+          f"opencode startup hang; retrying once at the full {timeout}s timeout",
+          flush=True)
+    return run_opencode(ws, argv, timeout=timeout, env=env)
+
 CASES_DIR = ROOT / "data" / "golden_cases"
 DATA_EVAL = ROOT / "data" / "eval"
 OLLAMA_URL = "http://127.0.0.1:11434/v1"
@@ -107,6 +122,12 @@ MAX_TOKENS = 16384                  # the mount's output floor (B1): thomson1 ne
 CASE_TIMEOUT_S = 3600               # one case ceiling on the mount side (tree-killed on overrun)
 MATTER_PREFIX = "s7c-parity"
 GUARD_TAG = "text.complete"
+# opencode 1.18.25 intermittently hangs after `init` (observed live 2026-10-12, ~2 in 7
+# invocations on this box: the binary's own log goes silent after init instead of printing
+# "booting location services"; a hung boot yields ZERO parsed events and burns the whole
+# scenario timeout). The first attempt is watchdogged at this bound; the hang signature
+# retries ONCE at the full timeout (run_opencode_retry).
+STARTUP_WATCHDOG_S = 480
 # Advisory regression flag, NOT the acceptance bar (see parity_bar): spec §1 asks for deltas and
 # variance to be REPORTED, and the mount side carries ~8k tokens of request scaffolding the house
 # side does not (S4 spike, measured), so score equality is not what check 1 asserts.
@@ -384,7 +405,8 @@ def mount_side(ws: Path, case: GoldenCase, env: dict, timeout: int, run_id: str)
     t0 = time.monotonic()
     failure, text, code, raw = "", "", -1, ""
     try:
-        code, raw = run_opencode(ws, mount_argv(case), timeout=timeout, env=env)
+        code, raw = run_opencode_retry(ws, mount_argv(case), timeout=timeout, env=env,
+                                       run_id=run_id)
         text = spike.extract_final_text(spike.parse_events(raw))
         if not text:
             failure = f"no assistant text in events (exit={code})"
@@ -642,8 +664,9 @@ def _inject_run(ws: Path, env: dict, name: str, prompt: str, timeout: int,
     write_allowed(ws, allowed=["Real Authority Act 1908"], block=True)
     before = len(guard_log(ws))
     t0 = time.monotonic()
-    code, raw = run_opencode(ws, ["run", "--model", f"gate-local/{alias}", "--auto",
-                                  "--format", "json", prompt], timeout=timeout, env=env)
+    code, raw = run_opencode_retry(ws, ["run", "--model", f"gate-local/{alias}", "--auto",
+                                        "--format", "json", prompt], timeout=timeout,
+                                   env=env, run_id=f"fail-closed-{name}")
     latency = int((time.monotonic() - t0) * 1000)
     (ws / "transcripts" / f"fail-closed-{name}.jsonl").write_text(raw, encoding="utf-8",
                                                                   newline="")
