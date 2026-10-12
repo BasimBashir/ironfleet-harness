@@ -152,11 +152,16 @@ class _FakeGate:
 
 
 def _install_fake_gate(monkeypatch, raw=None, seamless=False):
+    # build_gate's body lives in harness.bootstrap now (the launcher's scripts-free
+    # import path), with stand_up re-exporting it — so the fake gate must be installed
+    # in BOTH modules' namespaces.
     import scripts.stand_up_opencode as drv
+    import harness.bootstrap as boot
     cls = _FakeGate.seamless() if seamless else _FakeGate
     cls._raw = raw or {}
-    monkeypatch.setattr(drv, "EgressGate", cls)
-    monkeypatch.setattr(drv, "_probe_ollama", lambda: None)
+    for mod in (drv, boot):
+        monkeypatch.setattr(mod, "EgressGate", cls)
+        monkeypatch.setattr(mod, "_probe_ollama", lambda: None)
     return drv, cls
 
 

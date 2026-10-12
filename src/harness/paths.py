@@ -3,10 +3,9 @@
 Before this module the store root existed only in the ops shell scripts — three times,
 once per OS (`p07_setup_linux.sh`, `p07_setup_windows.ps1`, and the macOS scripts
 hardcoding the IronFleetPriv volume). RUNBOOK_P0_7 lines 33-34 deferred the Python
-core's own wiring; S7g ships the RESOLVER for that wiring, not the claim that the core
-already reads it — resolve_store_root() has no runtime consumer yet (only
-accept_s7g.py and verify_macos_install.sh call it), and the live call site in the session
-store lands with that later step. The ops scripts keep their own copy because
+core's own wiring; S7g shipped the RESOLVER for that wiring, and the launcher
+(`harness.ops.ironfleet_launcher`) is now its first core consumer — it stands the
+egress proxy up on `<store-root>` directly. The ops scripts keep their own copy because
 they run before the core is installed.
 
 The resolution carries a `source` string — the same discipline as `capacity.py`, because

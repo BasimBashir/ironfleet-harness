@@ -270,6 +270,15 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class _ExclusiveBindServer(ThreadingHTTPServer):
+    # HTTPServer sets allow_reuse_address=1, and on Windows SO_REUSEADDR permits a SECOND
+    # live proxy to silently bind the same port — observed in the launcher tests, where
+    # two EgressProxy instances both printed "proxy on .../v1" for one port. Exclusive
+    # bind is the property the port-collision guard exists for; on POSIX this only gives
+    # up TIME_WAIT rebind, and on Windows it makes the second bind fail loudly.
+    allow_reuse_address = False
+
+
 class EgressProxy:
     def __init__(self, host: str, port: int, gate: EgressGate, routing,
                  aliases: dict, matter_file, scheduler: TurnScheduler | None = None) -> None:
@@ -278,8 +287,7 @@ class EgressProxy:
         # A scheduler built from the real machine's capacity when the caller omits one
         # (the tests pass a small synthetic one; the live driver builds its own).
         self.scheduler = scheduler or TurnScheduler(machine_capacity())
-        self._server = ThreadingHTTPServer((host, port), self._make_handler())
-        self._server.allow_reuse_address = True
+        self._server = _ExclusiveBindServer((host, port), self._make_handler())
 
     def _make_handler(self):
         proxy = self
