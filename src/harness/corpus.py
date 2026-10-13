@@ -76,3 +76,130 @@ def chunk_text(doc_id: str, text: str) -> list[str]:
     """The embedded form: heading-prefixed chunk bodies."""
     return [f"{c.heading}\n{c.text}" if c.heading else c.text
             for c in split_structure(doc_id, text)]
+
+
+# ------------------------------------------------------------------ R1 Task 2: the store
+
+import hashlib  # noqa: E402
+import sqlite3  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+
+@dataclass
+class DocRecord:
+    doc_id: str
+    text: str
+    source_name: str
+
+
+@dataclass
+class CorpusHit:
+    doc_id: str
+    heading: str
+    text: str
+    source_name: str
+    score: float
+
+
+def _mtable(matter_ref: str, kind: str) -> str:
+    """Colon-free per-matter table names (Windows rule; D1: one table PER MATTER —
+    FTS5 BM25 statistics span the whole table even under a column filter, so shared
+    tables degrade ranking and leak corpus shape across matters; measured 2026-10-13)."""
+    name = re.sub(r"[^A-Za-z0-9_]", "_", matter_ref)
+    return f"{kind}_{name}"
+
+
+def _fts_query(query: str, max_terms: int = 24) -> str:
+    """FTS5 OR of the alphanumeric tokens — FTS5 query syntax chokes on legal punctuation."""
+    terms = [t for t in re.findall(r"[A-Za-z0-9]{3,}", query)][:max_terms]
+    return " OR ".join(f'"{t}"' for t in terms)
+
+
+class CorpusStore:
+    """One SQLite db at the store root; each matter gets its own docs + FTS tables (D1).
+
+    The store never dispatches: the caller embeds (through the gate — D3/LOCAL_ONLY)
+    and hands vectors in, aligned 1:1 with the doc's chunks. Vectors ride the existing
+    VectorStore interface (Task 4 swaps its engine store-internally).
+    """
+
+    def __init__(self, db_path: Path, vectors: "VectorStore | None" = None) -> None:
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._vectors = vectors
+        with self._c() as c:
+            c.executescript("PRAGMA journal_mode=WAL;")
+
+    def _c(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.db_path)
+
+    def has_doc(self, matter_ref: str, sha256: str) -> bool:
+        try:
+            with self._c() as c:
+                row = c.execute(
+                    f"SELECT 1 FROM {_mtable(matter_ref, 'docs')} WHERE sha256=?",
+                    (sha256,)).fetchone()
+        except sqlite3.OperationalError:        # matter never ingested -> not present
+            return False
+        return row is not None
+
+    def ingest(self, matter_ref: str, doc: DocRecord, vectors: list,
+               model: str, provider: str) -> int:
+        chunks = split_structure(doc.doc_id, doc.text)
+        if len(vectors) != len(chunks):
+            raise ValueError(f"{len(vectors)} vectors for {len(chunks)} chunks "
+                             f"of {doc.doc_id} — the caller embeds 1:1 with the split")
+        sha = hashlib.sha256(doc.text.encode("utf-8")).hexdigest()
+        with self._c() as c:
+            c.execute(f"CREATE TABLE IF NOT EXISTS {_mtable(matter_ref, 'docs')}"
+                      "(doc_id TEXT PRIMARY KEY, source_name TEXT, sha256 TEXT,"
+                      " words INTEGER, chunk_count INTEGER, ts TEXT)")
+            c.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS {_mtable(matter_ref, 'fts')}"
+                      " USING fts5(doc_id, heading, body)")
+            c.execute(f"INSERT OR REPLACE INTO {_mtable(matter_ref, 'docs')}"
+                      " VALUES(?,?,?,?,?,?)",
+                      (doc.doc_id, doc.source_name, sha, len(doc.text.split()),
+                       len(chunks), datetime.now(timezone.utc).isoformat()))
+            c.execute(f"DELETE FROM {_mtable(matter_ref, 'fts')} WHERE doc_id=?",
+                      (doc.doc_id,))
+            c.executemany(f"INSERT INTO {_mtable(matter_ref, 'fts')}"
+                          "(doc_id, heading, body) VALUES(?,?,?)",
+                          [(ch.doc_id, ch.heading, ch.text) for ch in chunks])
+        if self._vectors is not None:
+            self._vectors.add(matter_ref,
+                              chunk_text(doc.doc_id, doc.text),
+                              [list(map(float, v)) for v in vectors], model, provider)
+        return len(chunks)
+
+    def search_lexical(self, matter_ref: str, query: str, k: int = 20) -> list[CorpusHit]:
+        q = _fts_query(query)
+        if not q:
+            return []
+        try:
+            rows = self._c().execute(
+                f"SELECT f.doc_id, f.heading, f.body, d.source_name, bm25({_mtable(matter_ref, 'fts')})"
+                f" FROM {_mtable(matter_ref, 'fts')} f"
+                f" JOIN {_mtable(matter_ref, 'docs')} d ON d.doc_id = f.doc_id"
+                f" WHERE {_mtable(matter_ref, 'fts')} MATCH ? ORDER BY 5 LIMIT ?",
+                (q, k)).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [CorpusHit(doc_id=d, heading=h, text=b, source_name=s, score=-sc)
+                for d, h, b, s, sc in rows]
+
+    def count(self, matter_ref: str) -> int:
+        try:
+            with self._c() as c:
+                return c.execute(
+                    f"SELECT COUNT(*) FROM {_mtable(matter_ref, 'fts')}").fetchone()[0]
+        except sqlite3.OperationalError:
+            return 0
+
+    def doc_count(self, matter_ref: str) -> int:
+        try:
+            with self._c() as c:
+                return c.execute(
+                    f"SELECT COUNT(*) FROM {_mtable(matter_ref, 'docs')}").fetchone()[0]
+        except sqlite3.OperationalError:
+            return 0
