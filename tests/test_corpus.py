@@ -106,3 +106,38 @@ def test_rrf_prefers_items_ranked_by_both_legs():
     from harness.corpus import rrf
     fused = rrf([["a", "b", "c"], ["b", "a", "d"]], k=60)
     assert fused[0] in ("a", "b") and set(fused[:2]) == {"a", "b"}
+
+
+# ---------------------------------------------------------------- R1 Task 6: the tool
+
+def test_corpus_search_tool_envelope_and_fail_closed(tmp_path, monkeypatch):
+    from harness.corpus import CorpusStore, DocRecord, ironfleet_corpus_search
+    store = CorpusStore(tmp_path / "corpus.sqlite3")
+    store.ingest("m-a", DocRecord("real-A", "SEC ONE\n\nThe PPSA governs priority disputes.",
+                                  "a.pdf"), vectors=[[1.0, 0.0]], model="m", provider="p")
+    monkeypatch.setenv("IRONFLEET_MATTER", "m-a")
+    res = ironfleet_corpus_search("PPSA priority", k=3, store=store, rerank=False,
+                                  embed_fn=lambda texts: [[1.0, 0.0]])
+    assert res["passages"] and res["authorities"] == [res["passages"][0]["text"]]
+    assert res["passages"][0]["source_name"] == "a.pdf"
+    monkeypatch.setenv("IRONFLEET_MATTER", "")
+    res = ironfleet_corpus_search("anything", store=store, rerank=False,
+                                  embed_fn=lambda t: [[1.0, 0.0]])
+    assert res == {"passages": [], "authorities": [], "error": "no matter bound"}
+
+
+def test_corpus_search_rerank_leg_resorts_by_score(tmp_path, monkeypatch):
+    from harness.corpus import CorpusStore, DocRecord, ironfleet_corpus_search
+    store = CorpusStore(tmp_path / "corpus.sqlite3")
+    # headings flush chunks; two tiny paragraphs alone would merge (D2 behaviour)
+    store.ingest("m-a", DocRecord("real-A", "HEAD ONE\n\nAAA first body text\n\n"
+                                  "HEAD TWO\n\nBBB second body text", "a.pdf"),
+                 vectors=[[1.0, 0.0], [0.5, 0.5]], model="m", provider="p")
+    monkeypatch.setenv("IRONFLEET_MATTER", "m-a")
+
+    def fake_rerank(query, texts):
+        # the SECOND passage is far more relevant per the cross-encoder
+        return [0.1, 0.99]
+    res = ironfleet_corpus_search("body", k=2, store=store,
+                                  embed_fn=lambda t: [[0.6, 0.4]], rerank_fn=fake_rerank)
+    assert [p["text"] for p in res["passages"]][0].startswith("BBB")

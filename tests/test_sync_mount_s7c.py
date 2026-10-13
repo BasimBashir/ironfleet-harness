@@ -146,7 +146,8 @@ def test_the_tools_map_is_a_full_override_not_a_whitelist(tmp_path):
             assert sorted(listed) == sorted(
                 f"{t}: " + ("true" if f"  {t}: true" in fm else "false") for t in ported), f.name
     auditor = (ws / ".opencode" / "agent" / "auditor.md").read_text(encoding="utf-8")
-    assert rows(auditor.split("---\n", 2)[1]) == ["ironfleet_statutory_demand: true",
+    assert rows(auditor.split("---\n", 2)[1]) == ["ironfleet_corpus_search: false",
+                                                  "ironfleet_statutory_demand: true",
                                                   "ironfleet_without_prejudice: false",
                                                   "refine_output: false", "route: false"]
 

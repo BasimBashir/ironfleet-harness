@@ -7,8 +7,11 @@ heading-aware; every chunk carries its section heading as provenance.
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
+
+from harness.gate import EmbeddingRequest, RerankRequest
 
 _HEADING = re.compile(r"^(?:[IVXLC]+|\d+)[.\)]?\s+[A-Z].*[A-Z]{3}")   # "III. Title ..." / "12. Foo Bar"
 _ALLCAPS = re.compile(r"^[^a-z]{6,}$")                                # "TITLE TO BULLION"
@@ -256,3 +259,62 @@ def rrf(rankings: list[list[str]], k: int = 60) -> list[str]:
 
 def _hit_key(hit: CorpusHit) -> str:
     return f"{hit.doc_id}\x1f{hit.heading}\x1f{hit.text}"
+
+
+# ---------------------------------------------------------------- R1 Task 6: the tool
+
+_TOOL_GATE = None          # lazily built once; probing Ollama is seconds, not per-call
+
+
+def _default_gate():
+    global _TOOL_GATE
+    if _TOOL_GATE is None:
+        from scripts.stand_up_opencode import ROUTING, build_gate
+        _TOOL_GATE, _rt, _al = build_gate(
+            Path(__file__).resolve().parents[2] / "data" / "eval" / "corpus_tool_trace.sqlite3",
+            ROUTING)
+    return _TOOL_GATE
+
+
+def ironfleet_corpus_search(query: str, k: int = 5, rerank: bool = True,
+                            store: "CorpusStore | None" = None,
+                            embed_fn=None, rerank_fn=None,
+                            matter: str | None = None) -> dict:
+    """The gated ported tool (D5): matter-scoped hybrid corpus search whose result
+    carries the AUTHORITIES list — the verbatim passage texts the guard checks quotes
+    against. Fail-closed: no matter bound -> an honest empty envelope, never another
+    matter's text. The store never dispatches; embeddings and rerank go through the
+    injected callables (the gate in production, fakes in tests)."""
+    matter = matter or os.environ.get("IRONFLEET_MATTER", "")
+    if not matter:
+        return {"passages": [], "authorities": [], "error": "no matter bound"}
+    if store is None:
+        from harness.paths import resolve_store_root
+        root = resolve_store_root()
+        store = CorpusStore(Path(root) / "corpus.sqlite3",
+                            vectors=VectorStore(Path(root) / "vectors.sqlite3"))
+    if embed_fn is None:
+        gate = _default_gate()
+
+        def embed_fn(texts):
+            import asyncio
+            res = asyncio.run(gate.embed(
+                EmbeddingRequest(matter_ref=matter, texts=texts)))
+            return res.vectors
+    qvec = embed_fn([query[:1200]])[0]
+    hits = store.search(matter, query, qvec, k=max(k * 4, 20))
+    if rerank and rerank_fn is None:
+        gate = _default_gate()
+
+        def rerank_fn(query, texts):
+            import asyncio
+            res = asyncio.run(gate.rerank(
+                RerankRequest(matter_ref=matter, query=query, texts=texts)))
+            return res.scores
+    if rerank and rerank_fn is not None and hits:
+        scores = rerank_fn(query[:1200], [h.text[:4000] for h in hits])
+        hits = [h for _, h in sorted(zip(scores, hits), key=lambda p: -p[0])]
+    top = hits[:k]
+    return {"passages": [{"doc_id": h.doc_id, "heading": h.heading, "text": h.text,
+                          "source_name": h.source_name, "score": h.score} for h in top],
+            "authorities": [h.text for h in top]}

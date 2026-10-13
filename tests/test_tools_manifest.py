@@ -7,7 +7,7 @@ DATA = Path(__file__).resolve().parent.parent / "data" / "module-e"
 
 def test_manifest_loads_every_declared_tool():
     m = load_manifest(DATA / "tools.yaml")
-    assert len(m) == 24                      # 20 deferred + 4 ported
+    assert len(m) == 25                      # 20 deferred + 5 ported (R1: corpus_search)
 
 def test_the_two_pattern_proofs_and_two_seam_tools_are_ported():
     p = ported_tools(load_manifest(DATA / "tools.yaml"))

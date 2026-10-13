@@ -8,6 +8,14 @@
 # aliases: old kernel names — the 6 kernels are 13-line re-export shims INTO these skills, so a
 #          kernel is an alias on a skill row, never a row of its own.
 tools:
+  - name: ironfleet_corpus_search
+    description: "Search this matter's corpus (hybrid lexical+semantic, optional local
+                  cross-encoder rerank) and return verbatim passages — the ONLY sanctioned
+                  source of quoted text; drafts must reference, never paraphrase-in-quotes"
+    entry: harness.corpus:ironfleet_corpus_search
+    status: ported
+    source: "R1 (new; specs/14 D5 + research/07 D9)"
+
   - name: ironfleet_statutory_demand
     description: "Validate a statutory demand under s 289 Companies Act 1993 and compute the
                   s 241(4)(a) compliance deadline"
