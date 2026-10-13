@@ -72,3 +72,37 @@ def test_matter_ref_sanitised_into_table_names(tmp_path):
     store = CorpusStore(tmp_path / "corpus.sqlite3")
     store.ingest("m:bad/ref", DocRecord("real-A", "INTRO\n\nBody.", "a.pdf"), [[0.0]], "m", "p")
     assert store.doc_count("m:bad/ref") == 1  # worked, colon-free tables under the hood
+
+
+# ---------------------------------------------------------------- R1 Task 3: hybrid search
+
+def test_hybrid_search_fuses_and_never_crosses_matters(tmp_path):
+    from harness.corpus import CorpusStore, DocRecord
+    from harness.vectors import VectorStore
+    vs = VectorStore(tmp_path / "vectors.sqlite3")
+    store = CorpusStore(tmp_path / "corpus.sqlite3", vectors=vs)
+    store.ingest("m-a", DocRecord("real-A", "SEC ONE\n\nstatutory demand text",
+                                  "a.pdf"), vectors=[[1.0, 0.0]], model="m", provider="p")
+    store.ingest("m-b", DocRecord("real-B", "SEC TWO\n\ndemand text again",
+                                  "b.pdf"), vectors=[[0.0, 1.0]], model="m", provider="p")
+    hits = store.search("m-a", "statutory demand", [1.0, 0.0], k=5)
+    assert hits and all(h.doc_id == "real-A" for h in hits)
+    assert all(h.source_name == "a.pdf" for h in hits)
+
+
+def test_hybrid_fuses_vector_first_when_lexical_misses(tmp_path):
+    from harness.corpus import CorpusStore, DocRecord
+    from harness.vectors import VectorStore
+    vs = VectorStore(tmp_path / "vectors.sqlite3")
+    store = CorpusStore(tmp_path / "corpus.sqlite3", vectors=vs)
+    store.ingest("m-a", DocRecord("real-A", "AAA xqzwk body", "a.pdf"),
+                 vectors=[[1.0, 0.0]], model="m", provider="p")
+    # a query whose tokens match nothing lexically still finds the chunk by vector
+    hits = store.search("m-a", "qqq zzzz", [0.9, 0.1], k=5)
+    assert hits and hits[0].doc_id == "real-A"
+
+
+def test_rrf_prefers_items_ranked_by_both_legs():
+    from harness.corpus import rrf
+    fused = rrf([["a", "b", "c"], ["b", "a", "d"]], k=60)
+    assert fused[0] in ("a", "b") and set(fused[:2]) == {"a", "b"}

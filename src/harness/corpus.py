@@ -203,3 +203,56 @@ class CorpusStore:
                     f"SELECT COUNT(*) FROM {_mtable(matter_ref, 'docs')}").fetchone()[0]
         except sqlite3.OperationalError:
             return 0
+
+    def search(self, matter_ref: str, query_text: str, query_vector: list[float],
+               k: int = 5, candidates: int = 20) -> list[CorpusHit]:
+        """Hybrid: lexical BM25 + dense vector, fused by RRF (Task 3). Either leg may
+        come back empty; the other carries alone. Per-matter by construction (D1)."""
+        lex = self.search_lexical(matter_ref, query_text, candidates)
+        vec: list[CorpusHit] = []
+        if self._vectors is not None and query_vector:
+            vec = self._vec_hits(matter_ref, list(query_vector), candidates)
+        lex_keys = [_hit_key(h) for h in lex]
+        vec_keys = [_hit_key(h) for h in vec]
+        fused_keys = set(rrf([lex_keys, vec_keys]))
+        by_key: dict[str, CorpusHit] = {}
+        for h in lex + vec:
+            by_key.setdefault(_hit_key(h), h)
+        fused = [h for hkey in rrf([lex_keys, vec_keys])
+                 if hkey in fused_keys and (h := by_key.get(hkey)) is not None]
+        return fused[:k]
+
+    def _vec_hits(self, matter_ref: str, query_vector: list[float],
+                  candidates: int) -> list[CorpusHit]:
+        hits = self._vectors.search(matter_ref, query_vector, k=candidates)
+        out: list[CorpusHit] = []
+        if not hits:
+            return out
+        with self._c() as c:
+            for h in hits:
+                row = c.execute(
+                    f"SELECT f.doc_id, f.heading, f.body, d.source_name FROM "
+                    f"{_mtable(matter_ref, 'fts')} f JOIN "
+                    f"{_mtable(matter_ref, 'docs')} d ON d.doc_id = f.doc_id "
+                    f"WHERE (? = '' OR f.heading || char(10) || f.body = ? OR f.body = ?)",
+                    (h.text, h.text, h.text)).fetchone()
+                if row:
+                    out.append(CorpusHit(doc_id=row[0], heading=row[1], text=row[2],
+                                         source_name=row[3], score=h.score))
+        return out
+
+
+# ---------------------------------------------------------------- R1 Task 3: hybrid search
+
+def rrf(rankings: list[list[str]], k: int = 60) -> list[str]:
+    """Reciprocal Rank Fusion (k=60, the 2026 standard): no score normalisation needed
+    between BM25 (negative-better) and cosine (positive-better)."""
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, item in enumerate(ranking):
+            scores[item] = scores.get(item, 0.0) + 1.0 / (k + rank + 1)
+    return [item for item, _ in sorted(scores.items(), key=lambda kv: -kv[1])]
+
+
+def _hit_key(hit: CorpusHit) -> str:
+    return f"{hit.doc_id}\x1f{hit.heading}\x1f{hit.text}"
