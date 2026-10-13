@@ -84,8 +84,10 @@ def main() -> None:
     chunks: list[tuple[str, str, str]] = [
         (d, h, b) for (d, h, b) in con.execute(
             "SELECT doc_id, heading, body FROM fts WHERE doc_id LIKE 'real-%'")]
-    doc_of_seq = [c[0] for c in chunks]
-    chunk_text_of_seq = [f"{h}\n{b}" if h else b for _, h, b in chunks]
+    # 2026-10-13 correction: VectorStore.seq is BATCH-LOCAL — mapping hits by seq to a
+    # global list is garbage. Map by the stored text (the store's own row identity).
+    idx_by_text = {f"{h}\n{b}" if h else b: i for i, (d, h, b) in enumerate(chunks)}
+    doc_of = [c[0] for c in chunks]
 
     gate, _rt, _aliases = build_gate(stores / "trace_rerank.sqlite3", ROUTING)
 
@@ -134,7 +136,9 @@ def main() -> None:
         total_cit += len(needles)
 
         bm = bm25_search(con, "fts", q, 20, " AND doc_id LIKE 'real-%'")
-        vr = [doc_of_seq[h.seq] for h in store.search(MATTER_REAL, qvec, k=20)]
+        vr = [doc_of[idx_by_text[h.text]] for h in store.search(MATTER_REAL, qvec, k=20)
+              if h.text in idx_by_text]
+        vr = list(dict.fromkeys(vr))
         fused = rrf([bm, vr])[:20]
 
         # dedupe for rerank, keep fused order for tie stability

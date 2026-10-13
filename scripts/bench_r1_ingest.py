@@ -377,7 +377,10 @@ async def query_leg(gate, store: VectorStore, con: sqlite3.Connection,
     for doc_id, text in real_docs:
         for c in split_structure(doc_id, text):
             real_chunks.append((doc_id, c.heading, c.text))
-    doc_of_seq = [rc[0] for rc in real_chunks]
+    # 2026-10-13 correction: VectorStore.seq is BATCH-LOCAL (restarts every 64-add) —
+    # mapping hits by seq to a global list is garbage; map by the stored text instead.
+    idx_by_text = {f"{h}\n{b}" if h else b: i for i, (_, h, b) in enumerate(real_chunks)}
+    doc_of = [rc[0] for rc in real_chunks]
 
     def source_of(case_id: str) -> str | None:
         suffix = case_id.split("-", 3)[-1]                 # e.g. "ppsa-001-goldcorp"
@@ -402,7 +405,9 @@ async def query_leg(gate, store: VectorStore, con: sqlite3.Connection,
         tq = time.perf_counter()
         emb = await gate.embed(EmbeddingRequest(matter_ref=MATTER_REAL, texts=[q]))
         bm = bm25_search(con, "fts", q, 20, " AND doc_id LIKE 'real-%'")
-        vr = [doc_of_seq[h.seq] for h in store.search(MATTER_REAL, emb.vectors[0], k=20)]
+        vr = [doc_of[idx_by_text[h.text]] for h in store.search(MATTER_REAL, emb.vectors[0], k=20)
+              if h.text in idx_by_text]
+        vr = list(dict.fromkeys(vr))
         fused = rrf([bm, vr])[:5]
         lat.append(time.perf_counter() - tq)
         src = source_of(case["id"])
