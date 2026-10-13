@@ -79,7 +79,7 @@ def test_matter_ref_sanitised_into_table_names(tmp_path):
 def test_hybrid_search_fuses_and_never_crosses_matters(tmp_path):
     from harness.corpus import CorpusStore, DocRecord
     from harness.vectors import VectorStore
-    vs = VectorStore(tmp_path / "vectors.sqlite3")
+    vs = VectorStore(tmp_path / "vectors.sqlite3", dim=2)
     store = CorpusStore(tmp_path / "corpus.sqlite3", vectors=vs)
     store.ingest("m-a", DocRecord("real-A", "SEC ONE\n\nstatutory demand text",
                                   "a.pdf"), vectors=[[1.0, 0.0]], model="m", provider="p")
@@ -93,7 +93,7 @@ def test_hybrid_search_fuses_and_never_crosses_matters(tmp_path):
 def test_hybrid_fuses_vector_first_when_lexical_misses(tmp_path):
     from harness.corpus import CorpusStore, DocRecord
     from harness.vectors import VectorStore
-    vs = VectorStore(tmp_path / "vectors.sqlite3")
+    vs = VectorStore(tmp_path / "vectors.sqlite3", dim=2)
     store = CorpusStore(tmp_path / "corpus.sqlite3", vectors=vs)
     store.ingest("m-a", DocRecord("real-A", "AAA xqzwk body", "a.pdf"),
                  vectors=[[1.0, 0.0]], model="m", provider="p")
