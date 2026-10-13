@@ -318,3 +318,60 @@ def ironfleet_corpus_search(query: str, k: int = 5, rerank: bool = True,
     return {"passages": [{"doc_id": h.doc_id, "heading": h.heading, "text": h.text,
                           "source_name": h.source_name, "score": h.score} for h in top],
             "authorities": [h.text for h in top]}
+
+
+# ------------------------------------------------- R1 Task 10: D9 select-compose support
+
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z“(\[])")
+_REF_TOKEN = re.compile(r"\[E\d+\.S\d+\]")
+
+
+def evidence_window(passages: list[dict], min_words: int = 6, cap: int = 500
+                    ) -> tuple[str, dict[str, str]]:
+    """D9: render the numbered evidence window the drafting model composes against.
+
+    Returns (block, table): the block numbers every sentence [E<extract>.S<sent>]; the
+    table maps each reference to its VERBATIM sentence. The model never copies quoted
+    prose — it emits references, and splice_references() restores the exact text, making
+    quote-fidelity a construction property (measured 781/0 valid on a 30B model)."""
+    table: dict[str, str] = {}
+    blocks: list[str] = []
+    offered = 0
+    for e, p in enumerate(passages, 1):
+        lines = []
+        for s_i, sent in enumerate(
+                (s.strip() for s in _SENT_SPLIT.split(p["text"])), 1):
+            if len(sent.split()) < min_words:
+                continue
+            if offered >= cap:
+                break
+            ref = f"[E{e}.S{s_i}]"
+            table[ref] = sent
+            lines.append(f"{ref} {sent}")
+            offered += 1
+        if lines:
+            blocks.append(f"[Extract {e} | {p.get('source', '')}]\n" + "\n".join(lines))
+        if offered >= cap:
+            break
+    return "\n\n".join(blocks), table
+
+
+def splice_references(draft: str, table: dict[str, str]) -> tuple[str, int, int]:
+    """Substitute every valid reference with its verbatim sentence, in quotes.
+    Returns (spliced, substituted, invalid). Invalid references stay VISIBLE in the
+    output (never silently dropped — the D9 contract) and are counted for the repair
+    pass / guard."""
+    invalid = 0
+    substituted = 0
+
+    def rep(m: re.Match) -> str:
+        nonlocal invalid, substituted
+        ref = m.group(0)
+        if ref in table:
+            substituted += 1
+            return f"\"{table[ref]}\""
+        invalid += 1
+        return ref
+
+    spliced = _REF_TOKEN.sub(rep, draft)
+    return spliced, substituted, invalid
