@@ -60,6 +60,24 @@ class EmbeddingResponse(BaseModel):
     usage: dict[str, int]
     provenance: ProvenanceReport
 
+
+class RerankRequest(BaseModel):
+    matter_ref: str
+    query: str
+    texts: list[str]
+    model: str | None = None
+    # R1 D3: rerank scores the DRAFT against PASSAGES — privileged text on both sides,
+    # so the strictest tier is structural (the routing table cannot relax it).
+    classification: Classification = "LOCAL_ONLY"
+    max_texts: int = 64      # batch ceiling; over-long batches are REFUSED, never truncated
+
+class RerankResponse(BaseModel):
+    scores: list[float]
+    provider: str
+    model: str
+    usage: dict[str, int]
+    provenance: ProvenanceReport
+
 class GateRefusal(RuntimeError):
     pass
 
@@ -70,10 +88,12 @@ class EgressGate:
 
     def __init__(self, registry: ProviderRegistry, routing: RoutingTable,
                  trace: TraceStore, transport: Transport | None = None,
-                 embedding_transport: Transport | None = None) -> None:
+                 embedding_transport: Transport | None = None,
+                 rerank_transport: Transport | None = None) -> None:
         self.registry, self.routing, self.trace = registry, routing, trace
         self._transport = transport or self._default_transport
         self._embedding_transport = embedding_transport or self._default_embedding_transport
+        self._rerank_transport = rerank_transport or self._default_rerank_transport
 
     async def _default_transport(self, provider: ProviderConfig, payload: dict) -> dict:
         from harness.keychain import get_key
@@ -95,6 +115,18 @@ class EgressGate:
         result = await openai_fetch(f"{provider.base_url.rstrip('/')}/embeddings", headers, payload)
         if result is None:
             raise RuntimeError(f"provider {provider.name} embeddings call failed")
+        return result
+
+    async def _default_rerank_transport(self, provider: ProviderConfig, payload: dict) -> dict:
+        # llama-server's /rerank shape (query + documents -> index/score results); NOT an
+        # OpenAI endpoint, so this transport lives beside the other two, not under them.
+        from harness.keychain import get_key
+        from harness.providers.http_fetch import openai_fetch
+        key = get_key(provider.name) or ""
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
+        result = await openai_fetch(f"{provider.base_url.rstrip('/')}/rerank", headers, payload)
+        if result is None:
+            raise RuntimeError(f"provider {provider.name} rerank call failed")
         return result
 
     def _provenance_of(self, provider: ProviderConfig, result: dict) -> ProvenanceReport:
@@ -277,3 +309,94 @@ class EgressGate:
                 provider=cfg.name, model=result.get("model", payload["model"]),
                 usage=usage, provenance=prov)
         raise GateRefusal(f"all embedding candidates failed; last: {last_error}")
+
+    async def rerank(self, request: "RerankRequest") -> "RerankResponse":
+        # R1 D3: the third sibling of dispatch()/embed() — same routing, same admission
+        # filter, same per-dispatch provenance and trace row; only the endpoint (/rerank)
+        # and the payload (query + documents, no max_tokens) differ.
+        if not request.texts:
+            self.trace.append(DispatchRecord(
+                matter_ref=request.matter_ref, task_class="rerank",
+                classification=request.classification, provider="-", model="-",
+                status="refused", error="empty rerank request"))
+            raise GateRefusal("empty rerank request — nothing to score")
+        if len(request.texts) > request.max_texts:
+            self.trace.append(DispatchRecord(
+                matter_ref=request.matter_ref, task_class="rerank",
+                classification=request.classification, provider="-", model="-",
+                status="refused",
+                error=f"rerank batch {len(request.texts)} exceeds max_texts {request.max_texts}"))
+            raise GateRefusal(
+                f"rerank batch {len(request.texts)} exceeds max_texts {request.max_texts}")
+        policy = MatterPolicy(matter_ref=request.matter_ref, classification=request.classification)
+        candidates = self.routing.route("rerank", policy, self.registry)
+        if not candidates:
+            self.trace.append(DispatchRecord(
+                matter_ref=request.matter_ref, task_class="rerank",
+                classification=request.classification, provider="-", model="-",
+                status="refused", error="no eligible provider"))
+            raise GateRefusal("no eligible provider for rerank")
+        last_error = ""
+        for cfg in candidates:
+            model = request.model or cfg.model
+            if not model:
+                self.trace.append(DispatchRecord(
+                    matter_ref=request.matter_ref, task_class="rerank",
+                    classification=request.classification, provider=cfg.name, model="-",
+                    status="refused", error=f"no model specified for provider {cfg.name}"))
+                raise GateRefusal(f"no model specified for provider {cfg.name}")
+            payload = {"model": model, "query": request.query, "documents": request.texts}
+            t0 = time.monotonic()
+            try:
+                result = await self._rerank_transport(cfg, payload)
+            except Exception as ex:                       # noqa: BLE001 — trace, then next candidate
+                last_error = str(ex)
+                self.trace.append(DispatchRecord(
+                    matter_ref=request.matter_ref, task_class="rerank",
+                    classification=request.classification, provider=cfg.name, model=payload["model"],
+                    status="error", error=last_error, latency_ms=int((time.monotonic()-t0)*1000)))
+                continue
+            results = result.get("results") or []
+            bad = None
+            if len(results) != len(request.texts):
+                bad = (f"rerank endpoint returned {len(results)} results "
+                       f"for {len(request.texts)} documents")
+            else:
+                seen: set[int] = set()
+                for i, r in enumerate(results):
+                    idx = r.get("index", i)
+                    if idx != i:
+                        bad = (f"rerank response misaligned at position {i}: "
+                               f"index={idx!r}, expected {i}")
+                        break
+                    if idx in seen:
+                        bad = f"rerank response repeats index {idx}"
+                        break
+                    seen.add(idx)
+            if bad is not None:
+                # A reversed or repeated index silently misaligns scores against passages —
+                # the exact S7e embed defect in another shape. Fail to the next candidate.
+                last_error = bad
+                self.trace.append(DispatchRecord(
+                    matter_ref=request.matter_ref, task_class="rerank",
+                    classification=request.classification, provider=cfg.name, model=payload["model"],
+                    status="error", error=last_error, latency_ms=int((time.monotonic()-t0)*1000)))
+                continue
+            prov = self._provenance_of(cfg, result)
+            usage = {k: int(v) for k, v in (result.get("usage") or {}).items()
+                     if isinstance(v, (int, float))}
+            self.trace.append(DispatchRecord(
+                matter_ref=request.matter_ref, task_class="rerank",
+                classification=request.classification, provider=cfg.name,
+                model=result.get("model", payload["model"]),
+                weights_revision=prov.weights_revision, engine=prov.engine,
+                backend=prov.backend,
+                verified=1 if prov.verified else 0,
+                tokens_in=usage.get("prompt_tokens", 0), tokens_out=0,   # no completion tokens
+                latency_ms=int((time.monotonic()-t0)*1000)))
+            ordered = sorted(results, key=lambda r: r["index"])
+            return RerankResponse(
+                scores=[float(r["relevance_score"]) for r in ordered],
+                provider=cfg.name, model=result.get("model", payload["model"]),
+                usage=usage, provenance=prov)
+        raise GateRefusal(f"all rerank candidates failed; last: {last_error}")

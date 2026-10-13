@@ -74,6 +74,12 @@
             "output": 16384,
             "context": 32768
           }
+        },
+        "gate/rerank": {
+          "limit": {
+            "output": 16384,
+            "context": 32768
+          }
         }
       },
       "options": {

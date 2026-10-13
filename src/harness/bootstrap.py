@@ -24,6 +24,10 @@ from harness.providers.http_fetch import openai_fetch
 from harness.trace import TraceStore
 
 OLLAMA_URL = "http://127.0.0.1:11434/v1"
+# R1 D3: the local cross-encoder rerank engine (llama-server --reranking; research/06
+# recipe). Root URL — llama-server serves /models and /rerank at the root, and the gate's
+# rerank transport posts to base_url + /rerank.
+LLAMA_RERANK_URL = "http://127.0.0.1:8778"
 
 
 def _scalar_usage(result: dict) -> dict:
@@ -107,13 +111,18 @@ def _probe_ollama():
     # driver is synchronous, so drive it to completion here. Calling it unawaited would
     # hand back a coroutine object and every attribute read below would blow up at
     # live-run time — the unit tests cannot see this, build_gate is stubbed there.
-    specs = [("ollama-local", "thomson1-chat:latest"), ("ollama-embed", "bge-m3:567m"),
+    specs = [("ollama-local", "thomson1-chat:latest", OLLAMA_URL, "ollama", "chat"),
+             ("ollama-embed", "bge-m3:567m", OLLAMA_URL, "ollama", "chat"),
              # S7j-W: the tool-calling injection model — the routing table's toolpath
              # class names ONLY this provider, so parity never dispatches it.
-             ("qwen-local", "qwen3.8:27b")]
-    for name, model in specs:
-        res = asyncio.run(register_provider(name, OLLAMA_URL, get_key(name) or "",
-                                            model=model, engine="ollama",
+             ("qwen-local", "qwen3.8:27b", OLLAMA_URL, "ollama", "chat"),
+             # R1 D3: the local cross-encoder. Its REFUSAL when the server is down is
+             # correct and quiet-in-stderr: the rerank class then has no eligible
+             # provider and the gate refuses at dispatch (fail-closed, D3).
+             ("llama-rerank", "qwen3-reranker-0.6b", LLAMA_RERANK_URL, "llamacpp", "rerank")]
+    for name, model, url, engine, kind in specs:
+        res = asyncio.run(register_provider(name, url, get_key(name) or "",
+                                            model=model, engine=engine, kind=kind,
                                             registry=reg, fetch=openai_fetch))
         if res.admission == "refused":
             print(f"[gate] {name} REFUSED: reachable={res.reachable} "

@@ -6,11 +6,14 @@ from pydantic import BaseModel
 from harness.providers.config import ProviderConfig, ProviderRegistry
 
 Classification = Literal["LOCAL_ONLY", "LOCAL_PREFERRED", "CLOUD_PERMITTED"]
-MECHANICAL_TASKS = {"extraction", "classification", "embedding", "redaction", "grounding_check"}
+MECHANICAL_TASKS = {"extraction", "classification", "embedding", "redaction", "grounding_check",
+                    "rerank"}
 # A-4: embedding privileged text via a cloud API is an egress event. These classes are
 # structurally LOCAL_ONLY — the routing table cannot relax this, because an operator
 # editing YAML is not the same authority as the confidentiality rule. See spec §2.
-LOCAL_ONLY_TASKS = frozenset({"embedding"})
+# R1 D3: rerank joins the set — it scores the DRAFT against PASSAGES, privileged on
+# both sides, and is mechanical work like embedding.
+LOCAL_ONLY_TASKS = frozenset({"embedding", "rerank"})
 
 class MatterPolicy(BaseModel):
     matter_ref: str

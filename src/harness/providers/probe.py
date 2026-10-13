@@ -19,9 +19,13 @@ async def register_provider(
     registry: ProviderRegistry | None = None,
     fetch: Fetch | None = None,
     keychain_set: dict[str, str] | None = None,
+    kind: str = "chat",
 ) -> ProbeResult:
     """D4 + CR-3: 'correct inputs' = reachable + authed + model list + VERIFIABLE provenance.
-    The key is stored only when the probe admits the provider."""
+    The key is stored only when the probe admits the provider. kind="rerank" (R1 D3)
+    additionally POSTs a 2-document probe pair to /rerank — a /models 200 alone does not
+    prove the rerank endpoint serves (wrong build or model would pass the list check and
+    die at dispatch)."""
     if fetch is None:
         from harness.providers.http_fetch import openai_fetch   # real transport (Task 7 extracts)
         fetch = openai_fetch
@@ -35,6 +39,13 @@ async def register_provider(
                          declared_provenance=declared or {})
     prov = await check_provenance(cfg, fetch)
     admission = admission_for(prov, cfg) if (reachable and auth_ok) else "refused"
+    if admission != "refused" and kind == "rerank":
+        rerank_probe = await fetch(
+            f"{base_url.rstrip('/')}/rerank", headers,
+            {"model": model, "query": "probe", "documents": ["relevant text", "irrelevant text"]})
+        results = (rerank_probe or {}).get("results") or []
+        if len(results) != 2:
+            admission = "refused"
     if admission != "refused":
         cfg.admitted = admission
         cfg.discovered_backend = prov.backend     # S7d: the probe's finding survives the upsert

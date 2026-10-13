@@ -271,7 +271,7 @@ def test_probe_ollama_registers_chat_and_embedding_providers(monkeypatch):
     monkeypatch.setattr(probe, "register_provider", fake_register)
     monkeypatch.setattr(drv, "get_key", lambda name: "")
     reg = drv._probe_ollama()
-    assert sorted(c.name for c in reg.list()) == ["ollama-embed", "ollama-local", "qwen-local"]
+    assert sorted(c.name for c in reg.list()) == ["llama-rerank", "ollama-embed", "ollama-local", "qwen-local"]
     assert ("ollama-embed", "bge-m3:567m", "ollama", True) in calls
     assert ("ollama-local", "thomson1-chat:latest", "ollama", True) in calls
     assert ("qwen-local", "qwen3.8:27b", "ollama", True) in calls
