@@ -12,3 +12,7 @@ data/eval/*.db*
 # S7i acceptance run dir: the run's own store/trace are live evidence on disk, not repo source
 data/eval/S7I-ACCEPTANCE/home/
 data/eval/S7I-ACCEPTANCE/genesis-home/
+
+# R1 research gate: bench binaries + stores stay local; results JSONs are the evidence
+data/eval/R1-RESEARCH-2026-10-13/rerank-server/
+data/eval/R1-RESEARCH-*/*.sqlite3*
