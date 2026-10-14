@@ -261,7 +261,10 @@ class CorpusStore:
             return c.execute(f"SELECT COUNT(*) FROM {_mtable(matter_ref, 'cites')}"
                              ).fetchone()[0]
 
-
+    def count(self, matter_ref: str) -> int:
+        """Stored chunk count (the FTS row count). Restored 2026-10-14: ae1fe3f's
+        replace left this method's body orphaned inside reindex_cites, so
+        accept_r1.py's C3 crashed on a missing attribute."""
         try:
             with self._c() as c:
                 return c.execute(
