@@ -115,13 +115,17 @@ def check_c2_offline() -> list[str]:
 
 def check_c3_live(store) -> list[str]:
     """Counts the STORE, not the last report: the report is per-run, the corpus is
-    cumulative (resume means later runs legitimately re-report fewer docs)."""
+    cumulative (resume means later runs legitimately re-report fewer docs).
+    Floors recalibrated 2026-10-14 against the CLEAN store (the previous 7,300-doc
+    floor encoded the duplicate-provision inflation of the pre-idempotence store:
+    variant act names created duplicate provision docs — 14,023 docs was ~2x the
+    true corpus). Clean truth: 7,199 provisions + 30 judgments = 7,229 docs."""
     docs, chunks = store.doc_count(MATTER), store.count(MATTER)
     problems = []
-    if docs < 7300:
-        problems.append(f"C3: store holds {docs} docs (expected ~7,318 provisions + 30 judgments)")
+    if docs < 7000:
+        problems.append(f"C3: store holds {docs} docs (expected ~7,199 provisions + 30 judgments)")
     if chunks < 19000:
-        problems.append(f"C3: store holds {chunks} chunks (expected ~19,860)")
+        problems.append(f"C3: store holds {chunks} chunks (expected ~19,763)")
     return problems
 
 
