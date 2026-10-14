@@ -119,6 +119,43 @@ def _fts_query(query: str, max_terms: int = 24) -> str:
     return " OR ".join(f'"{t}"' for t in terms)
 
 
+# ------------------------------------------------- R1 Task-3 amendment: citation injection
+_ACT_RE = re.compile(
+    r"((?:[A-Z][A-Za-z’'\-\.]*\s+){0,11}(?:Act|Acts|Regulations|Rules)\s+"
+    r"(?:19\d\d|20\d\d))")
+_SECT_RE = re.compile(
+    r"(?:ss\.?|s\.?|sections?\.?)\s+(\d+[A-Za-z()]*(?:\s+(?:and|to)\s+\d+[A-Za-z()]*"
+    r"|\s+\d+[A-Za-z()]*){0,3})", re.IGNORECASE)
+
+
+def _cit_key(title: str, year: str, section: str) -> str:
+    return f"{re.sub(r'[^a-z ]', '', title.lower().strip())}|{year}|{section}"
+
+
+def _citation_keys(text: str) -> set[str]:
+    """Citation spans -> canonical 'act title|year|section' join keys.
+
+    The measured failure this closes (2026-10-14, live on the 36k-chunk acceptance
+    corpus): for a query naming 'Companies Act 1993 s 135' exactly, BM25 ranked the
+    containing provision chunk 41st among 24,343 OR-matches — 'Act' alone is in 65% of
+    chunks and BM25's length normalisation lifts short amendment stubs over the real
+    400-word provision. A citation is a JOIN KEY, not a prose match: section spans are
+    found in a window around the act-year match, so 's 135 ... Companies Act 1993'
+    (query order) and 'Companies Act 1993, s 135' (DLM anchor body) canonicalise alike.
+    """
+    keys: set[str] = set()
+    for act in _ACT_RE.finditer(text):
+        window = text[max(0, act.start() - 60):act.end() + 60]
+        span = act.group(1)
+        year, title = span[-4:], span[:-4].strip()
+        secs = _SECT_RE.findall(window)
+        if not secs:
+            continue   # no section in scope: leave the whole-act match to BM25
+        for _s in [_s for sec in secs for _s in re.findall(r"\d+[A-Za-z()]*", sec)]:
+            keys.add(_cit_key(title, year, _s))
+    return keys
+
+
 class CorpusStore:
     """One SQLite db at the store root; each matter gets its own docs + FTS tables (D1).
 
@@ -160,15 +197,30 @@ class CorpusStore:
                       " words INTEGER, chunk_count INTEGER, ts TEXT)")
             c.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS {_mtable(matter_ref, 'fts')}"
                       " USING fts5(doc_id, heading, body)")
+            c.execute(f"CREATE TABLE IF NOT EXISTS {_mtable(matter_ref, 'cites')}"
+                      "(key TEXT, fts_rowid INTEGER, PRIMARY KEY(key, fts_rowid))")
             c.execute(f"INSERT OR REPLACE INTO {_mtable(matter_ref, 'docs')}"
                       " VALUES(?,?,?,?,?,?)",
                       (doc.doc_id, doc.source_name, sha, len(doc.text.split()),
                        len(chunks), datetime.now(timezone.utc).isoformat()))
             c.execute(f"DELETE FROM {_mtable(matter_ref, 'fts')} WHERE doc_id=?",
                       (doc.doc_id,))
+            c.execute(f"DELETE FROM {_mtable(matter_ref, 'cites')} WHERE key IN "
+                      f"(SELECT key FROM {_mtable(matter_ref, 'cites')} WHERE "
+                      f"fts_rowid IN (SELECT rowid FROM {_mtable(matter_ref, 'fts')}"
+                      " WHERE doc_id=?))", (doc.doc_id,))
             c.executemany(f"INSERT INTO {_mtable(matter_ref, 'fts')}"
                           "(doc_id, heading, body) VALUES(?,?,?)",
                           [(ch.doc_id, ch.heading, ch.text) for ch in chunks])
+            rowids = [r[0] for r in c.execute(
+                f"SELECT rowid FROM {_mtable(matter_ref, 'fts')} WHERE doc_id=? "
+                f"ORDER BY rowid", (doc.doc_id,))]
+            # the join keys: each chunk's own citation spans (the DLM provision anchor
+            # lands in the body; judgment bodies cite provisions inline too)
+            cite_rows = [(k, rid) for rid, ch in zip(rowids, chunks)
+                         for k in _citation_keys(f"{ch.heading}\n{ch.text}")]
+            c.executemany(f"INSERT OR REPLACE INTO {_mtable(matter_ref, 'cites')}"
+                          " VALUES(?,?)", cite_rows)
         if self._vectors is not None:
             self._vectors.add(matter_ref,
                               chunk_text(doc.doc_id, doc.text),
@@ -191,7 +243,25 @@ class CorpusStore:
         return [CorpusHit(doc_id=d, heading=h, text=b, source_name=s, score=-sc)
                 for d, h, b, s, sc in rows]
 
-    def count(self, matter_ref: str) -> int:
+    def reindex_cites(self, matter_ref: str) -> int:
+        """(Re)derive cites_<m> from the stored chunks — keys are pure text, so no
+        re-embedding. Runs after upgrading an already-ingested corpus to the
+        citation-injection amendment (2026-10-14)."""
+        with self._c() as c:
+            c.execute(f"CREATE TABLE IF NOT EXISTS {_mtable(matter_ref, 'cites')}"
+                      "(key TEXT, fts_rowid INTEGER, PRIMARY KEY(key, fts_rowid))")
+            c.execute(f"DELETE FROM {_mtable(matter_ref, 'cites')}")
+            rows = c.execute(
+                f"SELECT rowid, heading, body FROM {_mtable(matter_ref, 'fts')}"
+            ).fetchall()
+            c.executemany(
+                f"INSERT OR REPLACE INTO {_mtable(matter_ref, 'cites')} VALUES(?,?)",
+                [(k, r) for r, h, b in rows
+                 for k in _citation_keys(f"{h}\n{b}")])
+            return c.execute(f"SELECT COUNT(*) FROM {_mtable(matter_ref, 'cites')}"
+                             ).fetchone()[0]
+
+
         try:
             with self._c() as c:
                 return c.execute(
@@ -207,21 +277,52 @@ class CorpusStore:
         except sqlite3.OperationalError:
             return 0
 
+    def _cited_hits(self, matter_ref: str, query: str, k: int) -> list[CorpusHit]:
+        """Citation-injected candidates: a citation named in the query is a join key on
+        cites_<m>, bypassing BM25's length/IDF dilution — the amendment the measured
+        rank-41-for-an-exact-name failure forced (2026-10-14). Empty when the query
+        names no (act, section) pair."""
+        keys = _citation_keys(query)
+        if not keys:
+            return []
+        marks = ",".join("?" for _ in keys)
+        try:
+            rowids = [r[0] for r in self._c().execute(
+                f"SELECT DISTINCT fts_rowid FROM {_mtable(matter_ref, 'cites')} "
+                f"WHERE key IN ({marks}) ORDER BY fts_rowid", tuple(keys)).fetchall()]
+        except sqlite3.OperationalError:
+            return []   # no cites table for this matter yet
+        if not rowids:
+            return []
+        marks = ",".join("?" for _ in rowids)
+        rows = self._c().execute(
+            f"SELECT f.doc_id, f.heading, f.body, d.source_name FROM "
+            f"{_mtable(matter_ref, 'fts')} f JOIN {_mtable(matter_ref, 'docs')} d "
+            f"ON d.doc_id = f.doc_id WHERE f.rowid IN ({marks}) ORDER BY f.rowid",
+            tuple(rowids)).fetchall()
+        return [CorpusHit(doc_id=d, heading=h, text=b, source_name=s,
+                          score=1.0 - i / max(1, len(rows)))
+                for i, (d, h, b, s) in enumerate(rows[:k])]
+
     def search(self, matter_ref: str, query_text: str, query_vector: list[float],
                k: int = 5, candidates: int = 20) -> list[CorpusHit]:
         """Hybrid: lexical BM25 + dense vector, fused by RRF (Task 3). Either leg may
-        come back empty; the other carries alone. Per-matter by construction (D1)."""
+        come back empty; the other carries alone. Per-matter by construction (D1).
+        Citation-injected candidates ride a third ranking (Task-3 amendment) — a
+        citation named in the query is a join key, not a prose match."""
         lex = self.search_lexical(matter_ref, query_text, candidates)
         vec: list[CorpusHit] = []
         if self._vectors is not None and query_vector:
             vec = self._vec_hits(matter_ref, list(query_vector), candidates)
+        cit = self._cited_hits(matter_ref, query_text, candidates)
         lex_keys = [_hit_key(h) for h in lex]
         vec_keys = [_hit_key(h) for h in vec]
-        fused_keys = set(rrf([lex_keys, vec_keys]))
+        cit_keys = [_hit_key(h) for h in cit]
+        fused_keys = set(rrf([lex_keys, vec_keys, cit_keys]))
         by_key: dict[str, CorpusHit] = {}
-        for h in lex + vec:
+        for h in lex + vec + cit:
             by_key.setdefault(_hit_key(h), h)
-        fused = [h for hkey in rrf([lex_keys, vec_keys])
+        fused = [h for hkey in rrf([lex_keys, vec_keys, cit_keys])
                  if hkey in fused_keys and (h := by_key.get(hkey)) is not None]
         return fused[:k]
 

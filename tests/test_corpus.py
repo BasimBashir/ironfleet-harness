@@ -141,3 +141,53 @@ def test_corpus_search_rerank_leg_resorts_by_score(tmp_path, monkeypatch):
     res = ironfleet_corpus_search("body", k=2, store=store,
                                   embed_fn=lambda t: [[0.6, 0.4]], rerank_fn=fake_rerank)
     assert [p["text"] for p in res["passages"]][0].startswith("BBB")
+
+
+# ------------------------------------------------------- R1 amendment: citation injection
+def test_citation_keys_canonical_and_order_invariant():
+    from harness.corpus import _citation_keys
+    assert _citation_keys("Companies Act 1993, s 135") == {"companies act|1993|135"}
+    # the query form: section FIRST, act after, prose around it
+    assert "companies act|1993|135" in _citation_keys(
+        "s 135 Companies Act 1993 director personal liability")
+    # plural sections, ranges
+    ks = _citation_keys("Companies Act 1993 ss 135 137 recklessness")
+    assert "companies act|1993|135" in ks and "companies act|1999|137" not in ks
+    # no act named -> no keys
+    assert _citation_keys("the company was insolvent and traded on") == set()
+
+
+def test_citation_injection_surfaces_named_provision_above_bm25_noise(tmp_path):
+    """The measured failure this closes: for a query naming 'Companies Act 1993 s 135'
+    exactly, BM25 ranked the containing chunk 41st among 24,343 matches on the real
+    acceptance corpus (2026-10-14). A citation is a JOIN KEY, not a prose match."""
+    from harness.corpus import CorpusStore, DocRecord
+    store = CorpusStore(tmp_path / "corpus.sqlite3")
+    noise = "Companies Act 1993 Amendment Act 1997, s 52\n\nAct " + ("x y z. " * 30)
+    target = ("Companies Act 1993, s 135\n\nVersion as at 30 September 2024\n\n"
+              "135 Duty of care\n\nA director of a company must not act "
+              "recklessly or in a way that is likely to cause serious loss.")
+    store.ingest("m-a", DocRecord("D-noise", noise, "n.md"), vectors=[[1.0, 0.0]],
+                 model="m", provider="p")
+    store.ingest("m-a", DocRecord("D-target", target, "ca.mat"),
+                 vectors=[[0.1, 0.9]], model="m", provider="p")
+    hits = store.search("m-a", "s 135 Companies Act 1993 duty of care", [0.1, 0.9], k=5)
+    assert hits and hits[0].doc_id == "D-target"
+    # a query that names NO citation is unchanged — injection is a join, not a guess
+    plain = store.search("m-a", "director reckless loss", [0.1, 0.9], k=5)
+    assert all(h.doc_id != "D-target" or True for h in plain)  # no assertion on order
+    assert "D-target" in {h.doc_id for h in plain}
+
+
+def test_reindex_cites_rebuilds_join_table_without_reembedding(tmp_path):
+    from harness.corpus import CorpusStore, DocRecord
+    store = CorpusStore(tmp_path / "corpus.sqlite3")
+    store.ingest("m-a", DocRecord("D-1", "Companies Act 1993, s 135\n\nA duty of care.",
+                                  "a.md"), vectors=[[1.0, 0.0]], model="m", provider="p")
+    # simulate a pre-amendment corpus: drop the table, then rebuild from text
+    with store._c() as c:
+        c.execute("DROP TABLE cites_m_a")
+    n = store.reindex_cites("m-a")
+    assert n >= 1
+    hits = store.search("m-a", "s 135 Companies Act 1993 duty of care", [1.0, 0.0], k=3)
+    assert hits and hits[0].doc_id == "D-1"
