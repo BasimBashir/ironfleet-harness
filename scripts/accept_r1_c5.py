@@ -47,7 +47,8 @@ from scripts.stand_up_opencode import (                                # noqa: E
 from harness.egress_proxy import EgressProxy                           # noqa: E402
 
 MATTER = "m-r1-c5"
-STORE_FLOOR_DOCS, STORE_FLOOR_CHUNKS = 7300, 19000     # the C3 floors: C5 rides a real corpus
+# the C3 floors (clean-corpus calibration, 2026-10-14): C5 rides a real corpus
+STORE_FLOOR_DOCS, STORE_FLOOR_CHUNKS = 7000, 19000
 
 POSITIVE_PROMPT = (
     "Call the ironfleet_corpus_search tool to find the director's duty of care under "

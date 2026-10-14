@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass
 
 from harness.gate import EmbeddingRequest, LLMRequest, RerankRequest
+from harness.vectors import VectorStore
 
 _HEADING = re.compile(r"^(?:[IVXLC]+|\d+)[.\)]?\s+[A-Z].*[A-Z]{3}")   # "III. Title ..." / "12. Foo Bar"
 _ALLCAPS = re.compile(r"^[^a-z]{6,}$")                                # "TITLE TO BULLION"
