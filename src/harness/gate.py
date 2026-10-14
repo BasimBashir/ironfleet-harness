@@ -362,12 +362,16 @@ class EgressGate:
                 bad = (f"rerank endpoint returned {len(results)} results "
                        f"for {len(request.texts)} documents")
             else:
+                # A reranker may return results in ANY order (relevance-sorted is the
+                # norm); alignment is BY index — a value out of range or a duplicate
+                # silently misaligns scores against passages (the S7e embed defect in
+                # another shape), arrival order never can.
                 seen: set[int] = set()
                 for i, r in enumerate(results):
                     idx = r.get("index", i)
-                    if idx != i:
-                        bad = (f"rerank response misaligned at position {i}: "
-                               f"index={idx!r}, expected {i}")
+                    if not isinstance(idx, int) or not 0 <= idx < len(request.texts):
+                        bad = (f"rerank response index out of range at position {i}: "
+                               f"{idx!r} (0..{len(request.texts) - 1})")
                         break
                     if idx in seen:
                         bad = f"rerank response repeats index {idx}"

@@ -54,7 +54,10 @@ def check_c1_offline() -> list[str]:
         reg.upsert(ProviderConfig(name="rr", base_url="http://m/v1", engine="llamacpp",
                                   tier="local", model="rr-1", admitted="mechanical-only"))
         async def bad_transport(provider, payload):
-            return {"model": "rr-1", "results": [{"index": 1, "relevance_score": 0.9},
+            # a DUPLICATE index, not a reversed one — relevance-sorted arrival order is
+            # the reranker's contract (the 2026-10-14 live finding); only index-range or
+            # duplication misaligns scores
+            return {"model": "rr-1", "results": [{"index": 0, "relevance_score": 0.9},
                                                  {"index": 0, "relevance_score": 0.1}],
                     "usage": {}}
         rt = RoutingTable.from_yaml_str if hasattr(RoutingTable, "from_yaml_str") else None

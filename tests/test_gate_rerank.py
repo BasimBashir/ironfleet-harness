@@ -107,15 +107,24 @@ def _req(**kw):
 
 
 @pytest.mark.asyncio
-async def test_rerank_misordered_results_are_an_error_not_silently_accepted(tmp_path):
-    # the S7e embed lesson: a REVERSED response silently misaligns scores against
-    # passages — alignment is enforced per index, violations are traced then raised.
-    from harness.gate import GateRefusal
+async def test_rerank_results_may_arrive_in_any_order_but_align_by_index(tmp_path):
+    # relevance-sorted results are the reranker's CONTRACT (indexes=[1, 0] is normal);
+    # the guard must accept them and return scores aligned to INPUT order. The reverse
+    # was wrongly enforced until the live acceptance proved it failed 30/30 (2026-10-14).
     gate = _rr_gate(tmp_path, _rr_transport([0.9, 0.1], indexes=[1, 0]))
+    res = await gate.rerank(_req())
+    assert res.scores == [0.1, 0.9]   # index 0 -> 0.1, index 1 -> 0.9
+    recs = gate.trace.by_matter("M-1")
+    assert recs[0].status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_rerank_out_of_range_index_is_an_error(tmp_path):
+    from harness.gate import GateRefusal
+    gate = _rr_gate(tmp_path, _rr_transport([0.9, 0.1], indexes=[0, 2]))
     with pytest.raises(GateRefusal):
         await gate.rerank(_req())
-    recs = gate.trace.by_matter("M-1")
-    assert recs[0].status == "error"
+    assert gate.trace.by_matter("M-1")[0].status == "error"
 
 
 @pytest.mark.asyncio
