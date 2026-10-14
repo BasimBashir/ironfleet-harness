@@ -73,9 +73,10 @@ def test_ingest_refuses_unlicensed_and_ingests_licensed(tmp_path):
     def embed_fn(texts):
         calls.append(len(texts))
         return [[0.5, 0.5] for _ in texts]
-    report = ingest_statutes("m-a", manifest, _store(tmp_path), embed_fn)
+    report = ingest_statutes("m-a", manifest, _store(tmp_path), embed_fn,
+                         min_words=20)
     assert report["refused"] and "licence" in report["refused"][0]
-    assert report["ingested"] == ["Companies Act 1993"]
+    assert report["ingested"] == ["ca.txt"]   # general core reports file-centric
     assert report["provisions"] >= 2
     assert sum(calls) >= report["provisions"]        # embedded 1:1, nothing silent
 

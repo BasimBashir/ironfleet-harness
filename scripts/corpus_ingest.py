@@ -83,31 +83,55 @@ def ingest_dir(matter_ref: str, sources: list[Path], store: CorpusStore,
     return report
 
 
+def build_live_stack(trace_name: str, matter: str):
+    """Shared live stack for the ingestion CLIs: the real gate (LOCAL_ONLY embeds) and
+    the corpus store at the resolved store root."""
+    from scripts.stand_up_opencode import ROUTING, build_gate
+    from harness.paths import resolve_store_root
+    from harness.vectors import VectorStore
+    print("[gate] building (the embed leg is LOCAL_ONLY bge-m3)...", flush=True)
+    gate, _rt, _al = build_gate(Path(trace_name), ROUTING)
+    root, _source = resolve_store_root()
+    store = CorpusStore(root / "corpus.sqlite3",
+                        vectors=VectorStore(root / "vectors.sqlite3"))
+    return gate, store
+
+
+def make_embed_fn(gate, matter: str):
+    def embed_fn(texts):
+        res = asyncio.run(gate.embed(EmbeddingRequest(matter_ref=matter, texts=texts)))
+        return res.vectors
+    return embed_fn
+
+
 def main() -> None:
+    """THE front door: a new corpus set is a sources-spec YAML (or plain paths), never code.
+
+      python scripts/corpus_ingest.py --matter m-acme           --sources-spec data/corpus/sources.yaml --out-report r.json
+      python scripts/corpus_ingest.py --matter m-acme --sources dir/ file.pdf ...   # prose-only legacy
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--matter", required=True, help="colon-free matter ref")
-    ap.add_argument("--sources", nargs="+", required=True, type=Path)
+    ap.add_argument("--sources", nargs="*", type=Path)
+    ap.add_argument("--sources-spec", type=Path, default=REPO / "data/corpus/sources.yaml")
     ap.add_argument("--out-report", type=Path, required=True)
     args = ap.parse_args()
 
-    from scripts.stand_up_opencode import ROUTING, build_gate
-    print("[gate] building (real probe; the embed leg is LOCAL_ONLY bge-m3)...", flush=True)
-    gate, _rt, _al = build_gate(Path("corpus_ingest_trace.sqlite3"), ROUTING)
+    gate, store = build_live_stack("corpus_ingest_trace.sqlite3", args.matter)
+    embed_fn = make_embed_fn(gate, args.matter)
 
-    def embed_fn(texts: list[str]) -> list[list[float]]:
-        res = asyncio.run(gate.embed(EmbeddingRequest(matter_ref=args.matter, texts=texts)))
-        return res.vectors
-
-    from harness.paths import resolve_store_root
-    root = Path(resolve_store_root())
-    store = CorpusStore(root / "corpus.sqlite3",
-                        vectors=VectorStore(root / "vectors.sqlite3"))
-    report = ingest_dir(args.matter, args.sources, store, embed_fn)
+    if args.sources:                                   # legacy prose-only path
+        report = ingest_dir(args.matter, args.sources, store, embed_fn)
+    else:                                              # THE general path (D7)
+        from harness.ingest_generic import ingest_any, load_spec
+        report = ingest_any(args.matter, load_spec(args.sources_spec), store, embed_fn)
     print(f"[ingest] {len(report['ingested'])} ingested, {len(report['skipped'])} skipped, "
-          f"{len(report['skipped_by_resume'])} resumed, "
+          f"{len(report['skipped_by_resume'])} resumed, {len(report.get('refused', []))} refused, "
           f"{report['chunks']} chunks @ {report['chunks_per_s']} chunks/s", flush=True)
-    for s in report["skipped"]:
+    for s in report["skipped"][:12]:
         print(f"  [skipped] {s}", flush=True)
+    for r in report.get("refused", [])[:12]:
+        print(f"  [refused] {r}", flush=True)
     args.out_report.parent.mkdir(parents=True, exist_ok=True)
     args.out_report.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"[done] report -> {args.out_report}")
