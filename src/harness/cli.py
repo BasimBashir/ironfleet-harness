@@ -39,6 +39,25 @@ def main(argv: list[str] | None = None) -> int:
     drive.add_argument("--workspace", default=None)
     drive.add_argument("--prompt", default=None)
     drive.add_argument("--timeout", type=int, default=600)
+    # store CRUD (2026-10-14): a matter's corpus + vectors are fully manageable from the
+    # harness — create/update via corpus_ingest, read/delete here. Deletes are gated.
+    vectors = sub.add_parser("vectors", help="manage the local vector index (CRUD)")
+    vsub = vectors.add_subparsers(dest="vcmd")
+    vc = vsub.add_parser("count", help="stored vector rows for a matter")
+    vc.add_argument("--matter", required=True)
+    vl = vsub.add_parser("list", help="row-level read (id, model, text head)")
+    vl.add_argument("--matter", required=True)
+    vl.add_argument("--limit", type=int, default=20)
+    vd = vsub.add_parser("delete", help="delete texts, or the WHOLE matter (destructive)")
+    vd.add_argument("--matter", required=True)
+    vd.add_argument("--texts", nargs="*", default=None,
+                    help="omit to purge every row of the matter")
+    vd.add_argument("--yes", action="store_true", help="required: deletes are irreversible")
+    corpus = sub.add_parser("corpus", help="manage a matter's corpus store (CRUD)")
+    csub = corpus.add_subparsers(dest="ccmd")
+    cd = csub.add_parser("drop", help="drop the matter's docs/fts/cites tables (destructive)")
+    cd.add_argument("--matter", required=True)
+    cd.add_argument("--yes", action="store_true", help="required: deletes are irreversible")
     args = ap.parse_args(argv)
 
     if args.cmd == "serve":
@@ -59,6 +78,44 @@ def main(argv: list[str] | None = None) -> int:
         if args.prompt:
             argv2 += ["--prompt", args.prompt]
         return drive_main(argv2)
+    if args.cmd == "vectors":
+        from harness.paths import resolve_store_root
+        from harness.vectors import VectorStore
+        root, _src = resolve_store_root()
+        store = VectorStore(Path(root) / "vectors.sqlite3")
+        if args.vcmd == "count":
+            print(store.count(args.matter))
+            return 0
+        if args.vcmd == "list":
+            for row in store.list_texts(args.matter, limit=args.limit):
+                print(f"{row['id']}\t{row['model']}\t{row['text'][:100]}")
+            return 0
+        if args.vcmd == "delete":
+            if not args.yes:
+                print("refusing: vector deletes are irreversible — pass --yes",
+                      file=sys.stderr)
+                return 2
+            n = store.delete(args.matter, texts=args.texts or None)
+            scope = "specified texts" if args.texts else "THE WHOLE MATTER"
+            print(f"deleted {n} vector rows ({scope}) for {args.matter}")
+            return 0
+        vectors.print_help()
+        return 2
+    if args.cmd == "corpus":
+        if args.ccmd != "drop":
+            corpus.print_help()
+            return 2
+        if not args.yes:
+            print("refusing: dropping a matter's corpus is irreversible — pass --yes",
+                  file=sys.stderr)
+            return 2
+        from harness.corpus import CorpusStore
+        from harness.paths import resolve_store_root
+        root, _src = resolve_store_root()
+        store = CorpusStore(Path(root) / "corpus.sqlite3")
+        store.drop_matter(args.matter)
+        print(f"dropped corpus tables for {args.matter}")
+        return 0
     ap.print_help()
     return 2
 

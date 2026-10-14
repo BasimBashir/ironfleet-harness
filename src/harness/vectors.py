@@ -66,6 +66,23 @@ class VectorStore:
             CREATE VIRTUAL TABLE IF NOT EXISTS vec_index USING vec0(
               embedding float[{dim}], matter_ref TEXT PARTITION KEY);
             """)
+            try:
+                con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_emb_matter_text "
+                            "ON embeddings(matter_ref, text)")
+            except sqlite3.IntegrityError:
+                # Legacy store (pre-idempotence): duplicate (matter_ref, text) rows from
+                # interrupted-then-rerun ingests. Self-migrate — earliest row wins —
+                # then bind the constraint. A no-op on every compliant store.
+                con.execute(
+                    "DELETE FROM vec_index WHERE rowid IN (SELECT id FROM embeddings e "
+                    "WHERE EXISTS (SELECT 1 FROM embeddings t WHERE "
+                    "t.matter_ref=e.matter_ref AND t.text=e.text AND t.id < e.id))")
+                con.execute(
+                    "DELETE FROM embeddings WHERE id IN (SELECT id FROM embeddings e "
+                    "WHERE EXISTS (SELECT 1 FROM embeddings t WHERE "
+                    "t.matter_ref=e.matter_ref AND t.text=e.text AND t.id < e.id))")
+                con.execute("CREATE UNIQUE INDEX idx_emb_matter_text "
+                            "ON embeddings(matter_ref, text)")
 
     def _c(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.db_path)
@@ -74,6 +91,11 @@ class VectorStore:
 
     def add(self, matter_ref: str, texts: list[str], vectors: list[list[float]],
             model: str, provider: str) -> int:
+        """Idempotent per (matter_ref, text) as of 2026-10-14: an interrupted-then-rerun
+        ingest previously appended DUPLICATE rows (measured live: 48,436 rows / 18,845
+        distinct texts), and duplicate KNN rows crowd out unique chunks at depth —
+        the first write wins, re-adds are ignored, and a model swap is a deliberate
+        wipe-and-reindex (the row's model column records what is stored)."""
         if len(texts) != len(vectors):
             raise ValueError(f"{len(texts)} texts but {len(vectors)} vectors")
         ts = datetime.now(timezone.utc).isoformat()
@@ -85,12 +107,13 @@ class VectorStore:
                     raise ValueError(f"vector {seq} is {len(u)}-dim; this store is "
                                      f"{self.dim}-dim (D4: refuse, never shrink)")
                 cur = con.execute(
-                    "INSERT INTO embeddings(ts,matter_ref,seq,text,model,provider)"
+                    "INSERT OR IGNORE INTO embeddings(ts,matter_ref,seq,text,model,provider)"
                     " VALUES(?,?,?,?,?,?)",
                     (ts, matter_ref, seq, text, model, provider))
-                con.execute(
-                    "INSERT INTO vec_index(rowid, matter_ref, embedding) VALUES(?,?,?)",
-                    (cur.lastrowid, matter_ref, u.tobytes()))
+                if cur.rowcount:               # duplicate text: the stored row stands
+                    con.execute(
+                        "INSERT INTO vec_index(rowid, matter_ref, embedding) VALUES(?,?,?)",
+                        (cur.lastrowid, matter_ref, u.tobytes()))
         return len(texts)
 
     def search(self, matter_ref: str, query: list[float], k: int = 5) -> list[SearchHit]:
@@ -118,5 +141,47 @@ class VectorStore:
         try:
             return con.execute("SELECT COUNT(*) FROM embeddings WHERE matter_ref=?",
                                (matter_ref,)).fetchone()[0]
+        finally:
+            con.close()
+
+    def list_texts(self, matter_ref: str, limit: int = 20, offset: int = 0) -> list[dict]:
+        """R (2026-10-14): row-level read for ops visibility (count/search are the
+        retrieval reads; this is the store-inspection read). Newest last, id order."""
+        con = self._c()
+        try:
+            rows = con.execute(
+                "SELECT id, ts, model, provider, seq, text FROM embeddings "
+                "WHERE matter_ref=? ORDER BY id LIMIT ? OFFSET ?",
+                (matter_ref, limit, offset)).fetchall()
+        finally:
+            con.close()
+        return [{"id": r[0], "ts": r[1], "model": r[2], "provider": r[3],
+                 "seq": r[4], "text": r[5]} for r in rows]
+
+    def delete(self, matter_ref: str, texts: list[str] | None = None) -> int:
+        """D (2026-10-14): delete specific texts, or the WHOLE matter when texts is
+        None (a matter purge). Index rows go with their metadata (vec_index.rowid ==
+        embeddings.id). Returns the number of embedding rows removed. The store never
+        decides scope: callers (the harness CLI gates it behind --yes) own consent."""
+        con = self._c()
+        try:
+            with con:
+                if texts is None:
+                    con.execute(
+                        "DELETE FROM vec_index WHERE rowid IN "
+                        "(SELECT id FROM embeddings WHERE matter_ref=?)", (matter_ref,))
+                    con.execute("DELETE FROM vec_index WHERE matter_ref=?", (matter_ref,))
+                    cur = con.execute(
+                        "DELETE FROM embeddings WHERE matter_ref=?", (matter_ref,))
+                else:
+                    marks = ",".join("?" for _ in texts)
+                    con.execute(
+                        f"DELETE FROM vec_index WHERE rowid IN "
+                        f"(SELECT id FROM embeddings WHERE matter_ref=? "
+                        f"AND text IN ({marks}))", (matter_ref, *texts))
+                    cur = con.execute(
+                        f"DELETE FROM embeddings WHERE matter_ref=? "
+                        f"AND text IN ({marks})", (matter_ref, *texts))
+                return cur.rowcount
         finally:
             con.close()

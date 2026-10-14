@@ -69,3 +69,54 @@ def test_missing_extension_fails_closed(tmp_path, monkeypatch):
                         lambda: tmp_path / "does-not-exist.so")
     with pytest.raises(RuntimeError, match="fail-closed"):
         VectorStore(tmp_path / "v.db", dim=2)
+
+
+def test_add_is_idempotent_per_matter_and_text(tmp_path):
+    # 2026-10-14 live finding: interrupted-then-rerun ingests appended DUPLICATE rows
+    # (48,436 rows / 18,845 distinct texts on the acceptance store), and duplicate KNN
+    # rows crowd out unique chunks at depth. Re-adds must be ignored, first write wins.
+    store = VectorStore(tmp_path / "v.db", dim=2)
+    store.add("M-1", ["alpha body", "beta body"], [[1.0, 0.0], [0.0, 1.0]],
+              model="m", provider="p")
+    store.add("M-1", ["alpha body", "gamma body"], [[0.5, 0.5], [0.9, 0.1]],
+              model="m", provider="p")            # alpha re-added with a NEW vector
+    assert store.count("M-1") == 3                # not 4 — alpha stored once
+    hits = store.search("M-1", [1.0, 0.0], k=10)
+    texts = [h.text for h in hits]
+    assert len(texts) == len(set(texts))          # no duplicate texts can ever surface
+    alpha = [h for h in hits if h.text == "alpha body"]
+    assert len(alpha) == 1 and alpha[0].score == pytest.approx(1.0)  # first vector stands
+
+
+def test_add_idempotence_is_per_matter(tmp_path):
+    store = VectorStore(tmp_path / "v.db", dim=2)
+    store.add("M-1", ["shared text"], [[1.0, 0.0]], model="m", provider="p")
+    store.add("M-2", ["shared text"], [[0.0, 1.0]], model="m", provider="p")
+    assert store.count("M-1") == 1 and store.count("M-2") == 1
+    assert store.search("M-2", [0.0, 1.0], k=5)[0].score == pytest.approx(1.0)
+
+
+def test_delete_specific_texts_and_purge_whole_matter(tmp_path):
+    # D of the 2026-10-14 CRUD completion: targeted deletes and whole-matter purge,
+    # index rows always going with their metadata.
+    store = VectorStore(tmp_path / "v.db", dim=2)
+    store.add("M-1", ["alpha", "beta", "gamma"], [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]],
+              model="m", provider="p")
+    store.add("M-2", ["alpha"], [[0.9, 0.1]], model="m", provider="p")
+    assert store.delete("M-1", texts=["alpha"]) == 1
+    assert store.count("M-1") == 2
+    assert all(h.text != "alpha" for h in store.search("M-1", [1.0, 0.0], k=10))
+    assert store.count("M-2") == 1                        # other matter untouched
+    assert store.delete("M-1") == 2                       # purge
+    assert store.count("M-1") == 0
+    assert store.search("M-1", [1.0, 0.0], k=10) == []
+
+
+def test_list_texts_rows_are_readable(tmp_path):
+    store = VectorStore(tmp_path / "v.db", dim=2)
+    store.add("M-1", ["one text", "two text"], [[1.0, 0.0], [0.0, 1.0]],
+              model="bge-m3", provider="ollama-embed")
+    rows = store.list_texts("M-1")
+    assert [r["text"] for r in rows] == ["one text", "two text"]
+    assert rows[0]["model"] == "bge-m3" and rows[0]["seq"] == 0
+    assert store.list_texts("M-none") == []
