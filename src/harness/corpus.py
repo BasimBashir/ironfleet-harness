@@ -127,14 +127,36 @@ _ACT_RE = re.compile(
 _SECT_RE = re.compile(
     r"(?:ss\.?|s\.?|sections?\.?)\s+(\d+[A-Za-z()]*(?:\s+(?:and|to)\s+\d+[A-Za-z()]*"
     r"|\s+\d+[A-Za-z()]*){0,3})", re.IGNORECASE)
+# case-name spans: "X v Y" (counsel lists with '& ORS' trailers) and "Re X" —
+# case-sensitive proper-noun shape, but 'v'/'V' and 'Re'/'RE' both legal (headers)
+_CASE_SPAN = re.compile(
+    r"\b((?:[Rr]e|[Ee]x\s+[Pp]arte)\s+(?:[A-Z&][A-Za-z’'&.\-]*\s+){0,3}"
+    r"[A-Z][A-Za-z’'&.\-]*"
+    r"|(?:[A-Z&][A-Za-z’'&.\-]*\s+){0,5}[A-Z][A-Za-z’'&.\-]*\s+[vV](?:s\.?)?\s+"
+    r"(?:[A-Z&][A-Za-z’'&.\-]*\s+){0,5}[A-Z][A-Za-z’'&.\-]*)")
+_PARTICLES = {"ors", "anor", "ano", "others", "orters"}
+# law-report / court designators and bare years never belong in a case-name key —
+# headers write 'MADSEN-RIES & ORS V COOPER NZSC', needles write '... v Cooper
+# [2020] NZSC 100'; only the name part is the join identity
+_DESIGNATORS = {"nzsc", "nzca", "nzhc", "nzsca", "nzacc", "nzenv", "nzempc", "nzfc",
+                "nzhrtrt", "nzlatc", "nzcpc", "nzlr", "nzflj", "ac", "clr", "alr",
+                "rpc", "ukpc", "pc", "sc", "hl"}
 
 
 def _cit_key(title: str, year: str, section: str) -> str:
     return f"{re.sub(r'[^a-z ]', '', title.lower().strip())}|{year}|{section}"
 
 
+def _case_key(span: str) -> str:
+    words = [w for w in re.sub(r"[^A-Za-z0-9 ]", " ", span.lower()).split()
+             if w not in _PARTICLES and w not in _DESIGNATORS
+             and not (w.isdigit() and len(w) == 4)]
+    return "case:" + " ".join(words)
+
+
 def _citation_keys(text: str) -> set[str]:
-    """Citation spans -> canonical 'act title|year|section' join keys.
+    """Citation spans -> canonical join keys: 'act title|year|section' for statute
+    pins, 'case:x v y' / 'case:re x' for case names (2026-10-14 amendment 2).
 
     The measured failure this closes (2026-10-14, live on the 36k-chunk acceptance
     corpus): for a query naming 'Companies Act 1993 s 135' exactly, BM25 ranked the
@@ -143,6 +165,12 @@ def _citation_keys(text: str) -> set[str]:
     400-word provision. A citation is a JOIN KEY, not a prose match: section spans are
     found in a window around the act-year match, so 's 135 ... Companies Act 1993'
     (query order) and 'Companies Act 1993, s 135' (DLM anchor body) canonicalise alike.
+    The case-name keys close the measured PRESENT_NOT_RETRIEVED class (24 needles,
+    dominated by neutral-cited judgments: 'Madsen-Ries v Cooper [2020] NZSC 100' never
+    surfaced because nothing joined on the party names). Keys are exact-span matches —
+    case-folded, punctuation-stripped, '& ORS'-particles dropped — so distinct
+    authorities with similar names NEVER merge; a spurious join only adds a candidate
+    that must still survive fusion, rerank, and the guard.
     """
     keys: set[str] = set()
     for act in _ACT_RE.finditer(text):
@@ -154,6 +182,10 @@ def _citation_keys(text: str) -> set[str]:
             continue   # no section in scope: leave the whole-act match to BM25
         for _s in [_s for sec in secs for _s in re.findall(r"\d+[A-Za-z()]*", sec)]:
             keys.add(_cit_key(title, year, _s))
+    for m in _CASE_SPAN.finditer(text):
+        k = _case_key(m.group(1))
+        if 2 <= len(k[5:].split()) <= 14:                  # drop 1-word noise
+            keys.add(k)
     return keys
 
 
@@ -280,6 +312,15 @@ class CorpusStore:
                     f"SELECT COUNT(*) FROM {_mtable(matter_ref, 'docs')}").fetchone()[0]
         except sqlite3.OperationalError:
             return 0
+
+    def drop_matter(self, matter_ref: str) -> None:
+        """D for the corpus side (2026-10-14, the matter-CRUD completion): drop the
+        matter's docs + fts (+ shadow) + cites tables. ingest is create+update,
+        search/count read, this deletes — a matter can be fully managed from the
+        harness, never by hand-rolled SQL against the store."""
+        with self._c() as c:
+            for kind in ("docs", "fts", "cites"):
+                c.execute(f"DROP TABLE IF EXISTS {_mtable(matter_ref, kind)}")
 
     def _cited_hits(self, matter_ref: str, query: str, k: int) -> list[CorpusHit]:
         """Citation-injected candidates: a citation named in the query is a join key on
@@ -453,7 +494,7 @@ def _default_gate():
     return _TOOL_GATE
 
 
-def ironfleet_corpus_search(query: str, k: int = 5, rerank: bool = True,
+def ironfleet_corpus_search(query, k: int = 5, rerank: bool = True,
                             store: "CorpusStore | None" = None,
                             embed_fn=None, rerank_fn=None,
                             matter: str | None = None,
@@ -471,12 +512,21 @@ def ironfleet_corpus_search(query: str, k: int = 5, rerank: bool = True,
     and the result carries a "supply" diagnostic naming the (query, leg) pairs that
     produced each returned passage. Expansion failure degrades to the exact
     single-query search (default off — the D5 envelope and behaviour are unchanged)."""
+    if isinstance(query, dict):
+        # the module_e dispatch convention (the TS tools shim calls fn(args) with ONE
+        # JSON-args dict); direct Python callers keep the keyword form
+        args = query
+        query = str(args.get("query", ""))
+        k = int(args.get("k", k))
+        rerank = bool(args.get("rerank", rerank))
+        expand = bool(args.get("expand", expand))
+        matter = args.get("matter", matter) or matter
     matter = matter or os.environ.get("IRONFLEET_MATTER", "")
     if not matter:
         return {"passages": [], "authorities": [], "error": "no matter bound"}
     if store is None:
         from harness.paths import resolve_store_root
-        root = resolve_store_root()
+        root, _source = resolve_store_root()
         store = CorpusStore(Path(root) / "corpus.sqlite3",
                             vectors=VectorStore(Path(root) / "vectors.sqlite3"))
     if embed_fn is None:

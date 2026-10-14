@@ -11,3 +11,20 @@ def test_guard_passes_when_all_grounded():
     draft = "Met as required [Insolvency Act 2006, s 214]."
     res = portable_grounding_guard(draft, allowed_authorities=["Insolvency Act 2006, s 214"])
     assert res.ungrounded == [] and res.annotated == draft
+
+
+def test_guard_cli_payload_carries_allowed_passages():
+    """R1 D6 transport contract: the adapter must PASS allowed_passages through to the
+    referee — the live C5 gap was the TS template never sending it (2026-10-14)."""
+    from harness.spike.guard_port import OpenCodeHookAdapter
+    res = OpenCodeHookAdapter().handle({
+        "output": 'The court held "a wholly imaginary phrase never retrieved".',
+        "allowed": ["Companies Act 1993"],
+        "allowed_passages": ["a genuine passage about duties of directors"]})
+    assert res["decision"] == "block"
+    assert "UNQUOTED" in res["output"]
+    # no passages key at all -> referee skipped (pre-R1 behaviour, existing drivers)
+    res = OpenCodeHookAdapter().handle({
+        "output": 'The court held "a wholly imaginary phrase never retrieved".',
+        "allowed": ["Companies Act 1993"]})
+    assert res["decision"] == "approve"

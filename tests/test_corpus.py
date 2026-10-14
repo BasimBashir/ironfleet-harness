@@ -157,6 +157,22 @@ def test_citation_keys_canonical_and_order_invariant():
     assert _citation_keys("the company was insolvent and traded on") == set()
 
 
+def test_case_name_join_keys_generic_span_forms():
+    """2026-10-14 amendment 2: case NAMES are join keys like statute pins — any
+    'X v Y' / 'Re X' span, any corpus, no case-specific hardcoding. Header form
+    ('& ORS' trailer, uppercase V, trailing court designator) and needle form
+    ('... v Cooper [2020] NZSC 100') must canonicalise to ONE key."""
+    from harness.corpus import _citation_keys
+    needle = _citation_keys("Madsen-Ries v Cooper [2020] NZSC 100 director duties")
+    header = _citation_keys("MADSEN-RIES & ORS V COOPER NZSC")
+    assert needle == header == {"case:madsen ries v cooper"}
+    assert _citation_keys("Re Duomatic Ltd") == {"case:re duomatic ltd"}
+    assert "case:goldcorp exchange ltd v liggett" in _citation_keys(
+        "Goldcorp Exchange Ltd v Liggett [1994] UKPC 3")
+    # prose without case names stays key-free
+    assert _citation_keys("the company was insolvent and traded on") == set()
+
+
 def test_citation_injection_surfaces_named_provision_above_bm25_noise(tmp_path):
     """The measured failure this closes: for a query naming 'Companies Act 1993 s 135'
     exactly, BM25 ranked the containing chunk 41st among 24,343 matches on the real
@@ -301,3 +317,34 @@ def test_expand_pool_capped_before_rerank(tmp_path, monkeypatch):
         pool_cap=10)
     assert seen == [10]          # the merged pool was capped BEFORE rerank, at pool_cap
     assert len(res["passages"]) == 3
+
+
+def test_drop_matter_removes_all_matter_tables(tmp_path):
+    # D of matter CRUD: a matter is fully manageable from the harness, never by
+    # hand-rolled SQL (the 2026-10-14 clean-and-reingest used exactly this).
+    from harness.corpus import CorpusStore, DocRecord
+    store = CorpusStore(tmp_path / "corpus.sqlite3")
+    store.ingest("m-a", DocRecord("real-A", "SEC ONE\n\nalpha body words", "a.pdf"),
+                 vectors=[[0.0]], model="m", provider="p")
+    store.drop_matter("m-a")
+    assert store.doc_count("m-a") == 0
+    assert store.count("m-a") == 0
+    assert store.search_lexical("m-a", "alpha", k=5) == []   # fts table gone -> not present
+    store.ingest("m-a", DocRecord("real-B", "SEC TWO\n\nbeta body words", "b.pdf"),
+                 vectors=[[0.0]], model="m", provider="p")   # matter is reusable after drop
+    assert store.doc_count("m-a") == 1
+
+
+def test_corpus_search_accepts_dispatch_dict_convention(tmp_path, monkeypatch):
+    """The TS tools shim calls fn(args) with ONE JSON-args dict (module_e.dispatch);
+    the tool must accept both shapes or the live tool path dies on a TypeError
+    (found by the C5 build, 2026-10-14)."""
+    from harness.corpus import ironfleet_corpus_search
+    store = _two_topic_store(tmp_path)
+    monkeypatch.setenv("IRONFLEET_MATTER", "m-a")
+    res = ironfleet_corpus_search({"query": "PPSA priority secured", "k": 2,
+                                   "rerank": False},
+                                  store=store,
+                                  embed_fn=lambda texts: [[1.0, 0.0]] * len(texts))
+    assert res["passages"] and res["passages"][0]["doc_id"] == "D-ppsa"
+    assert res["authorities"] == [p["text"] for p in res["passages"]]

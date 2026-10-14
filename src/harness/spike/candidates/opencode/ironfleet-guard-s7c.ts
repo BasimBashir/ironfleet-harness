@@ -48,6 +48,35 @@ function authorities(): { allowed: string[]; block: boolean } {
   }
 }
 
+// R1 D6 transport (2026-10-14): the verbatim-quote referee needs the turn's corpus
+// authorities. tool.execute.after captures a corpus tool's JSON envelope "authorities"
+// into <ws>/passages.json; every guard payload then carries them as allowed_passages.
+// MISSING file = no corpus this session (referee skipped — the pre-R1 behaviour every
+// existing driver is pinned to); PRESENT file = the referee's allowance (an EMPTY file
+// plus any quotation = block, the D6 contract). This file still holds NO guard logic:
+// capture and transport only — guard_cli decides.
+function passagesPath(): string { return join(WS, "passages.json") }
+
+function loadPassages(): string[] | null {
+  try {
+    const raw = JSON.parse(readFileSync(passagesPath(), "utf8"))
+    return Array.isArray(raw) ? raw.map(String) : []
+  } catch {
+    return null
+  }
+}
+
+function captureAuthorities(outputText: unknown): void {
+  if (typeof outputText !== "string" || outputText.length === 0) return
+  try {
+    const auth = JSON.parse(outputText)?.authorities
+    if (!Array.isArray(auth) || auth.length === 0) return
+    const merged = [...(loadPassages() ?? []),
+                    ...auth.map((a) => String(a).slice(0, 4000))].slice(-64)
+    writeFileSync(passagesPath(), JSON.stringify(merged), "utf8")
+  } catch { /* a result that is not a corpus envelope transports nothing */ }
+}
+
 // Guard calls are SERIALIZED: during task delegation the primary and subagent streams
 // interleave and hooks can fire concurrently — concurrent python spawns were observed
 // failing (status=null) where serialized calls succeed (2026-09-01).
@@ -60,7 +89,11 @@ function guardOnce(text: string, allowed: string[], tag: string): GuardDecision 
   const seq = Date.now() + "-" + Math.floor(Math.random() * 1e9)
   const inFile = join(WS, `guard-in-${seq}.json`)
   const outFile = join(WS, `guard-out-${seq}.json`)
-  writeFileSync(inFile, JSON.stringify({ output: text, allowed }), "utf8")
+  const passages = loadPassages()
+  const payload = passages === null
+    ? { output: text, allowed }
+    : { output: text, allowed, allowed_passages: passages }
+  writeFileSync(inFile, JSON.stringify(payload), "utf8")
   try {
     const proc = spawnSync(PYTHON, [GUARD_CLI, inFile, outFile], { timeout: 60_000 })
     if (proc.status !== 0)
@@ -125,6 +158,7 @@ export const IronFleetGuard = async (_ctx: unknown) => {
     },
     "tool.execute.after": async (input: { tool: string; sessionID: string; callID: string },
                                   output: { title: string; output: string; metadata: unknown }) => {
+      captureAuthorities(output.output)   // R1 D6: corpus envelope -> the quote referee
       const res = await guard(output.output, `tool.execute.after:${input.tool}`)
       // ENVELOPE-AWARE (M0 hazard 2): blanket text annotation corrupts built-in tools'
       // structured JSON envelopes (SchemaError, session killed — observed live). Detection and
