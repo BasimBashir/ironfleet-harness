@@ -95,6 +95,18 @@ def _files_for(rows: list[dict]) -> list[tuple[Path, dict]]:
 
 
 def extract_text(source: Path) -> str:
+    """Format reach via a parser CHAIN, not per-format code (user direction 2026-10-14:
+    "use existing advanced RAG modules... they don't need custom upload scripts"). Order:
+    MarkItDown (Microsoft, MIT — PDF/DOCX/PPTX/XLSX/HTML/EPUB/email/images) when
+    installed; then pypdf for PDFs; then raw text. A chain failure is a recorded skip,
+    never a crash."""
+    try:
+        from markitdown import MarkItDown
+        text = MarkItDown().convert(str(source)).text_content or ""
+        if text.strip():
+            return text
+    except Exception:                                  # noqa: BLE001 — fall through the chain
+        pass
     if source.suffix.lower() == ".pdf":
         from pypdf import PdfReader
         reader = PdfReader(str(source))

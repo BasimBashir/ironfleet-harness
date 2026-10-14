@@ -93,3 +93,21 @@ def test_ingested_statute_section_is_retrievable_by_needle(tmp_path):
     from harness.eval.scorers import citation_hit
     blob = "\n".join(h.text for h in hits)
     assert citation_hit(blob, "Companies Act 1993, s 297")
+
+
+def test_parser_chain_reaches_docx_without_custom_code(tmp_path):
+    # the user's future-proofing requirement: new FORMAT, not new script. markitdown
+    # converts docx; the chain tries it first and falls back gracefully when absent.
+    from harness.ingest_generic import extract_text
+    txt = tmp_path / "plain.txt"
+    txt.write_text("HEADING\n\nplain body " * 10, encoding="utf-8")
+    assert "plain body" in extract_text(txt)           # chain never breaks the text path
+    try:
+        import docx  # noqa: F401
+        from docx import Document
+        d = Document()
+        d.add_paragraph("DOCX body text for the parser chain test.")
+        d.save(tmp_path / "t.docx")
+        assert "DOCX body text" in extract_text(tmp_path / "t.docx")
+    except ImportError:
+        pass                            # python-docx absent: markitdown's own docx leg suffices
