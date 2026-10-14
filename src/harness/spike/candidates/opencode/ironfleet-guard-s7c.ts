@@ -160,13 +160,15 @@ export const IronFleetGuard = async (_ctx: unknown) => {
                                   output: { title: string; output: string; metadata: unknown }) => {
       captureAuthorities(output.output)   // R1 D6: corpus envelope -> the quote referee
       const res = await guard(output.output, `tool.execute.after:${input.tool}`)
-      // ENVELOPE-AWARE (M0 hazard 2): blanket text annotation corrupts built-in tools'
-      // structured JSON envelopes (SchemaError, session killed — observed live). Detection and
-      // blocking run on EVERY tool (a block never mutates content, so it is envelope-safe);
-      // annotation mutates ONLY whitelisted free-text paths — the custom tools and `task`,
-      // whose result IS a subagent's prose answer. An unknown tool is detected and blocked but
-      // never rewritten. This is the fail-safe direction.
-      if (ANNOTATE.has(input.tool)) output.output = res.output
+      // ENVELOPE-AWARE (M0 hazard 2 + the 2026-10-14 live completion): a structured JSON
+      // envelope is NOT free text — annotating it corrupts the bytes the model must parse
+      // (observed live: an empty corpus envelope's '[]' came back as
+      // '[] [UNGROUNDED — not confirmed]'). Detection and the decision log are unchanged;
+      // only the REWRITE is skipped for parseable JSON. The check itself is untouched.
+      let annotated = res.output
+      if (typeof output.output === "string"
+          && output.output.trimStart().startsWith("{")) annotated = output.output
+      if (ANNOTATE.has(input.tool)) output.output = annotated
       if (authorities().block && res.decision === "block") throw new Error(res.reason)
     },
     "experimental.text.complete": async (_input: unknown, output: { text: string }) => {
