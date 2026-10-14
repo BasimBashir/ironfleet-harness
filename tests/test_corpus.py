@@ -360,3 +360,13 @@ def test_act_abbreviation_keys_join_the_full_name():
         "personal property securities act|1999|6"}
     assert _citation_keys("Personal Property Securities Act 1999, s 6") == {
         "personal property securities act|1999|6"}
+
+
+def test_default_gate_never_depends_on_the_scripts_package():
+    """C5 run 4 (live): the tool's default gate built from the scripts namespace
+    package — ModuleNotFoundError in the plugin subprocess, and scripts/ is not even
+    shipped in the distribution. The tool must build from the packaged path."""
+    import inspect
+    from harness.corpus import _default_gate
+    src = inspect.getsource(_default_gate)
+    assert "harness.bootstrap" in src and "from scripts" not in src

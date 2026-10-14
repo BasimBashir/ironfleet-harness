@@ -499,10 +499,14 @@ _TOOL_GATE = None          # lazily built once; probing Ollama is seconds, not p
 def _default_gate():
     global _TOOL_GATE
     if _TOOL_GATE is None:
-        from scripts.stand_up_opencode import ROUTING, build_gate
+        # the PACKAGED path: harness.bootstrap.build_gate + the packaged routing yaml —
+        # never the scripts namespace package (not importable from a plugin subprocess
+        # and not shipped in the distribution; found live by C5 run 4)
+        from harness.bootstrap import build_gate
+        from harness.cli import default_routing
         _TOOL_GATE, _rt, _al = build_gate(
             Path(__file__).resolve().parents[2] / "data" / "eval" / "corpus_tool_trace.sqlite3",
-            ROUTING)
+            default_routing())
     return _TOOL_GATE
 
 
