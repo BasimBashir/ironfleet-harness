@@ -1,0 +1,305 @@
+# NZ statute sources - operator-fetched PCO exports (verbatim text required;
+# the ingester refuses any row missing licence/source_url/retrieved)
+statutes:
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Anti-Money Laundering and Countering Financing of Terrorism
+    Act 2009 version 167_0 as at 27 November 2025.md
+  act: Anti-Money Laundering and Countering Financing of Terrorism Act 2009
+  version: '167_0'
+  as_at: 27 November 2025
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Arms Act 1983.md
+  act: Arms Act 1983
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Arms Regulations 1992.md
+  act: Arms Regulations 1992
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\CIV-TBC_STATUTE_Arbitration_Act_1996_NZ_20260403_FINAL.md
+  act: CIV-TBC_STATUTE_Arbitration_Act_1996_NZ_20260403_FINAL
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\CIV-TBC_STATUTE_Auctioneers_Act_2013_NZ_20260403_FINAL.md
+  act: CIV-TBC_STATUTE_Auctioneers_Act_2013_NZ_20260403_FINAL
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\CIV-TBC_STATUTE_Insolvency_Crossborder_Act_2006_NZ_20260403_FINAL.md
+  act: CIV-TBC_STATUTE_Insolvency_Crossborder_Act_2006_NZ_20260403_FINAL
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\CIV-TBC_STATUTE_Limitation_Act_2010_NZ_20260403_FINAL.md
+  act: CIV-TBC_STATUTE_Limitation_Act_2010_NZ_20260403_FINAL
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\CIV-TBC_STATUTE_Property_Law_Act_2007_NZ_20260403_FINAL.md
+  act: CIV-TBC_STATUTE_Property_Law_Act_2007_NZ_20260403_FINAL
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\CIV-TBC_STATUTE_Resale_Right_Visual_Artists_Act_2023_NZ_20260403_FINAL.md
+  act: CIV-TBC_STATUTE_Resale_Right_Visual_Artists_Act_2023_NZ_20260403_FINAL
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\CIV-TBC_STATUTE_Trusts_Act_2019_NZ_20260403_FINAL.md
+  act: CIV-TBC_STATUTE_Trusts_Act_2019_NZ_20260403_FINAL
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Companies Act 1993 Amendment Act 1997 version 1_0 as at 03
+    September 2007-merged.md
+  act: Companies Act 1993 Amendment Act 1997
+  version: '1_0'
+  as_at: 03 September 2007
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Companies Act 1993 Liquidation Regulations 1994 version 22_0
+    as at 01 July 2022.md
+  act: Companies Act 1993 Liquidation Regulations 1994
+  version: '22_0'
+  as_at: 01 July 2022
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Companies Act 1993.md
+  act: Companies Act 1993
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Consumer Guarantees Act 1993.md
+  act: Consumer Guarantees Act 1993
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Contract and Commercial Law Act 2017.md
+  act: Contract and Commercial Law Act 2017
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Copyright Act 1994.md
+  act: Copyright Act 1994
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Credit Contracts and Consumer Finance Act 2003 version 106_0
+    as at 24 January 2026.md
+  act: Credit Contracts and Consumer Finance Act 2003
+  version: '106_0'
+  as_at: 24 January 2026
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Crimes Act 1961 version 203_0 as at 27 November 2025.md
+  act: Crimes Act 1961
+  version: '203_0'
+  as_at: 27 November 2025
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Criminal Disclosure Act 2008 version 47_0 as at 28 November
+    2023.md
+  act: Criminal Disclosure Act 2008
+  version: '47_0'
+  as_at: 28 November 2023
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\District Court Rules 2014 version 102_0 as at 01 September
+    2025.md
+  act: District Court Rules 2014
+  version: '102_0'
+  as_at: 01 September 2025
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Employment Relations Act 2000 version 241_0 as at 05 April
+    2026.md
+  act: Employment Relations Act 2000
+  version: '241_0'
+  as_at: 05 April 2026
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Evidence Act 2006.md
+  act: Evidence Act 2006
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Fair Trading Act 1986.md
+  act: Fair Trading Act 1986
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Financial Reporting Act 2013 version 70_0 as at 05 April 2026.md
+  act: Financial Reporting Act 2013
+  version: '70_0'
+  as_at: 05 April 2026
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Goods and Services Tax Act 1985 version 291_0 as at 01 April
+    2026.md
+  act: Goods and Services Tax Act 1985
+  version: '291_0'
+  as_at: 01 April 2026
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\High Court (Lawyers and Conveyancers Act 2006) Amendment Rules
+    2008 version 10_0 as at 30 June 2008.md
+  act: High Court (Lawyers and Conveyancers Act 2006) Amendment Rules 2008
+  version: '10_0'
+  as_at: 30 June 2008
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\High Court Improved Access to Civil Justice Amendment Rules
+    2025.md
+  act: High Court Improved Access to Civil Justice Amendment Rules 2025
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\High Court Rules 2016.md
+  act: High Court Rules 2016
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Holidays Act 2003 version 78_0 as at 20 December 2023.md
+  act: Holidays Act 2003
+  version: '78_0'
+  as_at: 20 December 2023
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Insolvency Act 2006.md
+  act: Insolvency Act 2006
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Insolvency Practitioners Regulation Act 2019 version 34_0 as
+    at 25 May 2022.md
+  act: Insolvency Practitioners Regulation Act 2019
+  version: '34_0'
+  as_at: 25 May 2022
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Lawyers and Conveyancers Act 2006 version 142_0 as at 12 February
+    2026.md
+  act: Lawyers and Conveyancers Act 2006
+  version: '142_0'
+  as_at: 12 February 2026
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Official Information Act 1982.md
+  act: Official Information Act 1982
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Personal Property Securities Act 1999 version 102_0 as at 05
+    April 2025.md
+  act: Personal Property Securities Act 1999
+  version: '102_0'
+  as_at: 05 April 2025
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Personal Property Securities Act 1999.md
+  act: Personal Property Securities Act 1999
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Privacy Act 2020.md
+  act: Privacy Act 2020
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Property Law Act 2007 version 156_0 as at 05 April 2025.md
+  act: Property Law Act 2007
+  version: '156_0'
+  as_at: 05 April 2025
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Receiverships Act 1993.md
+  act: Receiverships Act 1993
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Reciprocal Enforcement of Judgments Act 1934 version 19_0 as
+    at 28 October 2021.md
+  act: Reciprocal Enforcement of Judgments Act 1934
+  version: '19_0'
+  as_at: 28 October 2021
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Search and Surveillance Act 2012 version 318_0 as at 28 November
+    2025.md
+  act: Search and Surveillance Act 2012
+  version: '318_0'
+  as_at: 28 November 2025
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
+- file: C:\Users\mianx\OneDrive\Desktop\nz\Senior Courts Act 2016.md
+  act: Senior Courts Act 2016
+  version: ''
+  as_at: ''
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/
+  retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14

@@ -44,6 +44,13 @@ def citation_variants(needle: str) -> list[str]:
         vs.add(f"{sec} of {act}")                        # prose order
         vs.add(f"{sec} of the {act}")                    # prose order with article
         vs.add(f"{sec} {act}")                           # comma-less order
+        # R1 (research/07): provision texts and judgments write the pin both ways —
+        # "s 297" and "section 297" are the same authority surface
+        if sec.startswith("s "):
+            vs.add(f"{act}, section {sec[2:]}")
+            vs.add(f"section {sec[2:]} of the {act}")
+        elif sec.startswith("section"):
+            vs.add(f"{act}, s {sec.split(None, 1)[1]}")
     if _BARE_ACT.match(needle):                          # year-fragile bare instrument pin
         vs.add(re.sub(r"\s+\d{4}$", "", needle))
     for m in _REPORT_CITE.finditer(needle):              # law-report cite families
