@@ -111,3 +111,16 @@ def test_parser_chain_reaches_docx_without_custom_code(tmp_path):
         assert "DOCX body text" in extract_text(tmp_path / "t.docx")
     except ImportError:
         pass                            # python-docx absent: markitdown's own docx leg suffices
+
+
+def test_detect_kind_judgment_page_numbers_are_not_statutes():
+    # the live false positive: extracted judgment PDFs spray standalone page numbers
+    from harness.ingest_generic import detect_kind
+    judgment = "\n".join(
+        [f"para text about the parties and the law {i} with enough words here to look real."
+         if i % 37 else str(i) for i in range(300)])
+    assert detect_kind(judgment) == "prose"
+    statute = ("Companies Act 1993\n1993 No 105\nVersion as at 30 September 2024\n\n"
+               + "\n".join(f"{n}\nSection {n} body text with sufficient words to pass the floor."
+                           for n in range(1, 30)))
+    assert detect_kind(statute) == "statute"

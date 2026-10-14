@@ -62,10 +62,17 @@ def parse_provisions(act_name: str, text: str) -> list[DocRecord]:
     return out
 
 
+_PCO_FURNITURE = re.compile(r"Version as at|Reprint as at|^\s*\d{4} No \d+", re.MULTILINE)
+
+
 def detect_kind(text: str) -> str:
-    """'statute' iff the text carries a section-heading skeleton (>=5 bare-number
-    headings in the first 4000 lines); else 'prose'. Judgments (prose with bracketed
-    paragraph numbers) never carry five bare-number heading lines."""
+    """'statute' iff the text has a section-heading skeleton AND PCO-export furniture
+    ('Version as at' / '1993 No 105') that judgments never carry. The furniture clause
+    exists because extracted judgment PDFs spray standalone page-number lines that
+    match a section-heading regex (measured live: 25 judgments refused as licence-less
+    'statutes' before this clause)."""
+    if not _PCO_FURNITURE.search(text[:8000]):
+        return "prose"
     hits = sum(1 for ln in text.splitlines()[:4000] if _STATUTE_SECTION.match(ln))
     return "statute" if hits >= 5 else "prose"
 
