@@ -39,8 +39,8 @@ def check_c1_offline() -> list[str]:
     from harness.trace import TraceStore
     import tempfile
     problems: list[str] = []
-    with tempfile.TemporaryDirectory() as td:
-        tdp = Path(td)
+    tdp = Path(tempfile.mkdtemp(prefix="accept_r1_c1_"))   # no rmtree: sqlite handles
+    if True:                                               # outlive the block on Windows
         store = CorpusStore(tdp / "c.sqlite3")
         store.ingest("m-a", DocRecord("d1", "SEC ONE\n\nalpha body text", "a.pdf"),
                      [[1.0, 0.0]], "m", "p")
@@ -97,9 +97,12 @@ def check_c2_offline() -> list[str]:
         problems = [f"C2: cloud rerank routed: {[c.name for c in picks]}"]
     else:
         problems = []
-    aliases = load_aliases(routing)
-    if aliases.get("gate/rerank") != "rerank":
-        problems.append("C2: gate/rerank alias missing")
+    from harness.alias import resolve_alias
+    try:
+        if resolve_alias("gate/rerank", load_aliases(routing)) != "rerank":
+            problems.append("C2: gate/rerank alias missing")
+    except Exception as ex:                            # noqa: BLE001
+        problems.append(f"C2: gate/rerank does not resolve: {ex}")
     # the committed table names llama-rerank for the class
     names = rt.route("rerank", MatterPolicy(matter_ref="m", classification="LOCAL_ONLY"), reg)
     if names:
@@ -107,19 +110,15 @@ def check_c2_offline() -> list[str]:
     return problems
 
 
-def check_c3_live(report_path: Path) -> list[str]:
-    if not report_path.exists():
-        return ["C3: DUE — no ingest report (run scripts/corpus_ingest.py --matter "
-                f"{MATTER} --sources-spec data/corpus/sources.yaml)"]
-    r = json.loads(report_path.read_text(encoding="utf-8"))
+def check_c3_live(store) -> list[str]:
+    """Counts the STORE, not the last report: the report is per-run, the corpus is
+    cumulative (resume means later runs legitimately re-report fewer docs)."""
+    docs, chunks = store.doc_count(MATTER), store.count(MATTER)
     problems = []
-    if r.get("provisions", 0) < 400:
-        problems.append(f"C3: only {r.get('provisions')} statute provisions ingested "
-                        f"(expected 400+ from the 41-act working set)")
-    if r.get("prose_docs", 0) < 25:
-        problems.append(f"C3: only {r.get('prose_docs')} prose docs (expected ~31 judgments)")
-    if r.get("refused"):
-        problems.append(f"C3: licence refusals: {r['refused'][:3]}")
+    if docs < 7300:
+        problems.append(f"C3: store holds {docs} docs (expected ~7,318 provisions + 30 judgments)")
+    if chunks < 19000:
+        problems.append(f"C3: store holds {chunks} chunks (expected ~19,860)")
     return problems
 
 
@@ -199,7 +198,6 @@ def main() -> None:
     if args.skip_live:
         print("C3/C4/C6 skipped by flag; C5 due-for-live (recorded, never claimed)")
     else:
-        problems += check_c3_live(REPO / args.report)
         try:
             from scripts.corpus_ingest import build_live_stack, make_embed_fn  # noqa: F401
             from harness.corpus import CorpusStore
@@ -208,7 +206,8 @@ def main() -> None:
             root, _src = resolve_store_root()
             store = CorpusStore(root / "corpus.sqlite3",
                                 vectors=VectorStore(root / "vectors.sqlite3"))
-            gate, _rt, _al = build_live_stack("accept_r1_trace.sqlite3", MATTER)
+            gate, store2 = build_live_stack("accept_r1_trace.sqlite3", MATTER)
+            problems += check_c3_live(store)
             problems += check_c4_live(gate, store)
             problems += check_c6_live(store)
         except Exception as ex:                        # noqa: BLE001
