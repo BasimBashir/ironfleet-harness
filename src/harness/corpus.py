@@ -142,6 +142,15 @@ _PARTICLES = {"ors", "anor", "ano", "others", "orters"}
 _DESIGNATORS = {"nzsc", "nzca", "nzhc", "nzsca", "nzacc", "nzenv", "nzempc", "nzfc",
                 "nzhrtrt", "nzlatc", "nzcpc", "nzlr", "nzflj", "ac", "clr", "alr",
                 "rpc", "ukpc", "pc", "sc", "hl"}
+# UNAMBIGUOUS act-name abbreviations (jurisdiction vocabulary, extensible — never per-
+# case): a query writing 'PPSA 1999 s 6' must key the same join as the DLM provision
+# 'Personal Property Securities Act 1999, s 6'. An abbreviation that could name two
+# authorities stays OUT of this table (never merge distinct authorities).
+_ABBREVIATIONS = {
+    "PPSA": "Personal Property Securities Act",
+}
+_ABBREV_RE = re.compile(
+    r"\b(" + "|".join(_ABBREVIATIONS) + r")\s+(\d{4})\b")
 
 
 def _cit_key(title: str, year: str, section: str) -> str:
@@ -174,6 +183,8 @@ def _citation_keys(text: str) -> set[str]:
     that must still survive fusion, rerank, and the guard.
     """
     keys: set[str] = set()
+    text = _ABBREV_RE.sub(
+        lambda m: f"{_ABBREVIATIONS[m.group(1)]} {m.group(2)}", text)
     for act in _ACT_RE.finditer(text):
         window = text[max(0, act.start() - 60):act.end() + 60]
         span = act.group(1)

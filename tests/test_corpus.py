@@ -348,3 +348,15 @@ def test_corpus_search_accepts_dispatch_dict_convention(tmp_path, monkeypatch):
                                   embed_fn=lambda texts: [[1.0, 0.0]] * len(texts))
     assert res["passages"] and res["passages"][0]["doc_id"] == "D-ppsa"
     assert res["authorities"] == [p["text"] for p in res["passages"]]
+
+
+def test_act_abbreviation_keys_join_the_full_name():
+    """The measured PPSA finding (failure report run 2): expansion emits the
+    ABBREVIATION ('PPSA 1999 s 6') and the join missed the DLM provision
+    ('Personal Property Securities Act 1999, s 6'). Unambiguous abbreviations
+    canonicalise to the same key; ambiguous ones stay out of the table."""
+    from harness.corpus import _citation_keys
+    assert _citation_keys("PPSA 1999 s 6 lease of goods") == {
+        "personal property securities act|1999|6"}
+    assert _citation_keys("Personal Property Securities Act 1999, s 6") == {
+        "personal property securities act|1999|6"}
