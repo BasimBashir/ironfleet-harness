@@ -2,6 +2,7 @@
 import pytest
 
 from harness.corpus import CorpusStore
+from harness.ingest_generic import ingest_any
 from scripts.corpus_ingest import ingest_dir
 
 
@@ -64,3 +65,28 @@ def test_extract_text_pdf_parse_watchdog_records_skip(tmp_path):
     with pytest.raises(TimeoutError):
         # an impossible deadline: Windows spawn + pypdf import always exceeds 0.2 s
         extract_text(pdf, timeout=0.2)
+
+
+def test_statute_resume_is_doc_granularity(tmp_path):
+    """One statute FILE fans out to per-provision DOCS; resume must key on the doc
+    sha (what the store holds) or every re-run re-embeds all provisions — the measured
+    root cause of the 2.6x duplicate embeddings (2026-10-14)."""
+    statute = tmp_path / "Test Act 2020.md"
+    body = "\n".join(
+        f"{n} Provision title number {n}\n" + " ".join(f"word{i}" for i in range(40))
+        for n in (5, 7))
+    statute.write_text(body, encoding="utf-8")
+    store = _store(tmp_path)
+    calls = []
+    spec = [{"path": str(statute), "kind": "statute", "act": "Test Act 2020",
+             "licence": "CC BY 4.0 (test)", "source_url": "https://test/",
+             "retrieved": "test fixture"}]
+    r1 = ingest_any("m-t", spec, store, embed_fn=lambda t: calls.append(len(t)) or [[1.0, 0.0]],
+                    min_words=50)
+    n_docs = r1["provisions"]
+    assert n_docs >= 2
+    calls.clear()
+    r2 = ingest_any("m-t", spec, store, embed_fn=lambda t: calls.append(len(t)) or [[1.0, 0.0]],
+                    min_words=50)
+    assert r2["resumed_docs"] == n_docs
+    assert not calls                                   # not ONE chunk re-embedded

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,55 +104,54 @@ def _files_for(rows: list[dict]) -> list[tuple[Path, dict]]:
 
 PARSE_TIMEOUT_S = 180              # a source that hangs parse is recorded-and-skipped
 
+_PARSE_CMD = ("import sys; from harness.ingest_generic import _parse_chain; "
+              "_parse_chain(sys.argv[1], sys.argv[2])")
 
-def _parse_worker(source_str: str, q) -> None:
-    """The FULL parser chain, in a killable process: MarkItDown (format reach), then
-    pypdf for PDFs, then raw text. Result rides the queue as ("ok", text) or
-    ("error", reason) — an error must reach the parent as an exception, never as a
-    silent empty doc."""
+
+def _parse_chain(source_str: str, out_str: str) -> None:
+    """The FULL parser chain: MarkItDown (format reach), then pypdf for PDFs, then raw
+    text. Writes the text file; a total chain failure raises (never a silent empty doc)."""
     text = ""
     try:
-        try:
-            from markitdown import MarkItDown
-            text = MarkItDown().convert(source_str).text_content or ""
-        except Exception:                              # noqa: BLE001 — fall through the chain
-            text = ""
-        if not text.strip():
-            p = Path(source_str)
-            if p.suffix.lower() == ".pdf":
-                from pypdf import PdfReader
-                reader = PdfReader(str(p))
-                text = "\n\n".join((page.extract_text() or "") for page in reader.pages)
-            else:
-                text = p.read_text(encoding="utf-8")
-        q.put(("ok", text))
-    except Exception as ex:                            # noqa: BLE001 — reported, not swallowed
-        q.put(("error", f"{type(ex).__name__}: {ex}"))
+        from markitdown import MarkItDown
+        text = MarkItDown().convert(source_str).text_content or ""
+    except Exception:                                  # noqa: BLE001 — fall through the chain
+        text = ""
+    if not text.strip():
+        p = Path(source_str)
+        if p.suffix.lower() == ".pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(str(p))
+            text = "\n\n".join((page.extract_text() or "") for page in reader.pages)
+        else:
+            text = p.read_text(encoding="utf-8")
+    Path(out_str).write_text(text, encoding="utf-8")
 
 
 def extract_text(source: Path, timeout: int = PARSE_TIMEOUT_S) -> str:
     """Format reach via a parser CHAIN, not per-format code (user direction 2026-10-14:
     "use existing advanced RAG modules... they don't need custom upload scripts"). The
-    chain runs in a killable worker: parsers have no internal timeouts and a pathological
-    file can burn a core forever (observed live 2026-10-14 — MarkItDown spun on one
-    judgment PDF for 10+ minutes with zero output). On timeout the caller records
-    and skips the source (the D7 contract), never silently embedding an empty doc."""
-    import multiprocessing as mp
-    ctx = mp.get_context("spawn")
-    q = ctx.Queue()
-    proc = ctx.Process(target=_parse_worker, args=(str(source), q))
-    proc.start()
-    proc.join(timeout)
-    if proc.is_alive():
-        proc.terminate()
-        proc.join(5)
-        raise TimeoutError(f"parse exceeded {timeout}s (killed): {source.name}")
-    if q.empty():
-        raise RuntimeError(f"parse worker died without a result: {source.name}")
-    status, payload = q.get()
-    if status == "error":
-        raise RuntimeError(f"parse failed: {source.name}: {payload}")
-    return payload
+    chain runs in a KILLABLE SUBPROCESS (file transport, no pipes): parsers have no
+    internal timeouts and a pathological file can burn a core forever (observed live
+    2026-10-14 — pypdf, then MarkItDown, each pinned a core 10+ minutes on judgment
+    PDFs; multiprocessing-spawn workers additionally hang on this box). On timeout the
+    caller records-and-skips the source (the D7 contract), never silently embedding an
+    empty doc."""
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="r1parse_") as td:
+        out = Path(td) / "text.txt"
+        try:
+            proc = subprocess.run([sys.executable, "-c", _PARSE_CMD,
+                                   str(source), str(out)],
+                                  capture_output=True, text=True, timeout=timeout,
+                                  cwd=str(Path(__file__).resolve().parents[2]))
+        except subprocess.TimeoutExpired:
+            raise TimeoutError(
+                f"parse exceeded {timeout}s (killed): {source.name}") from None
+        if proc.returncode != 0 or not out.exists():
+            raise RuntimeError(f"parse failed: {source.name}: {proc.stderr[-300:]}")
+        return out.read_text(encoding="utf-8")
 
 
 def ingest_any(matter_ref: str, rows: list[dict], store: CorpusStore, embed_fn,
@@ -192,6 +192,16 @@ def ingest_any(matter_ref: str, rows: list[dict], store: CorpusStore, embed_fn,
             docs = [DocRecord(doc_id=f"doc-{sha[:12]}", text=text, source_name=src.name)]
             report["prose_docs"] += 1
         for doc in docs:
+            # resume at DOC granularity, not file granularity: one statute file fans
+            # out to per-provision docs whose shas are what the store holds — the old
+            # file-sha check never matched for statutes, so every re-run silently
+            # re-embedded all provisions (the measured source of the 2.6x duplicate
+            # embeddings; the "resume proven live" observation was 6 prose docs where
+            # file sha == doc sha)
+            if store.has_doc(matter_ref,
+                             hashlib.sha256(doc.text.encode("utf-8")).hexdigest()):
+                report["resumed_docs"] = report.get("resumed_docs", 0) + 1
+                continue
             texts = chunk_text(doc.doc_id, doc.text)
             vectors: list[list[float]] = []
             for i in range(0, len(texts), 64):
