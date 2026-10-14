@@ -191,3 +191,113 @@ def test_reindex_cites_rebuilds_join_table_without_reembedding(tmp_path):
     assert n >= 1
     hits = store.search("m-a", "s 135 Companies Act 1993 duty of care", [1.0, 0.0], k=3)
     assert hits and hits[0].doc_id == "D-1"
+
+
+# ------------------------------------------- multi-query pool construction (2026-10-14)
+
+def test_count_restored_after_reindex_amendment(tmp_path):
+    """ae1fe3f replaced `def count` with `def reindex_cites` and left count's body
+    orphaned inside it — accept_r1.py C3 crashed on the missing attribute."""
+    from harness.corpus import CorpusStore, DocRecord
+    store = CorpusStore(tmp_path / "corpus.sqlite3")
+    store.ingest("m-a", DocRecord("real-A", "SEC ONE\n\nalpha body words\n\n"
+                                  "SEC TWO\n\nbeta body words", "a.pdf"),
+                 vectors=[[0.0]] * 2, model="m", provider="p")
+    assert store.count("m-a") == 2
+    assert store.count("m-never-ingested") == 0
+
+
+def _two_topic_store(tmp_path):
+    from harness.corpus import CorpusStore, DocRecord
+    from harness.vectors import VectorStore
+    vs = VectorStore(tmp_path / "vectors.sqlite3", dim=2)
+    store = CorpusStore(tmp_path / "corpus.sqlite3", vectors=vs)
+    store.ingest("m-a", DocRecord(
+        "D-ppsa", "SEC PRIORITY\n\nThe PPSA governs priority disputes between "
+        "secured parties.", "ppsa.md"), vectors=[[1.0, 0.0]], model="m", provider="p")
+    store.ingest("m-a", DocRecord(
+        "D-liab", "SEC LIABILITY\n\nA director owes duty of care under the "
+        "Companies Act 1993.", "ca.md"), vectors=[[0.0, 1.0]], model="m", provider="p")
+    return store
+
+
+def test_search_multi_unions_pools_and_records_supply(tmp_path):
+    from harness.corpus import _hit_key
+    store = _two_topic_store(tmp_path)
+    fused, supply = store.search_multi(
+        "m-a", [("PPSA priority secured parties", [1.0, 0.0]),
+                ("director duty of care Companies Act 1993", [0.0, 1.0])],
+        candidates=5)
+    by_doc = {h.doc_id: h for h in fused}
+    assert {"D-ppsa", "D-liab"} <= set(by_doc)      # union across queries, not either alone
+    assert any(qi == 0 for qi, _leg in supply[_hit_key(by_doc["D-ppsa"])])
+    assert any(qi == 1 for qi, _leg in supply[_hit_key(by_doc["D-liab"])])
+    # single-query multi == plain search (the fallback is the same pipeline)
+    solo, _ = store.search_multi("m-a", [("PPSA priority secured parties", [1.0, 0.0])],
+                                 candidates=5)
+    plain = store.search("m-a", "PPSA priority secured parties", [1.0, 0.0], k=5, candidates=5)
+    assert [_hit_key(h) for h in solo] == [_hit_key(h) for h in plain]
+
+
+def test_search_multi_never_crosses_matters(tmp_path):
+    from harness.corpus import CorpusStore, DocRecord
+    store = _two_topic_store(tmp_path)
+    store.ingest("m-b", DocRecord("D-other", "SECRET only matter two body", "b.md"),
+                 vectors=[[1.0, 0.0]], model="m", provider="p")
+    fused, _ = store.search_multi(
+        "m-b", [("SECRET body", [1.0, 0.0]), ("PPSA priority", [1.0, 0.0])], candidates=5)
+    assert {h.doc_id for h in fused} == {"D-other"}
+
+
+def test_expand_query_strict_schema_and_bounds():
+    from harness.corpus import expand_query
+    ok = '["s 135 Companies Act 1993 director duty", "voidable transactions preference", "statutory demand"]'
+    assert len(expand_query("p", lambda p: ok)) == 3
+    assert len(expand_query("p", lambda p: '["a","b","c","d"]')) == 3   # capped, never passed through
+    assert expand_query("p", lambda p: 'not json') == []
+    assert expand_query("p", lambda p: '{"q": 1}') == []
+    assert expand_query("p", lambda p: '["ok", 42]') == []              # a non-string rejects the WHOLE output
+    assert expand_query("p", lambda p: f'["{"x" * 201}"]') == []        # over-length rejects the whole output
+    assert expand_query("p", lambda p: '[]') == []
+
+    def boom(prompt):
+        raise RuntimeError("gate down")
+    assert expand_query("p", boom) == []                                # never raises
+
+
+def test_corpus_search_expand_fail_open_and_supply(tmp_path, monkeypatch):
+    from harness.corpus import ironfleet_corpus_search
+    store = _two_topic_store(tmp_path)
+    monkeypatch.setenv("IRONFLEET_MATTER", "m-a")
+    embed = lambda texts: [[1.0, 0.0] if "PPSA" in t else [0.0, 1.0] for t in texts]
+    # gate down -> exact single-query behaviour; the original query still answers
+    res = ironfleet_corpus_search("PPSA priority secured", k=3, store=store, rerank=False,
+                                  embed_fn=embed, expand=True,
+                                  expand_fn=lambda p: (_ for _ in ()).throw(RuntimeError("down")))
+    assert res["passages"] and res["passages"][0]["doc_id"] == "D-ppsa"
+    assert res["supply"]["0"]                       # (query_index, leg) pairs recorded
+    # junk expansion output degrades the same way
+    res = ironfleet_corpus_search("PPSA priority secured", k=3, store=store, rerank=False,
+                                  embed_fn=embed, expand=True, expand_fn=lambda p: "garbage")
+    assert res["passages"][0]["doc_id"] == "D-ppsa"
+
+
+def test_expand_pool_capped_before_rerank(tmp_path, monkeypatch):
+    from harness.corpus import CorpusStore, DocRecord, ironfleet_corpus_search
+    vs = __import__("harness.vectors", fromlist=["VectorStore"]).VectorStore(
+        tmp_path / "vectors.sqlite3", dim=2)
+    store = CorpusStore(tmp_path / "corpus.sqlite3", vectors=vs)
+    doc = "SEC TOP\n\n" + "\n\n".join(
+        f"HEADING {i:02d}\n\nchunk number {i} carries unique body words" for i in range(60))
+    store.ingest("m-a", DocRecord("D-many", doc, "many.md"),
+                 vectors=[[1.0, 0.0]] * 60, model="m", provider="p")
+    monkeypatch.setenv("IRONFLEET_MATTER", "m-a")
+    seen = []
+    res = ironfleet_corpus_search(
+        "chunk number unique body", k=3, store=store,
+        embed_fn=lambda texts: [[1.0, 0.0]] * len(texts), rerank=True,
+        rerank_fn=lambda q, texts: (seen.append(len(texts)) or [1.0] * len(texts)),
+        expand=True, expand_fn=lambda p: '["alt query one", "alt query two"]',
+        pool_cap=10)
+    assert seen == [10]          # the merged pool was capped BEFORE rerank, at pool_cap
+    assert len(res["passages"]) == 3

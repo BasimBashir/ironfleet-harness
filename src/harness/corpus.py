@@ -7,11 +7,12 @@ heading-aware; every chunk carries its section heading as provenance.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
 
-from harness.gate import EmbeddingRequest, RerankRequest
+from harness.gate import EmbeddingRequest, LLMRequest, RerankRequest
 
 _HEADING = re.compile(r"^(?:[IVXLC]+|\d+)[.\)]?\s+[A-Z].*[A-Z]{3}")   # "III. Title ..." / "12. Foo Bar"
 _ALLCAPS = re.compile(r"^[^a-z]{6,}$")                                # "TITLE TO BULLION"
@@ -307,27 +308,64 @@ class CorpusStore:
                           score=1.0 - i / max(1, len(rows)))
                 for i, (d, h, b, s) in enumerate(rows[:k])]
 
+    def search_legs(self, matter_ref: str, query_text: str,
+                    query_vector: list[float], candidates: int = 20
+                    ) -> dict[str, list[CorpusHit]]:
+        """The three retrieval legs as SEPARATE rankings — search() fuses them for a
+        single query; search_multi() re-fuses them across queries (multi-query pool
+        formation, 2026-10-14) and needs each leg's identity to record supply."""
+        lex = self.search_lexical(matter_ref, query_text, candidates)
+        vec: list[CorpusHit] = []
+        if self._vectors is not None and query_vector:
+            vec = self._vec_hits(matter_ref, list(query_vector), candidates)
+        cit = self._cited_hits(matter_ref, query_text, candidates)
+        return {"lexical": lex, "vector": vec, "citation": cit}
+
     def search(self, matter_ref: str, query_text: str, query_vector: list[float],
                k: int = 5, candidates: int = 20) -> list[CorpusHit]:
         """Hybrid: lexical BM25 + dense vector, fused by RRF (Task 3). Either leg may
         come back empty; the other carries alone. Per-matter by construction (D1).
         Citation-injected candidates ride a third ranking (Task-3 amendment) — a
         citation named in the query is a join key, not a prose match."""
-        lex = self.search_lexical(matter_ref, query_text, candidates)
-        vec: list[CorpusHit] = []
-        if self._vectors is not None and query_vector:
-            vec = self._vec_hits(matter_ref, list(query_vector), candidates)
-        cit = self._cited_hits(matter_ref, query_text, candidates)
-        lex_keys = [_hit_key(h) for h in lex]
-        vec_keys = [_hit_key(h) for h in vec]
-        cit_keys = [_hit_key(h) for h in cit]
-        fused_keys = set(rrf([lex_keys, vec_keys, cit_keys]))
+        return self.search_multi(matter_ref, [(query_text, query_vector)],
+                                 k=k, candidates=candidates)[0]
+
+    def search_multi(self, matter_ref: str, queries: list[tuple[str, list[float]]],
+                     k: int | None = None, candidates: int = 20
+                     ) -> tuple[list[CorpusHit], dict[str, list[tuple[int, str]]]]:
+        """Multi-query candidate-pool construction (the state-doc §8 lever 2: the
+        reranker cannot recover evidence that never enters its pool; the saved
+        expansion probe proved the expanded queries are correct but never built a
+        deep MERGED pool).
+
+        Every query's three legs run unchanged, then ONE reciprocal-rank fusion
+        across all (query, leg) rankings — an agreement lift: passages found by
+        several queries (or by several legs) rank above single-leg noise, while a
+        needle that surfaces under ANY query stays in the pool. Identity is the
+        stable passage key (doc_id+heading+text), never a vector seq (the measured
+        batch-local-seq corruption). Ties resolve deterministically (stable sort =
+        first-appearance order). Dedup keeps the FIRST sighting's metadata; source
+        identity and provenance never change.
+
+        Returns (fused_hits, supply): fused is the FULL ranked pool (bound it before
+        rerank — the reranker refuses above its 64 ceiling), and supply[hit_key]
+        lists every (query_index, leg) that produced the passage — the diagnostic
+        that says which query and which leg lifted each selected passage.
+        """
+        leg_rankings: list[list[str]] = []
         by_key: dict[str, CorpusHit] = {}
-        for h in lex + vec + cit:
-            by_key.setdefault(_hit_key(h), h)
-        fused = [h for hkey in rrf([lex_keys, vec_keys, cit_keys])
-                 if hkey in fused_keys and (h := by_key.get(hkey)) is not None]
-        return fused[:k]
+        supply: dict[str, list[tuple[int, str]]] = {}
+        for qi, (qtext, qvec) in enumerate(queries):
+            legs = self.search_legs(matter_ref, qtext, qvec or [], candidates)
+            for leg, hits in legs.items():
+                leg_rankings.append([_hit_key(h) for h in hits])
+                for h in hits:
+                    hk = _hit_key(h)
+                    if hk not in by_key:
+                        by_key[hk] = h
+                    supply.setdefault(hk, []).append((qi, leg))
+        fused = [by_key[hk] for hk in rrf(leg_rankings)]
+        return (fused if k is None else fused[:k]), supply
 
     def _vec_hits(self, matter_ref: str, query_vector: list[float],
                   candidates: int) -> list[CorpusHit]:
@@ -365,6 +403,41 @@ def _hit_key(hit: CorpusHit) -> str:
     return f"{hit.doc_id}\x1f{hit.heading}\x1f{hit.text}"
 
 
+# ------------------------------------------- multi-query expansion (2026-10-14)
+
+_EXPAND_TMPL = """You are a legal retrieval expert. Given this New Zealand legal problem, output \
+ONLY a JSON array of exactly 3 short search query strings (no commentary, no markdown) that a \
+hybrid lexical+semantic search engine should run to retrieve (a) the governing statutory \
+provisions, (b) the leading cases on the point, and (c) the procedural rule. Each query under 20 \
+words, dense with the salient legal terms — not the facts of the parties.
+
+PROBLEM:
+{prompt}"""
+
+
+def expand_query(prompt: str, dispatch_fn, max_queries: int = 3,
+                 max_len: int = 200) -> list[str]:
+    """Bounded multi-query expansion: the ORIGINAL query stays primary; these are
+    alternate issue-form retrieval queries (the saved probe measured them correct).
+
+    STRICT schema: the model must return a JSON array of strings. Any violation —
+    malformed JSON, a non-list, a non-string, an empty or over-length query — rejects
+    the WHOLE output. One attempt, no retry loop, and this function never raises: the
+    caller falls back to the original query alone, which always runs (fail-open to a
+    correct single-query search, never to a broken retrieval)."""
+    try:
+        out = json.loads(dispatch_fn(_EXPAND_TMPL.format(prompt=prompt[:1200])))
+        if (not isinstance(out, list) or not out
+                or not all(isinstance(q, str) for q in out)):
+            return []                       # one wrong-typed element rejects the WHOLE output
+        queries = [q.strip() for q in out if q.strip()]
+        if not queries or any(len(q) > max_len for q in queries):
+            return []
+        return queries[:max_queries]
+    except Exception:                                  # noqa: BLE001 — fail-open, by contract
+        return []
+
+
 # ---------------------------------------------------------------- R1 Task 6: the tool
 
 _TOOL_GATE = None          # lazily built once; probing Ollama is seconds, not per-call
@@ -383,12 +456,21 @@ def _default_gate():
 def ironfleet_corpus_search(query: str, k: int = 5, rerank: bool = True,
                             store: "CorpusStore | None" = None,
                             embed_fn=None, rerank_fn=None,
-                            matter: str | None = None) -> dict:
+                            matter: str | None = None,
+                            expand: bool = False, expand_fn=None,
+                            pool_cap: int = 48) -> dict:
     """The gated ported tool (D5): matter-scoped hybrid corpus search whose result
     carries the AUTHORITIES list — the verbatim passage texts the guard checks quotes
     against. Fail-closed: no matter bound -> an honest empty envelope, never another
     matter's text. The store never dispatches; embeddings and rerank go through the
-    injected callables (the gate in production, fakes in tests)."""
+    injected callables (the gate in production, fakes in tests).
+
+    expand=True builds the candidate pool multi-query (expand_query + search_multi):
+    the original query first, alternates bounded and schema-validated, the merged
+    pool capped at pool_cap (<= the reranker's 64 refusal ceiling) before rerank,
+    and the result carries a "supply" diagnostic naming the (query, leg) pairs that
+    produced each returned passage. Expansion failure degrades to the exact
+    single-query search (default off — the D5 envelope and behaviour are unchanged)."""
     matter = matter or os.environ.get("IRONFLEET_MATTER", "")
     if not matter:
         return {"passages": [], "authorities": [], "error": "no matter bound"}
@@ -405,8 +487,24 @@ def ironfleet_corpus_search(query: str, k: int = 5, rerank: bool = True,
             res = asyncio.run(gate.embed(
                 EmbeddingRequest(matter_ref=matter, texts=texts)))
             return res.vectors
-    qvec = embed_fn([query[:1200]])[0]
-    hits = store.search(matter, query, qvec, k=max(k * 4, 20))
+    if not expand:
+        qvec = embed_fn([query[:1200]])[0]
+        hits = store.search(matter, query, qvec, k=max(k * 4, 20))
+    else:
+        if expand_fn is None:
+            gate = _default_gate()
+
+            def expand_fn(prompt):
+                import asyncio
+                res = asyncio.run(gate.dispatch(LLMRequest(
+                    matter_ref=matter, task_class="extraction", model="qwen3.8:27b",
+                    messages=[{"role": "user", "content": prompt}], max_tokens=2048)))
+                return res.content or ""
+        queries = [query] + expand_query(query, expand_fn)
+        qvecs = embed_fn([q[:1200] for q in queries])
+        hits, supply = store.search_multi(matter, list(zip(queries, qvecs)),
+                                          candidates=50)
+        hits = hits[:pool_cap]          # rerank REFUSES above 64 — cap before, never truncate inside
     if rerank and rerank_fn is None:
         gate = _default_gate()
 
@@ -419,9 +517,13 @@ def ironfleet_corpus_search(query: str, k: int = 5, rerank: bool = True,
         scores = rerank_fn(query[:1200], [h.text[:4000] for h in hits])
         hits = [h for _, h in sorted(zip(scores, hits), key=lambda p: -p[0])]
     top = hits[:k]
-    return {"passages": [{"doc_id": h.doc_id, "heading": h.heading, "text": h.text,
-                          "source_name": h.source_name, "score": h.score} for h in top],
-            "authorities": [h.text for h in top]}
+    out = {"passages": [{"doc_id": h.doc_id, "heading": h.heading, "text": h.text,
+                         "source_name": h.source_name, "score": h.score} for h in top],
+           "authorities": [h.text for h in top]}
+    if expand:
+        out["supply"] = {str(i): supply.get(_hit_key(h), [])
+                         for i, h in enumerate(top)}
+    return out
 
 
 # ------------------------------------------------- R1 Task 10: D9 select-compose support
