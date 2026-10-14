@@ -101,24 +101,57 @@ def _files_for(rows: list[dict]) -> list[tuple[Path, dict]]:
     return out
 
 
-def extract_text(source: Path) -> str:
-    """Format reach via a parser CHAIN, not per-format code (user direction 2026-10-14:
-    "use existing advanced RAG modules... they don't need custom upload scripts"). Order:
-    MarkItDown (Microsoft, MIT — PDF/DOCX/PPTX/XLSX/HTML/EPUB/email/images) when
-    installed; then pypdf for PDFs; then raw text. A chain failure is a recorded skip,
-    never a crash."""
+PARSE_TIMEOUT_S = 180              # a source that hangs parse is recorded-and-skipped
+
+
+def _parse_worker(source_str: str, q) -> None:
+    """The FULL parser chain, in a killable process: MarkItDown (format reach), then
+    pypdf for PDFs, then raw text. Result rides the queue as ("ok", text) or
+    ("error", reason) — an error must reach the parent as an exception, never as a
+    silent empty doc."""
+    text = ""
     try:
-        from markitdown import MarkItDown
-        text = MarkItDown().convert(str(source)).text_content or ""
-        if text.strip():
-            return text
-    except Exception:                                  # noqa: BLE001 — fall through the chain
-        pass
-    if source.suffix.lower() == ".pdf":
-        from pypdf import PdfReader
-        reader = PdfReader(str(source))
-        return "\n\n".join((page.extract_text() or "") for page in reader.pages)
-    return source.read_text(encoding="utf-8")
+        try:
+            from markitdown import MarkItDown
+            text = MarkItDown().convert(source_str).text_content or ""
+        except Exception:                              # noqa: BLE001 — fall through the chain
+            text = ""
+        if not text.strip():
+            p = Path(source_str)
+            if p.suffix.lower() == ".pdf":
+                from pypdf import PdfReader
+                reader = PdfReader(str(p))
+                text = "\n\n".join((page.extract_text() or "") for page in reader.pages)
+            else:
+                text = p.read_text(encoding="utf-8")
+        q.put(("ok", text))
+    except Exception as ex:                            # noqa: BLE001 — reported, not swallowed
+        q.put(("error", f"{type(ex).__name__}: {ex}"))
+
+
+def extract_text(source: Path, timeout: int = PARSE_TIMEOUT_S) -> str:
+    """Format reach via a parser CHAIN, not per-format code (user direction 2026-10-14:
+    "use existing advanced RAG modules... they don't need custom upload scripts"). The
+    chain runs in a killable worker: parsers have no internal timeouts and a pathological
+    file can burn a core forever (observed live 2026-10-14 — MarkItDown spun on one
+    judgment PDF for 10+ minutes with zero output). On timeout the caller records
+    and skips the source (the D7 contract), never silently embedding an empty doc."""
+    import multiprocessing as mp
+    ctx = mp.get_context("spawn")
+    q = ctx.Queue()
+    proc = ctx.Process(target=_parse_worker, args=(str(source), q))
+    proc.start()
+    proc.join(timeout)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(5)
+        raise TimeoutError(f"parse exceeded {timeout}s (killed): {source.name}")
+    if q.empty():
+        raise RuntimeError(f"parse worker died without a result: {source.name}")
+    status, payload = q.get()
+    if status == "error":
+        raise RuntimeError(f"parse failed: {source.name}: {payload}")
+    return payload
 
 
 def ingest_any(matter_ref: str, rows: list[dict], store: CorpusStore, embed_fn,

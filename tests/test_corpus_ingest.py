@@ -1,4 +1,6 @@
 # tests/test_corpus_ingest.py — R1 plan Task 8 (D7): offline core, injected embed_fn
+import pytest
+
 from harness.corpus import CorpusStore
 from scripts.corpus_ingest import ingest_dir
 
@@ -46,3 +48,19 @@ def test_ingest_never_reembeds_a_different_file_with_the_same_text(tmp_path):
     assert report["ingested"] == ["a.txt"]          # same sha -> the second is a resume
     assert report["skipped_by_resume"] == ["b.txt"]
     assert sum(calls) == report["chunks"]           # embedded exactly once, 1:1 with chunks
+
+
+def test_extract_text_pdf_parse_watchdog_records_skip(tmp_path):
+    """A source whose parse hangs must be killable, not a stuck ingest (observed live
+    2026-10-14: one judgment PDF pinned a core for 10+ minutes with zero output)."""
+    from pypdf import PdfWriter
+    from scripts.corpus_ingest import extract_text
+    pdf = tmp_path / "tiny.pdf"
+    w = PdfWriter()
+    w.add_blank_page(width=200, height=200)
+    with open(pdf, "wb") as f:
+        w.write(f)
+    assert extract_text(pdf, timeout=120) == ""        # blank page parses, yields no text
+    with pytest.raises(TimeoutError):
+        # an impossible deadline: Windows spawn + pypdf import always exceeds 0.2 s
+        extract_text(pdf, timeout=0.2)

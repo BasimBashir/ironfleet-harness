@@ -33,12 +33,13 @@ BATCH = 64                       # EmbeddingRequest.max_texts ceiling
 MIN_WORDS = 200                  # below this a source is recorded-and-skipped (scanned)
 
 
-def extract_text(source: Path) -> str:
-    if source.suffix.lower() == ".pdf":
-        from pypdf import PdfReader
-        reader = PdfReader(str(source))
-        return "\n\n".join((page.extract_text() or "") for page in reader.pages)
-    return source.read_text(encoding="utf-8")
+def extract_text(source: Path, timeout: int | None = None) -> str:
+    """Delegate to the ONE killable parser chain (harness.ingest_generic): MarkItDown
+    reach + pypdf fallback under a parse watchdog — a source that hangs parse is
+    recorded-and-skipped, never a stuck ingest (observed live 2026-10-14 twice: pypdf
+    AND MarkItDown each pinned a core on judgment PDFs with zero output)."""
+    from harness.ingest_generic import extract_text as _extract
+    return _extract(source) if timeout is None else _extract(source, timeout)
 
 
 def ingest_dir(matter_ref: str, sources: list[Path], store: CorpusStore,
@@ -97,10 +98,23 @@ def build_live_stack(trace_name: str, matter: str):
     return gate, store
 
 
-def make_embed_fn(gate, matter: str):
+def make_embed_fn(gate, matter: str, attempts: int = 3):
+    """Embed through the gate with bounded retries — a transient Ollama drop killed a
+    mid-run batch live (2026-10-14; the research bench learned this first and has the
+    same retry). Resume-by-hash makes a rerun safe; the retry makes it unnecessary."""
+    import time
+
     def embed_fn(texts):
-        res = asyncio.run(gate.embed(EmbeddingRequest(matter_ref=matter, texts=texts)))
-        return res.vectors
+        last: Exception | None = None
+        for i in range(attempts):
+            try:
+                res = asyncio.run(gate.embed(EmbeddingRequest(matter_ref=matter,
+                                                              texts=texts)))
+                return res.vectors
+            except Exception as ex:                        # noqa: BLE001 — retry, then raise
+                last = ex
+                time.sleep(2 ** i * 2)
+        raise last if last else RuntimeError("embed failed with no attempts")
     return embed_fn
 
 
