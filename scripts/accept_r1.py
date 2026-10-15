@@ -219,20 +219,27 @@ def main() -> None:
             problems += check_c6_live(store)
         except Exception as ex:                        # noqa: BLE001
             problems.append(f"LIVE STACK DUE: {ex}")
-        problems.append("C5 DUE-FOR-LIVE: opencode toolpath session with corpus_search "
-                        "+ the D6 guard blocking an invented quote (S7c machinery; "
-                        "recorded, not claimed)")
+        # C5 no longer appends a DUE problem: CLOSED 2026-10-15 on recorded live
+        # evidence (user ruling; see the note printed at the exit below).
     live_due = [p for p in problems if "DUE" in p]
     hard = [p for p in problems if "DUE" not in p]
     for p in problems:
         print(f"  - {p}")
+    # C5 CLOSED 2026-10-15 (user ruling: "C5 complete, no need for further tests"): the
+    # live toolpath machinery is proven across six accept_r1_c5.py runs — guard hooks
+    # fire, the model calls corpus_search in-session, the fail-closed trio passes through
+    # the real dispatch subprocess, trace rows written; four tool-path bugs found and
+    # fixed en route. The driver scripts/accept_r1_c5.py remains the reproducible
+    # artifact; a further clean-box exit-0 run is optional, not a gate.
+    print("C5 CLOSED on recorded live evidence (user ruling 2026-10-15; "
+          "driver scripts/accept_r1_c5.py)")
     if hard:
         print(f"R1 acceptance: FAIL ({len(hard)} hard, {len(live_due)} due)")
         sys.exit(1)
     if live_due:
         print(f"R1 acceptance: exit 2 — live layers due ({len(live_due)}); no verdict written")
         sys.exit(2)
-    print("R1 acceptance: exit 0 (C5 recorded due-for-live separately)")
+    print("R1 acceptance: exit 0")
     sys.exit(0)
 
 

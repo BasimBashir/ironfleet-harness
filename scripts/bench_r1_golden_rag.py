@@ -5,9 +5,13 @@ passages actually cite exactly? The A7 baseline (no corpus) is the comparison po
 thomson1-chat citation_accuracy 0.117 / grounding 0.367 on these same 30 cases under
 production scorers (data/eval/A7-MODEL-SUBSTITUTION-2026-10-09.md).
 
-Arms, same 30 cases, same model (thomson1-chat, the incumbent), same scorer:
-  hybrid8  — top-8 passages by hybrid RRF (BM25 + bge-m3 vector, k=60)
-  rerank5  — the RRF top-12 reranked by llama-server Qwen3-Reranker-0.6B, top-5 kept
+Arms, same 30 cases, same model (thomson1-chat, the incumbent), same scorer,
+SAME product-path retrieval (multi-query pool + citation join keys over the LIVE
+acceptance corpus, gate-rerank top-8 — 2026-10-15; the arms differ only in the
+DRAFTING contract, isolating select-compose's effect):
+  product8 — the product evidence window, plain drafting (PROMPT_TMPL contract)
+  compose8 — D9 select-compose: references only, harness splices verbatim sentences
+             (qv is a construction property; the measure verifies it)
 
 Measured per case x arm (all deterministic, production machinery):
   citation_accuracy / grounding_score / persona checks / passed (score_case)
@@ -43,19 +47,21 @@ sys.path.insert(0, str(REPO / "src"))
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from harness.gate import EmbeddingRequest, LLMRequest  # noqa: E402
+from harness.corpus import CorpusStore, evidence_window, expand_query, splice_references  # noqa: E402
+from harness.gate import EmbeddingRequest, LLMRequest, RerankRequest  # noqa: E402
 from harness.eval.golden_case import load_cases  # noqa: E402
 from harness.eval.scorers import citation_hit, score_case  # noqa: E402
+from harness.paths import resolve_store_root  # noqa: E402
 from harness.vectors import VectorStore  # noqa: E402
-from scripts.bench_r1_ingest import MATTER_REAL, bm25_search, rrf  # noqa: E402
 from scripts.stand_up_opencode import ROUTING, build_gate  # noqa: E402
 
-SMOKE_STORES = REPO / "data/eval/R1-RESEARCH-smoke"
 RERANK_SERVER_DIR = REPO / "data/eval/R1-RESEARCH-2026-10-13/rerank-server"
 RERANK_URL = "http://127.0.0.1:8778"
 OUT_DIR = REPO / f"data/eval/R1-GOLDEN-RAG-{date.today().isoformat()}"
-MATTER = "m-r1-goldenrag"                     # colon-free
+MATTER = "m-r1-goldenrag"                     # colon-free (drafting dispatches)
+MATTER_LIVE = "m-r1-accept"                   # THE corpus (the product retrieval path)
 MODEL_DRAFT = "thomson1-chat:latest"
+MODEL_EXPAND = "qwen3.8:27b"                  # the probe's approved expansion path
 # A7 dashboard comparison point (same 30 cases, same model, same scorers, no corpus):
 BASELINE = {"citation_accuracy": 0.117, "grounding_score": 0.367}
 
@@ -70,6 +76,26 @@ STRICT CITATION RULES:
 
 LAW EXTRACTS:
 {extracts}
+
+TASK:
+{prompt}"""
+
+# D9 select-compose: the model NEVER writes quoted prose — it emits [E#.S#] references
+# into the numbered evidence window and the harness splices the verbatim sentences
+# (research/07: quote fidelity 100% BY CONSTRUCTION, 781 refs / 0 invalid on a 30B model;
+# v2 rule — quotation marks are banned outright).
+COMPOSE_TMPL = """You are a New Zealand law firm assistant. Draft the advice requested below.
+
+STRICT RULES:
+- The evidence window below numbers every sentence as [E<extract>.S<sentence>]. Compose
+  your answer by inserting these references — e.g. [E2.S17] — exactly where the cited
+  sentence's content belongs.
+- NEVER write quoted prose yourself. Quotation marks are FORBIDDEN in your output: the
+  only quotations in the final document are spliced in from the references afterwards.
+- Do not cite any authority that is not named in an evidence window header.
+
+EVIDENCE WINDOW:
+{window}
 
 TASK:
 {prompt}"""
@@ -94,16 +120,10 @@ def quote_verification(draft: str, passages: list[str]) -> tuple[int, int]:
 
 
 def load_real_chunks() -> tuple[list[str], list[str], dict[int, int]]:
-    """(doc_ids, texts, rowid->index) of the real corpus store the smoke bench built."""
-    import sqlite3
-    con = sqlite3.connect(SMOKE_STORES / "lexical.sqlite3")
-    rows = con.execute("SELECT rowid, doc_id, heading, body FROM fts "
-                       "WHERE doc_id LIKE 'real-%' ORDER BY rowid").fetchall()
-    con.close()
-    texts = [f"{h}\n{b}" if h else b for _, _, h, b in rows]
-    docs = [d for _, d, _, _ in rows]
-    rowid_to_idx = {r: i for i, (r, *_ ) in enumerate(rows)}
-    return docs, texts, rowid_to_idx
+    """RETIRED with the smoke-store arms (2026-10-15): retrieval now rides the live
+    acceptance corpus through the product path. Kept as a named removal — the smoke
+    store was judgments-only, which is why statute needles could never be supplied."""
+    raise RuntimeError("smoke-store retrieval retired; product_retrieve is the path")
 
 
 def start_rerank_server() -> subprocess.Popen:
@@ -128,78 +148,67 @@ def start_rerank_server() -> subprocess.Popen:
 
 
 def rerank_docs(query: str, cand_texts: list[str]) -> list[int]:
-    req = urllib.request.Request(
-        f"{RERANK_URL}/rerank",
-        data=json.dumps({"model": "qwen3-reranker", "query": query,
-                         "documents": cand_texts}).encode(),
-        headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        results = json.load(resp)["results"]
-    return [r["index"] for r in sorted(results, key=lambda r: -r["relevance_score"])]
+    """RETIRED 2026-10-15: rerank rides gate.rerank (the traced LOCAL_ONLY provider)
+    in the product path; the raw HTTP call was the smoke-store bench's."""
+    raise RuntimeError("use gate.rerank via the product path")
 
 
-def retrieve(gate, cases, rerank: bool) -> dict:
-    """case_id -> passages per arm, fused at CHUNK level.
+def product_retrieve(gate, store: CorpusStore, case) -> dict:
+    """The PRODUCT retrieval path for one case (2026-10-15): multi-query pool
+    construction over the LIVE corpus — strict-schema expansion (qwen, mechanical
+    class), one RRF across all (query, leg) rankings incl. the citation join keys,
+    pool capped below the reranker's refusal ceiling, gate-rerank (traced), top-8.
+    Replaces the smoke-store single-query arms that could not even see the statutes."""
+    prompt = case.prompt[:1200]
 
-    2026-10-13 correction (found by this bench's own drafts): VectorStore.seq is
-    BATCH-LOCAL (restarts at 0 every 64-batch add), so mapping hits by seq to a global
-    list is garbage — map by the stored TEXT instead. And passage assembly must take the
-    fused CHUNKS, not the first chunk of each doc (that supplied every draft the document
-    title line and nothing else)."""
-    docs, texts, rowid_to_idx = load_real_chunks()
-    by_text = {t: i for i, t in enumerate(texts)}
-    store = VectorStore(SMOKE_STORES / "vectors.sqlite3")
-    lex = sqlite3_connect_lexicon()
-    out: dict = {}
-    for case in cases:
-        q = case.prompt[:1200]
-        emb = asyncio.run(gate.embed(EmbeddingRequest(matter_ref=MATTER, texts=[q])))
-        lex_chunks = [rowid_to_idx[r] for r in bm25_chunk_rowids(lex, q, 12)
-                      if r in rowid_to_idx]
-        vec_chunks = [by_text[h.text] for h in store.search(MATTER_REAL, emb.vectors[0], k=12)
-                      if h.text in by_text]
-        fused = rrf([lex_chunks, vec_chunks])
-        hyb = fused[:8]
-        rr = hyb
-        if rerank and len(fused) > 1:
-            order = rerank_docs(q, [texts[i][:4000] for i in fused[:12]])
-            rr = [fused[i] for i in order[:5]]
-        blob = "\n".join(texts[i] for i in hyb)
-        ceiling_h = sum(1 for n in case.expected_citations if citation_hit(blob, n))
-        words = [len(texts[i].split()) for i in hyb]
-        out[case.id] = {
-            "hybrid8": [passage(i, docs, texts) for i in hyb],
-            "rerank5": [passage(i, docs, texts) for i in rr],
-            "ceiling_hybrid8": f"{ceiling_h}/{len(case.expected_citations)}",
-            "passage_words_min_mean": f"{min(words)}/{sum(words) // max(1, len(words))}",
-        }
-        print(f"  [retrieve] {case.id}: ceiling {ceiling_h}/{len(case.expected_citations)} "
-              f"passage-words min/mean {out[case.id]['passage_words_min_mean']}", flush=True)
+    def dispatch(p: str) -> str:
+        res = asyncio.run(gate.dispatch(LLMRequest(
+            matter_ref=MATTER_LIVE, task_class="extraction", model=MODEL_EXPAND,
+            messages=[{"role": "user", "content": p}], max_tokens=2048)))
+        return res.content or ""
+
+    alts = expand_query(prompt, dispatch)
+    queries = [prompt] + alts
+    qvecs = asyncio.run(gate.embed(EmbeddingRequest(
+        matter_ref=MATTER_LIVE, texts=[q[:1200] for q in queries]))).vectors
+    pool, _supply = store.search_multi(MATTER_LIVE, list(zip(queries, qvecs)),
+                                       candidates=50)
+    pool = pool[:48]                       # the reranker REFUSES above 64
+    ranked: list = pool                    # fail-open: unranked pool keeps RRF order
+    if len(pool) > 1:
+        try:
+            scores = asyncio.run(gate.rerank(RerankRequest(
+                matter_ref=MATTER_LIVE, query=prompt,
+                texts=[h.text[:4000] for h in pool]))).scores
+            ranked = [pool[j] for j in sorted(range(len(pool)), key=lambda j: -scores[j])]
+        except Exception as ex:            # noqa: BLE001 — honest degradation, recorded
+            print(f"    [rerank] {case.id}: failed ({ex}) — RRF order used", flush=True)
+    hits = ranked[:8]
+    blob = "\n".join(h.text for h in hits)
+    ceiling = sum(1 for n in case.expected_citations if citation_hit(blob, n))
+    words = [len(h.text.split()) for h in hits]
+    passages = [{"source": h.source_name, "text": h.text, "doc_id": h.doc_id}
+                for h in hits]
+    out = {"passages": passages,
+           "ceiling": f"{ceiling}/{len(case.expected_citations)}",
+           "expanded": alts,
+           "pool_len": len(pool),
+           "passage_words_min_mean": f"{min(words)}/{sum(words) // max(1, len(words))}"
+           if words else "0/0"}
+    print(f"  [retrieve] {case.id}: ceiling {ceiling}/{len(case.expected_citations)} "
+          f"pool {len(pool)} alts {len(alts)} "
+          f"words {out['passage_words_min_mean']}", flush=True)
     return out
 
 
-def bm25_chunk_rowids(con, query: str, k: int) -> list[int]:
-    """CHUNK-level BM25 ranking; returns absolute fts rowids (mapped by the caller)."""
-    terms = [t for t in re.findall(r"[A-Za-z0-9]{3,}", query)][:24]
-    if not terms:
-        return []
-    q = " OR ".join(f'"{t}"' for t in terms)
-    try:
-        rows = con.execute(
-            "SELECT rowid FROM fts WHERE fts MATCH ? AND doc_id LIKE 'real-%' "
-            "ORDER BY bm25(fts) LIMIT ?", (q, k)).fetchall()
-    except Exception:                                  # noqa: BLE001 — no match syntax edge
-        return []
-    return [r[0] for r in rows]
-
-
-def passage(i: int, docs: list[str], texts: list[str]) -> dict:
-    return {"source": docs[i].removeprefix("real-"), "text": texts[i]}
-
-
-def sqlite3_connect_lexicon():
-    import sqlite3
-    return sqlite3.connect(SMOKE_STORES / "lexical.sqlite3")
+def retrieve(gate, cases) -> dict:
+    """case_id -> the product-path retrieval shared by BOTH arms (the arms differ in
+    the DRAFTING contract, not the evidence: same passages = the comparison isolates
+    select-compose's effect)."""
+    root, _ = resolve_store_root()
+    store = CorpusStore(root / "corpus.sqlite3",
+                        vectors=VectorStore(root / "vectors.sqlite3"))
+    return {case.id: product_retrieve(gate, store, case) for case in cases}
 
 
 def draft_prompt(case, passages: list[dict]) -> str:
@@ -217,10 +226,32 @@ async def draft_arm(gate, case, passages: list[dict]) -> tuple[str, dict]:
     return (res.content or ""), res.usage
 
 
+def compose_prompt(case, passages: list[dict]) -> str:
+    window, _table = evidence_window(passages)
+    return COMPOSE_TMPL.format(window=window, prompt=case.prompt.strip())
+
+
+def compose_arm(gate, case, passages: list[dict]) -> tuple[str, dict, dict]:
+    """D9 select-compose: draft = references only; the harness splices the verbatim
+    sentences. Returns (final_text, usage, compose_stats). Quote fidelity on the
+    spliced text is a construction property — the qv measure below VERIFIES it
+    (refs spliced + any banned self-quotes the model smuggled in)."""
+    _block, table = evidence_window(passages)
+    res = asyncio.run(gate.dispatch(LLMRequest(
+        matter_ref=MATTER, task_class="research", model=MODEL_DRAFT,
+        messages=[{"role": "user", "content": compose_prompt(case, passages)},
+                  ], max_tokens=16384)))
+    raw = res.content or ""
+    spliced, substituted, invalid = splice_references(raw, table)
+    stats = {"refs_substituted": substituted, "refs_invalid": invalid,
+             "refs_table": len(table)}
+    return spliced, res.usage, stats
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0, help="smoke: first N cases only")
-    ap.add_argument("--arms", default="hybrid8,rerank5")
+    ap.add_argument("--arms", default="product8,compose8")
     ap.add_argument("--no-retrieval", action="store_true", help="reuse the saved retrieval")
     args = ap.parse_args()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -230,6 +261,12 @@ def main() -> None:
     if args.limit:
         cases = cases[:args.limit]
 
+    # The rerank server must be UP BEFORE build_gate: the probe admits llama-rerank at
+    # build time, and a refused provider stays refused for the whole run (found by the
+    # 2026-10-15 smoke: 'no eligible provider for rerank' with the server up but probed
+    # down). VRAM discipline is preserved: it stops right after the retrieval phase,
+    # before any draft dispatch loads the 21GB draft model.
+    proc = start_rerank_server()
     gate, _rt, _al = build_gate(OUT_DIR / "trace.sqlite3", ROUTING)
     # The recorded in-memory admission override (2026-08-28 precedent; CR-3 untouched;
     # src/ untouched; every dispatch traces the honest verified=0).
@@ -240,16 +277,16 @@ def main() -> None:
     retr_path = OUT_DIR / "retrieval.json"
     if args.no_retrieval and retr_path.exists():
         retrieval = json.loads(retr_path.read_text(encoding="utf-8"))
+        proc.terminate()
+        print("[rerank] server stopped before the draft phase (VRAM discipline)",
+              flush=True)
     else:
-        rerank_on = "rerank5" in arms
-        proc = start_rerank_server() if rerank_on else None
         try:
-            retrieval = retrieve(gate, cases, rerank=proc is not None)
+            retrieval = retrieve(gate, cases)
         finally:
-            if proc is not None:
-                proc.terminate()
-                print("[rerank] server stopped before the draft phase (VRAM discipline)",
-                      flush=True)
+            proc.terminate()
+            print("[rerank] server stopped before the draft phase (VRAM discipline)",
+                  flush=True)
         retr_path.write_text(json.dumps(retrieval, indent=1), encoding="utf-8")
 
     sidecar = OUT_DIR / "sidecar.jsonl"
@@ -260,21 +297,24 @@ def main() -> None:
                 r = json.loads(line)
                 done.add(f"{r['case_id']}|{r['arm']}")
 
-    t0 = time.perf_counter()
     with sidecar.open("a", encoding="utf-8") as fh:
         for case in cases:
             for arm in arms:
                 key = f"{case.id}|{arm}"
                 if key in done:
                     continue
-                passages = retrieval[case.id][arm]
+                passages = retrieval[case.id]["passages"]
                 t_c = time.perf_counter()
                 row: dict = {"case_id": case.id, "arm": arm, "date": date.today().isoformat(),
                              "model": MODEL_DRAFT,
-                             "ceiling": retrieval[case.id]["ceiling_hybrid8"]
-                             if arm == "hybrid8" else None}
+                             "ceiling": retrieval[case.id]["ceiling"],
+                             "pool_len": retrieval[case.id]["pool_len"]}
                 try:
-                    content, usage = asyncio.run(draft_arm(gate, case, passages))
+                    if arm == "compose8":
+                        content, usage, cstats = compose_arm(gate, case, passages)
+                        row |= cstats
+                    else:
+                        content, usage = asyncio.run(draft_arm(gate, case, passages))
                     sc = score_case(content, case)
                     qv, qn = quote_verification(content, [p["text"] for p in passages])
                     row |= {"status": sc.status, "citation_accuracy": sc.citation_accuracy,
@@ -290,6 +330,7 @@ def main() -> None:
                 ca = row.get("citation_accuracy")
                 print(f"  [draft] {key}: ca={ca} gs={row.get('grounding_score')} "
                       f"qv={row.get('quotes_verified')} "
+                      f"refs={row.get('refs_substituted')}/{row.get('refs_invalid')} "
                       f"({round(time.perf_counter() - t_c, 1)}s)", flush=True)
 
     summarize(sidecar, cases, arms)
