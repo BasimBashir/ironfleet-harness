@@ -137,5 +137,84 @@ for _n in ("p1", "p2", "p3", "p4", "p5", "p6", "p7"):
     PROBES[_n] = _stub
 
 
+def canary_primary_md(name: str, token: str, tools: dict[str, bool] | None = None) -> str:
+    """A minimal primary-mode agent that answers with exactly `token`. The token is the
+    selectability oracle: if the final text contains it, THIS file drove the session —
+    the default-agent fallback (S7i, live-proven) cannot know the token."""
+    tool_lines = tools if tools is not None else {}
+    body = {n: False for n in ("read", "glob", "grep", "task", "todowrite", "skill",
+                               "bash", "edit", "write", "webfetch")}
+    body.update(tool_lines)
+    tool_yaml = "\n".join(f"  {k}: {str(v).lower()}" for k, v in body.items())
+    return ("---\n"
+            f"description: R3 probe canary ({name})\n"
+            "mode: primary\n"
+            "model: gate-local/research\n"
+            "tools:\n"
+            f"{tool_yaml}\n"
+            "---\n"
+            f"You are probe canary {name}. Whatever the user asks, reply with exactly "
+            f"{token} and nothing else.\n")
+
+
+WS_BASE = Path.home() / "spike-ws-a1"  # the S7c parent; probes add their own leaf dirs
+
+
+def start_stack(ws: Path, matter_ref: str, matters_root: Path | None = None):
+    """sync_mount + gate + scheduler + proxy. Returns (proxy, env). Caller MUST stop()."""
+    from scripts.stand_up_opencode import (
+        PORT, MOUNT, build_gate, child_env, sync_mount)
+    from harness.bootstrap import build_scheduler
+    from harness.egress_proxy import EgressProxy
+    root = matters_root or ws.parent / "matters"
+    sync_mount(ws, MOUNT, matter_ref, "LOCAL_PREFERRED", PORT, matters_root=root)
+    gate, rt, aliases = build_gate(ws / "trace.db")
+    scheduler = build_scheduler()
+    proxy = EgressProxy("127.0.0.1", PORT, gate, rt, aliases, root, scheduler=scheduler)
+    proxy.start()
+    return proxy, child_env(ws)
+
+
+P1_TOKEN = "R3-CANARY-TOKEN-9X"
+
+def probe_p1(ev: Path) -> dict:
+    from scripts.run_spike_opencode import flatten_prompt, extract_final_text
+    ws = WS_BASE / "r3-p1"
+    canary = "r3canary"
+    proxy, env = start_stack(ws, "r3-p1")
+    try:
+        (ws / ".opencode" / "agent" / f"{canary}.md").write_text(
+            canary_primary_md(canary, P1_TOKEN), encoding="utf-8")
+        prompt = flatten_prompt("What is your token?")
+        hit = run_capture(ws, ["run", "--agent", canary, "--model", "gate-local/research",
+                               "--format", "json", prompt], label="p1-canary", ev=ev, env=env)
+        miss = run_capture(ws, ["run", "--agent", "r3-nonexistent", "--model",
+                                "gate-local/research", "--format", "json", prompt],
+                           label="p1-fallback", ev=ev, env=env)
+        # CLI surfaces that might list agents — record what exists, evidence for the verdict
+        listing = {}
+        for argv in (["--help"], ["run", "--help"], ["agent", "list"], ["agents"]):
+            r = run_capture(ws, argv, timeout=60, label="p1-cli-" + argv[0].strip("-")[:12],
+                            ev=ev, env=env)
+            listing[" ".join(argv)] = {
+                "code": r.code,
+                "mentions_agent_flag": "agent" in r.raw.lower(),
+            }
+    finally:
+        proxy.stop()
+    hit_text = extract_final_text(hit.events)
+    miss_text = extract_final_text(miss.events)
+    return {
+        "primary_selectable": hit.code == 0 and P1_TOKEN in hit_text,
+        "fallback_silent": P1_TOKEN not in miss_text,
+        "cli_agent_listing": listing,
+        "final_texts": {"canary": hit_text[:400], "fallback": miss_text[:400]},
+        "attempts": {"canary": hit.attempts, "fallback": miss.attempts},
+    }
+
+
+PROBES["p1"] = probe_p1  # AFTER the stub loop so p1's stub is overwritten
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

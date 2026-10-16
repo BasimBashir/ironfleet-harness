@@ -81,6 +81,26 @@ def test_run_capture_no_retry_when_events_present(monkeypatch, tmp_path):
     assert r.attempts == 1 and r.events
 
 
+def test_canary_primary_md_shape():
+    from scripts.probe_r3_tui import canary_primary_md
+    md = canary_primary_md("r3canary", "R3-CANARY-TOKEN-9X")
+    assert md.startswith("---\n") and "mode: primary" in md
+    assert "model: gate-local/research" in md
+    assert "R3-CANARY-TOKEN-9X" in md
+    assert "  write: false" in md  # zero-tool body, same as the drive twins
+
+
+def test_canary_primary_md_tools_override():
+    from scripts.probe_r3_tui import canary_primary_md
+    md = canary_primary_md("r3canary", "T", tools={"read": True})
+    assert "  read: true" in md and "  write: false" in md  # per-entry override only
+
+
+def test_p1_registered_not_stub():
+    import scripts.probe_r3_tui as m
+    assert m.PROBES["p1"] is m.probe_p1  # stub loop must run BEFORE the p1 overwrite
+
+
 def test_run_capture_tees_raw(monkeypatch, tmp_path):
     import scripts.probe_r3_tui as m
     monkeypatch.setattr(m, "run_opencode", lambda ws, args, timeout=1, env=None: (0, "ok"))
