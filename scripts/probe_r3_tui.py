@@ -483,5 +483,141 @@ def probe_p5(ev: Path) -> dict:
 PROBES["p5"] = probe_p5  # AFTER the stub loop so p5's stub is overwritten
 
 
+def spawn_plugin_ts(child_ws: Path) -> str:
+    """Standalone plugin (NOT the manifest shim): one tool, spawn_agent, whose execute runs
+    `opencode run` in the CHILD workspace and returns the raw stream. Same proven shape as
+    ironfleet-tools.ts: args:{} passthrough (z.ZodRawShape), PWD re-pinned to the child (the
+    instance-resolution trap), PATH-inherited opencode.cmd via cmd.exe (the .cmd shim
+    run_opencode uses). Kept as a standalone plugin so P6 measures the mechanics without
+    touching the ported-tool manifest (D-T2 shape 1 feasibility, not a product surface)."""
+    cw = str(child_ws).replace("\\", "/")
+    return (
+        'import { spawnSync } from "node:child_process"\n'
+        'import { tool, type Plugin } from "@opencode-ai/plugin"\n'
+        f'const CHILD_WS = "{cw}"\n'
+        'export const R3Spawn: Plugin = async () => ({\n'
+        '  tool: {\n'
+        '    spawn_agent: tool({\n'
+        '      description: "Run the child agent on a prompt and return its full reply stream.",\n'
+        '      args: {},\n'
+        '      async execute(args) {\n'
+        '        const a = (args ?? {}) as { prompt?: string }\n'
+        '        const prompt = String(a.prompt ?? "Reply with your token.").replace(/\\r?\\n/g, " ")\n'
+        '        const proc = spawnSync("cmd.exe", ["/c", "opencode.cmd", "run", "--agent",\n'
+        '          "r3child", "--model", "gate-local/research", "--format", "json", prompt],\n'
+        '          { cwd: CHILD_WS, env: { ...process.env, PWD: CHILD_WS },\n'
+        '            timeout: 480_000, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })\n'
+        '        return (proc.stdout ?? "") + (proc.stderr ? `\\n--stderr--\\n${proc.stderr}` : "")\n'
+        '      },\n'
+        '    }),\n'
+        '  },\n'
+        '})\n'
+    )
+
+
+CHILD_TOKEN = "R3-CHILD-TOKEN-4K"
+
+def probe_p6(ev: Path) -> dict:
+    from scripts.stand_up_opencode import PORT, MOUNT, sync_mount
+    shared_matters = WS_BASE / "matters-r3p6"
+    parent = WS_BASE / "r3-p6-parent"
+    child = Path.home() / "spike-ws-a2" / "r3-p6-child"   # different parent, instance seam
+    proxy, env = start_stack(parent, "r3-p6-p", matters_root=shared_matters)
+    sync_mount(child, MOUNT, "r3-p6-c", "LOCAL_PREFERRED", PORT, matters_root=shared_matters)
+    try:
+        (child / ".opencode" / "agent" / "r3child.md").write_text(
+            canary_primary_md("r3child", CHILD_TOKEN), encoding="utf-8")
+        (parent / ".opencode" / "plugins" / "r3-spawn.ts").write_text(
+            spawn_plugin_ts(child), encoding="utf-8")
+        (parent / ".opencode" / "agent" / "r3parent.md").write_text(
+            canary_primary_md("r3parent", "unused", tools={"spawn_agent": True})
+            .replace("You are probe canary r3parent. Whatever the user asks, reply with"
+                     " exactly unused and nothing else.",
+                     "You orchestrate. When asked to run the child, you MUST call the "
+                     "spawn_agent tool with prompt 'Reply with your token.', then reply "
+                     "with exactly the token the tool returned and nothing else."),
+            encoding="utf-8")
+        prompt = flatten_prompt("Run the child agent and give me its token.")
+        roundtrip = 0
+        sessions = 3
+        for i in range(sessions):
+            r = run_capture(parent, ["run", "--agent", "r3parent", "--model",
+                                     "gate-local/toolpath", "--format", "json", prompt],
+                            label=f"p6-parent-{i}", ev=ev, env=env)
+            if CHILD_TOKEN in r.raw:   # token in the PARENT stream = full round trip
+                roundtrip += 1
+    finally:
+        proxy.stop()
+    return {"sessions": sessions, "token_roundtrip": roundtrip,
+            "reliability": f"{roundtrip}/{sessions}"}
+
+
+PROBES["p6"] = probe_p6  # AFTER the stub loop so p6's stub is overwritten
+
+
+P7_FILE_TOKEN = "R3-HANDOFF-TOKEN-2W"
+P7_PROMPT_TOKEN = "R3-FOX-TOKEN-5V"
+P7_INTERJECT = "R3-INTERJECT-8Z"
+
+def probe_p7(ev: Path) -> dict:
+    import re
+    ws = WS_BASE / "r3-p7"
+    proxy, env = start_stack(ws, "r3-p7")
+    try:
+        (ws / ".opencode" / "agent" / "r3s1.md").write_text(
+            canary_primary_md("r3s1", "unused", tools={"write": True}), encoding="utf-8")
+        (ws / ".opencode" / "agent" / "r3s2.md").write_text(
+            canary_primary_md("r3s2", "unused", tools={"read": True}), encoding="utf-8")
+        # stage 1: produce two artifacts — a workspace FILE and a PROMPT-carriable line
+        s1 = run_capture(ws, ["run", "--agent", "r3s1", "--model", "gate-local/research",
+                              "--format", "json",
+                              flatten_prompt("Do exactly two things. 1: Write this exact line — "
+                                             f"{P7_FILE_TOKEN} — to the file handoff.md in the "
+                                             "workspace. 2: Reply with exactly this sentence: "
+                                             f"The fox carries {P7_PROMPT_TOKEN}.")],
+                          label="p7-s1", ev=ev, env=env)
+        sid_m = re.search(r'"sessionID"\s*:\s*"([^"]+)"', s1.raw)
+        sid = sid_m.group(1) if sid_m else None
+        # file carry: stage 2 reads the workspace artifact
+        f = run_capture(ws, ["run", "--agent", "r3s2", "--model", "gate-local/research",
+                             "--format", "json",
+                             flatten_prompt("Read the file handoff.md in this workspace and "
+                                            "reply with exactly the line it contains.")],
+                        label="p7-file-carry", ev=ev, env=env)
+        # prompt carry: the harness hands stage 1's final text to stage 2
+        carried = extract_final_text(s1.events)
+        p = run_capture(ws, ["run", "--agent", "r3s2", "--model", "gate-local/research",
+                             "--format", "json",
+                             flatten_prompt(f"Stage 1 reported: {carried} — reply with just "
+                                            "the token the report carries.")],
+                        label="p7-prompt-carry", ev=ev, env=env)
+        # interjection: continue STAGE 1's session with the user's idea, then re-carry
+        interjection_ok = False
+        if sid:
+            u = run_capture(ws, ["run", "--session", sid, "--model", "gate-local/research",
+                                 "--format", "json",
+                                 flatten_prompt(f"User idea: the handoff file must also include "
+                                                f"this exact token: {P7_INTERJECT}. Update it now, "
+                                                "reply UPDATED.")],
+                            label="p7-interject", ev=ev, env=env)
+            f2 = run_capture(ws, ["run", "--agent", "r3s2", "--model", "gate-local/research",
+                                  "--format", "json",
+                                  flatten_prompt("Read the file handoff.md and reply with ALL "
+                                                 "tokens it contains, comma-separated.")],
+                             label="p7-after-interject", ev=ev, env=env)
+            interjection_ok = P7_INTERJECT in extract_final_text(f2.events)
+    finally:
+        proxy.stop()
+    f_text = extract_final_text(f.events)
+    p_text = extract_final_text(p.events)
+    return {"file_carry": P7_FILE_TOKEN in f_text,
+            "prompt_carry": P7_PROMPT_TOKEN in p_text,
+            "interjection_session": interjection_ok,
+            "session_ids": {"stage1": sid}}
+
+
+PROBES["p7"] = probe_p7  # AFTER the stub loop so p7's stub is overwritten
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

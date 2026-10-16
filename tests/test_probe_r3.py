@@ -186,3 +186,26 @@ def test_summarize_events_non_dict_part_does_not_crash():
 def test_p5_registered_not_stub():
     import scripts.probe_r3_tui as m
     assert m.PROBES["p5"] is m.probe_p5  # stub loop must run BEFORE the p5 overwrite
+
+
+def test_spawn_plugin_ts_substitution():
+    from scripts.probe_r3_tui import spawn_plugin_ts
+    ts = spawn_plugin_ts(Path("X:/child-ws"))
+    assert "X:/child-ws".replace("\\", "/") in ts and "__CHILD_WS__" not in ts
+    assert "spawn_agent" in ts and "args: {}" in ts
+
+
+def test_p6_registered_not_stub():
+    import scripts.probe_r3_tui as m
+    assert m.PROBES["p6"] is m.probe_p6  # stub loop must run BEFORE the p6 overwrite
+
+
+def test_stage_agent_md_tools():
+    from scripts.probe_r3_tui import canary_primary_md
+    md = canary_primary_md("r3s1", "T", tools={"write": True})
+    assert "  write: true" in md and "  read: false" in md
+
+
+def test_p7_registered_not_stub():
+    import scripts.probe_r3_tui as m
+    assert m.PROBES["p7"] is m.probe_p7  # stub loop must run BEFORE the p7 overwrite
