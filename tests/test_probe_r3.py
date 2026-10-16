@@ -183,6 +183,16 @@ def test_summarize_events_non_dict_part_does_not_crash():
     assert s["bad_lines"] == 0 and s["types"]["x"] == 1
 
 
+def test_summarize_events_survives_non_object_json_lines():
+    """parse_events' shared convention: non-`{`-prefixed JSON lines ([1,2], \"x\", 42,
+    null) are still JSON — the enumerator must not die on them, and neither on an
+    unhashable type value (they abort the probe before its verdict JSON is written)."""
+    from scripts.probe_r3_tui import summarize_events
+    raw = '[1,2]\n"hello"\n42\nnull\n{"type":{"a":1}}\n{"type":"ok"}\n'
+    s = summarize_events(raw)
+    assert s["bad_lines"] == 0 and s["types"]["ok"] == 1  # the good line still tallies
+
+
 def test_p5_registered_not_stub():
     import scripts.probe_r3_tui as m
     assert m.PROBES["p5"] is m.probe_p5  # stub loop must run BEFORE the p5 overwrite

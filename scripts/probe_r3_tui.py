@@ -415,7 +415,12 @@ PROBES["p4"] = probe_p4  # AFTER the stub loop so p4's stub is overwritten
 def summarize_events(raw: str) -> dict:
     """Per-line JSON type tally. Tallies BOTH event levels: the top-level `type` AND the
     proven run-mode part-level type (extract_tool_texts keys on `part.type == "tool"`,
-    run_spike_opencode.py:254 — a top-level-only tally blinds P5's tool_call_seen)."""
+    run_spike_opencode.py:254 — a top-level-only tally blinds P5's tool_call_seen).
+
+    Robust to any JSON line shape, same convention as parse_events: non-object JSON
+    (`[1,2]`, `"x"`, `42`, `null`) is skipped, not fatal — one odd line must never abort
+    P5 before its verdict lands. `parsed` counts TALLIES (a double-typed line adds 2),
+    not lines, and is evidence-only."""
     types: dict[str, int] = {}
     bad = 0
     for line in raw.splitlines():
@@ -427,13 +432,15 @@ def summarize_events(raw: str) -> dict:
         except json.JSONDecodeError:
             bad += 1
             continue
+        if not isinstance(obj, dict):
+            continue
         t = obj.get("type")
-        if t is not None:
+        if isinstance(t, str):
             types[t] = types.get(t, 0) + 1
         part = obj.get("part")
         if isinstance(part, dict):
             pt = part.get("type")
-            if pt is not None:
+            if isinstance(pt, str):
                 types[pt] = types.get(pt, 0) + 1
     return {"parsed": sum(types.values()), "types": types, "bad_lines": bad}
 
@@ -471,8 +478,8 @@ def probe_p5(ev: Path) -> dict:
     usage_fields = sorted({k for row in rows for k in row if "token" in k.lower() or k == "verified"})
     # from the parsed events themselves, on the shape extract_tool_texts proved — the tally
     # above stays evidence; this is the verdict's boolean.
-    tool_call_seen = any(isinstance(ev.get("part"), dict) and ev["part"].get("type") == "tool"
-                         for ev in r.events)
+    tool_call_seen = any(isinstance(evt.get("part"), dict) and evt["part"].get("type") == "tool"
+                         for evt in r.events)
     return {"event_types": s, "tool_call_seen": tool_call_seen,
             "usage_fields_seen": usage_fields, "guard_log_lines": guard_lines,
             "trace_rows": len(rows),
