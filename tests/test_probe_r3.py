@@ -85,7 +85,7 @@ def test_canary_primary_md_shape():
     from scripts.probe_r3_tui import canary_primary_md
     md = canary_primary_md("r3canary", "R3-CANARY-TOKEN-9X")
     assert md.startswith("---\n") and "mode: primary" in md
-    assert "model: gate-local/research" in md
+    assert "model: gate-local/gate/research" in md  # provider/CATALOG — the proven form
     assert "R3-CANARY-TOKEN-9X" in md
     assert "  write: false" in md  # zero-tool body, same as the drive twins
 
