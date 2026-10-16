@@ -413,6 +413,9 @@ PROBES["p4"] = probe_p4  # AFTER the stub loop so p4's stub is overwritten
 
 
 def summarize_events(raw: str) -> dict:
+    """Per-line JSON type tally. Tallies BOTH event levels: the top-level `type` AND the
+    proven run-mode part-level type (extract_tool_texts keys on `part.type == "tool"`,
+    run_spike_opencode.py:254 — a top-level-only tally blinds P5's tool_call_seen)."""
     types: dict[str, int] = {}
     bad = 0
     for line in raw.splitlines():
@@ -424,8 +427,14 @@ def summarize_events(raw: str) -> dict:
         except json.JSONDecodeError:
             bad += 1
             continue
-        t = obj.get("type") or (obj.get("part") or {}).get("type") or "<none>"
-        types[t] = types.get(t, 0) + 1
+        t = obj.get("type")
+        if t is not None:
+            types[t] = types.get(t, 0) + 1
+        part = obj.get("part")
+        if isinstance(part, dict):
+            pt = part.get("type")
+            if pt is not None:
+                types[pt] = types.get(pt, 0) + 1
     return {"parsed": sum(types.values()), "types": types, "bad_lines": bad}
 
 
@@ -460,7 +469,10 @@ def probe_p5(ev: Path) -> dict:
         "SELECT * FROM dispatches WHERE matter_ref='r3-p5'").fetchall()]
     con.close()
     usage_fields = sorted({k for row in rows for k in row if "token" in k.lower() or k == "verified"})
-    tool_call_seen = any("tool" in t for t in s["types"])
+    # from the parsed events themselves, on the shape extract_tool_texts proved — the tally
+    # above stays evidence; this is the verdict's boolean.
+    tool_call_seen = any(isinstance(ev.get("part"), dict) and ev["part"].get("type") == "tool"
+                         for ev in r.events)
     return {"event_types": s, "tool_call_seen": tool_call_seen,
             "usage_fields_seen": usage_fields, "guard_log_lines": guard_lines,
             "trace_rows": len(rows),

@@ -159,7 +159,28 @@ def test_summarize_events_counts_types():
     from scripts.probe_r3_tui import summarize_events
     raw = '{"type":"session.start"}\nnot-json\n{"type":"message.part","part":{"type":"tool"}}\n'
     s = summarize_events(raw)
-    assert s["parsed"] == 2 and s["types"]["session.start"] == 1 and s["bad_lines"] == 1
+    # both levels tallied: the message.part line counts its top-level type AND part.type
+    assert s["parsed"] == 3 and s["types"]["session.start"] == 1 and s["bad_lines"] == 1
+    assert s["types"]["message.part"] == 1 and s["types"]["tool"] == 1
+
+
+def test_summarize_events_tallies_tool_part_under_unrelated_toplevel_type():
+    """The proven run-mode tool result rides at part.type=="tool" with an UNRELATED
+    top-level type (extract_tool_texts keys on exactly that, run_spike_opencode.py:254).
+    One-level tally would miss "tool" entirely and blind P5's tool_call_seen."""
+    from scripts.probe_r3_tui import summarize_events
+    raw = ('{"type":"text","part":{"type":"tool","state":{"output":"x"}}}\n')
+    s = summarize_events(raw)
+    assert s["types"].get("tool") == 1
+
+
+def test_summarize_events_non_dict_part_does_not_crash():
+    """`obj.get("part") or {}` swallowed non-dict parts silently — tally the top-level
+    type (with a `type` key each) and skip the part leg."""
+    from scripts.probe_r3_tui import summarize_events
+    raw = '{"type":"x","part":"oops"}\n'
+    s = summarize_events(raw)
+    assert s["bad_lines"] == 0 and s["types"]["x"] == 1
 
 
 def test_p5_registered_not_stub():
