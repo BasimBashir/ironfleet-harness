@@ -6,20 +6,26 @@ Phase 0 foundation package for IronFleet harness-core.
 
 Phase 0 of the Rev-2 merged programme. See [specs](../specs/) and [IronFleet_Merged_Programme.pdf](../IronFleet_Merged_Programme.pdf) for full context and architecture.
 
-## Install (Windows, end user — S7j-W step 2)
+## Install (Windows, end user — R2 installer)
 
-From the extracted `IronFleet-harness-<version>-windows.zip` (or a checkout):
+**Every third-party tool, model and version a clean fresh Windows machine needs is
+in [PREREQUISITES.md](./PREREQUISITES.md) — read it first.** Then, from the
+extracted `IronFleet-harness-<version>-windows.zip` (or a checkout):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install_windows.ps1
 ```
 
-Idempotent; proves itself with `harness --version`. Prerequisites it checks but does not
-install: CPython ≥ 3.12, Node/npm, and Ollama serving `thomson1-chat` (+ `qwen3.8:27b`
-for the toolpath class, `bge-m3` for embeddings). Then:
+Idempotent; checks git/node/npm up front, enforces the pinned opencode
+(`opencode-ai@1.18.25`, re-verified after install), and holds the privileged store
+to the BitLocker rule (`-AcceptUnencryptedStore` records the CR-7 deviation).
+Proves itself with `harness --version`. Then — with Ollama running and the three
+models pulled (exact commands in PREREQUISITES.md §3):
 
 ```powershell
-.venv\Scripts\harness.exe drive --matter-ref <uuid>   # one live session through the gate
+powershell -ExecutionPolicy Bypass -File .\verify_windows_install.ps1 -WithDriveSmoke
+# checks pin + store + models, then one REAL gated dispatch (extraction through the gate)
+.venv\Scripts\harness.exe drive --matter-ref <uuid>   # a real matter, one live session
 .venv\Scripts\harness.exe serve                       # the egress proxy on 127.0.0.1:7373
 ```
 

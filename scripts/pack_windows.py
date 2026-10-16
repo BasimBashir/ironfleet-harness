@@ -2,7 +2,8 @@
 """Stage + zip the Windows distribution (S7j-W step 2, spec 13 §2.1).
 
 The product tree IS the repo tree: the zip carries src/ + data/ (routing, mount,
-module-e, golden corpus) + the install script at the zip root. Excluded: the dev
+module-e, golden corpus) + three files staged at the zip root (R2): the installer,
+the first-run verify + drive smoke, and PREREQUISITES.md. Excluded: the dev
 substrate (.git, .venv, caches, SDD ledgers) and data/eval (internal run evidence,
 not product). Output: dist/IronFleet-harness-<version>-windows.zip (dist/ is
 gitignored — a build artifact, not source).
@@ -17,12 +18,20 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INSTALL_SRC = ROOT / "src" / "harness" / "ops" / "install_windows.ps1"
+OPS = ROOT / "src" / "harness" / "ops"
+# The three files a fresh-machine user must see on top of the extracted zip (R2):
+# the installer, its first-run verify + drive smoke, and the dependency inventory.
+INSTALL_SRC = OPS / "install_windows.ps1"
+VERIFY_SRC = OPS / "verify_windows_install.ps1"
+PREREQ_SRC = ROOT / "PREREQUISITES.md"
 
 # Pruned by NAME anywhere in the tree; the dev substrate has no product meaning.
 SKIP_NAMES = {"__pycache__", ".pytest_cache", ".superpowers"}
 # Pruned by PATH relative to the repo root.
 SKIP_PATHS = {".git", ".venv", "dist", "build", Path("data") / "eval"}
+# Pruned by SUFFIX anywhere: every .sqlite3 in the tree is dev run evidence
+# (trace stores, research benches) — internal, not product.
+SKIP_SUFFIXES = (".sqlite3",)
 
 
 def iter_files(root: Path = ROOT):
@@ -34,7 +43,8 @@ def iter_files(root: Path = ROOT):
                        if d not in SKIP_NAMES and (rel / d) not in SKIP_PATHS
                        and d not in SKIP_PATHS]
         for f in sorted(filenames):
-            yield here / f
+            if not f.endswith(SKIP_SUFFIXES):
+                yield here / f
 
 
 def os_walk(root: Path):
@@ -49,12 +59,27 @@ def pack(root: Path = ROOT, out_dir: Path | None = None) -> Path:
     out_dir = Path(out_dir) if out_dir else root / "dist"
     out_dir.mkdir(parents=True, exist_ok=True)
     zip_path = out_dir / f"{name}.zip"
-    if not INSTALL_SRC.is_file():
-        raise FileNotFoundError(f"install script missing: {INSTALL_SRC}")
+    for label, src in (("install", INSTALL_SRC), ("verify", VERIFY_SRC),
+                       ("prerequisites", PREREQ_SRC)):
+        if not src.is_file():
+            raise FileNotFoundError(f"{label} artifact missing: {src}")
+    seen: set[str] = set()
+
+    def stage(p: Path, arc: str) -> None:
+        # the tree walk already carries the ops scripts at their src paths; the
+        # zip-root copy is the user-facing one — first write wins, no duplicates
+        if arc not in seen:
+            z.write(p, arc)
+            seen.add(arc)
+
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         for p in iter_files(root):
-            z.write(p, Path(name) / p.relative_to(root))
-        z.write(INSTALL_SRC, Path(name) / "install_windows.ps1")
+            # posix arcnames: Path's backslashes would both defeat the seen-set AND
+            # produce entries macOS/R6 cannot extract as a tree
+            stage(p, (Path(name) / p.relative_to(root)).as_posix())
+        stage(INSTALL_SRC, f"{name}/install_windows.ps1")
+        stage(VERIFY_SRC, f"{name}/verify_windows_install.ps1")
+        stage(PREREQ_SRC, f"{name}/PREREQUISITES.md")
     return zip_path
 
 

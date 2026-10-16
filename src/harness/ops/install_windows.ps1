@@ -1,16 +1,20 @@
-# IronFleet harness -- the one Windows install script (S7j-W step 2, spec 13 s2.1).
-# Idempotent: every step verifies before it acts. Run from the extracted zip root
-# (it self-locates by walking up to pyproject.toml) or from a checkout.
+# IronFleet harness -- the one Windows install script (S7j-W step 2, spec 13 s2.1;
+# hardened R2, spec 15 s2.1). Idempotent: every step verifies before it acts. Run from
+# the extracted zip root (it self-locates by walking up to pyproject.toml) or a checkout.
 #
 #   powershell -ExecutionPolicy Bypass -File .\install_windows.ps1
 #
-# Prerequisites checked, not installed: CPython >= 3.12, Node/npm (for the pinned
-# opencode), Ollama serving thomson1-chat (+ qwen3.8:27b for the toolpath class,
-# + bge-m3 for embeddings). Network required for pip/npm on a fresh machine.
+# R2 hardening: third-party prerequisites (git, node, npm) fail loud up front; the
+# opencode pin is ENFORCED (re-read after install, drift never exits 0); an EXISTING
+# privileged store is held to the same BitLocker rule as a new one.
+# -SkipStoreSetup skips store creation AND its encryption check (dev rigs).
+# -AcceptUnencryptedStore records the CR-7 deviation (store NOT encrypted at rest)
+# and passes it through to the P0-7 scripts. PREREQUISITES.md inventories everything
+# a clean fresh Windows box needs; network is required for pip/npm at install.
 # ASCII-only on purpose: PowerShell 5.1 reads a BOM-less UTF-8 script as ANSI and the
 # parser chokes on multi-byte characters (observed live 2026-10-12).
 #Requires -Version 5.1
-param([switch]$SkipStoreSetup)
+param([switch]$SkipStoreSetup, [switch]$AcceptUnencryptedStore)
 $ErrorActionPreference = 'Stop'
 
 # --- self-locate the distribution root -------------------------------------------------
@@ -25,6 +29,17 @@ Write-Host "==> distribution root: $root"
 Set-Location $root
 
 function Fail($msg) { Write-Host "FAIL: $msg" -ForegroundColor Red; exit 1 }
+
+# --- 0. third-party prerequisites on PATH (PREREQUISITES.md inventories them) -----------
+# git: drive workspaces are git repos (the isolation seam); node/npm: the pinned
+# opencode bootstrap. Checked before anything installs so a fresh box fails in
+# seconds with a named remediation instead of mid-way through.
+foreach ($tool in @(@('git', '--version'), @('node', '--version'), @('npm', '--version'))) {
+    $v = $null
+    try { $v = (& $tool[0] $tool[1] 2>$null | Select-Object -First 1) } catch { }
+    if (-not $v) { Fail "$($tool[0]) not found on PATH -- install it (PREREQUISITES.md lists every third-party tool), reopen this window, re-run" }
+    Write-Host "==> $($tool[0]): $($v.ToString().Trim())"
+}
 
 # --- 1. Python >= 3.12 + venv ----------------------------------------------------------
 $py = $null
@@ -64,6 +79,13 @@ if (-not $have -or $have -notmatch [regex]::Escape($pinVersion)) {
 } else {
     Write-Host "==> opencode already pinned: $have"
 }
+# the pin is ENFORCED (R2): whatever the branch above did, re-read and fail on drift
+$now = $null
+try { $now = (& opencode --version 2>$null | Out-String).Trim() } catch { }
+if (-not $now -or $now -notmatch [regex]::Escape($pinVersion)) {
+    Fail "opencode pin NOT enforced: installed '$now' != pinned '$pinVersion'. npm install -g $pin silently failed? PATH stale? Reopen this window and re-run."
+}
+Write-Host "==> opencode pin enforced: $now"
 
 # --- 4. global autoupdate:false (S7c ruling 2026-10-12) -- create if missing, VERIFY if not
 $ocCfg = Join-Path $env:USERPROFILE '.config\opencode\opencode.jsonc'
@@ -86,16 +108,41 @@ if (-not (Test-Path $ocCfg)) {
     Write-Host "==> global autoupdate:false verified"
 }
 
-# --- 5. the privileged store (P0-7 fail-loud BitLocker gate; skipped when present) ------
+# --- 5. the privileged store on the encrypted volume (P0-7 fail-loud BitLocker gate) ----
 $store = if ($env:HARNESS_HOME) { $env:HARNESS_HOME }
          else { Join-Path (Join-Path $env:LOCALAPPDATA 'IronFleet') 'harness' }
 if ($SkipStoreSetup) {
     Write-Host "==> store setup skipped (-SkipStoreSetup); expected at $store"
 } elseif (Test-Path $store) {
     Write-Host "==> store already present: $store"
+    # R2: an EXISTING store is held to the same encrypted-volume rule as a new one --
+    # never accepted silently unencrypted (P0-7 fail-loud, same as p07_verify).
+    if ($AcceptUnencryptedStore) {
+        Write-Host "WARN: -AcceptUnencryptedStore set -- the EXISTING store's encryption is NOT verified (CR-7 deviation, operator-accepted; record it)." -ForegroundColor Yellow
+    } elseif ($store -match '^([A-Za-z]:)') {
+        $sdrive = $Matches[1]
+        $bde = Get-Command manage-bde.exe -ErrorAction SilentlyContinue
+        if (-not $bde) {
+            Fail "cannot verify BitLocker for drive $sdrive (manage-bde.exe missing -- Home edition?). Encrypt the store's drive, or set -AcceptUnencryptedStore to record the CR-7 deviation."
+        } else {
+            $statusText = (manage-bde.exe -status $sdrive) -join "`r`n"
+            if ($LASTEXITCODE -ne 0) {
+                Fail "cannot determine BitLocker status for drive $sdrive (exit $LASTEXITCODE; an elevated prompt may be needed). Or set -AcceptUnencryptedStore to record the CR-7 deviation."
+            } elseif ($statusText -notmatch '(?m)^\s*Protection Status:\s*Protection On\b') {
+                Fail "drive $sdrive holding the EXISTING store is not BitLocker-protected (P0-7 fail-loud). Encrypt it (p07_setup_windows.ps1 remediation), move the store via HARNESS_HOME, or set -AcceptUnencryptedStore to record the CR-7 deviation."
+            } else {
+                Write-Host "==> BitLocker protection ON for $sdrive (existing store)"
+            }
+        }
+    } else {
+        Fail "store root '$store' is not on a local drive -- set HARNESS_HOME to a BitLocker-protected local path"
+    }
 } else {
     Write-Host "==> creating the privileged store (BitLocker-gated, P0-7)"
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $root 'src\harness\ops\p07_setup_windows.ps1')
+    $p07args = @('-NoProfile', '-ExecutionPolicy', 'Bypass',
+                 '-File', (Join-Path $root 'src\harness\ops\p07_setup_windows.ps1'))
+    if ($AcceptUnencryptedStore) { $p07args += '-AcceptUnencryptedStore' }
+    & powershell @p07args
     if ($LASTEXITCODE -ne 0) { Fail "store setup failed (BitLocker gate? see the message above)" }
 }
 
@@ -104,8 +151,10 @@ $ver = & (Join-Path $root '.venv\Scripts\harness.exe') --version
 if ($LASTEXITCODE -ne 0) { Fail "harness --version failed" }
 Write-Host "==> $ver"
 Write-Host ""
-Write-Host "NEXT: start Ollama with the models, then prove one drive:" -ForegroundColor Cyan
+Write-Host "NEXT: every third-party tool and model a fresh box needs is listed in PREREQUISITES.md." -ForegroundColor Cyan
+Write-Host "Start Ollama with the models, then verify the install and smoke one live drive:" -ForegroundColor Cyan
 Write-Host "    ollama serve   (models: thomson1-chat, qwen3.8:27b, bge-m3)" -ForegroundColor Cyan
-Write-Host "    .venv\Scripts\harness.exe drive --matter-ref <uuid>" -ForegroundColor Cyan
+Write-Host "    powershell -ExecutionPolicy Bypass -File .\verify_windows_install.ps1 -WithDriveSmoke" -ForegroundColor Cyan
+Write-Host "    .venv\Scripts\harness.exe drive --matter-ref <uuid>   (a real matter)" -ForegroundColor Cyan
 Write-Host "    .venv\Scripts\harness.exe serve   (the egress proxy, 127.0.0.1:7373)" -ForegroundColor Cyan
 exit 0
