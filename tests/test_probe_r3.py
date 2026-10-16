@@ -124,3 +124,21 @@ def test_run_capture_tees_raw(monkeypatch, tmp_path):
     monkeypatch.setattr(m, "run_opencode", lambda ws, args, timeout=1, env=None: (0, "ok"))
     m.run_capture(tmp_path, ["run"], timeout=1, label="x", ev=tmp_path)
     assert (tmp_path / "x.log").read_text(encoding="utf-8") == "ok"
+
+
+def test_storage_roots_candidates():
+    from scripts.probe_r3_tui import storage_roots
+    roots = storage_roots()
+    assert any(".local" in str(r) or "opencode" in str(r).lower() for r in roots)
+    assert all(r.is_absolute() for r in roots)
+
+
+def test_anchor_check():
+    from scripts.probe_r3_tui import anchor_in
+    assert anchor_in("the token was R3-ANCHOR-7Q yes")
+    assert not anchor_in("no idea")
+
+
+def test_p3_registered_not_stub():
+    import scripts.probe_r3_tui as m
+    assert m.PROBES["p3"] is m.probe_p3  # stub loop must run BEFORE the p3 overwrite

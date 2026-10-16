@@ -273,5 +273,80 @@ def probe_p2(ev: Path) -> dict:
 PROBES["p2"] = probe_p2  # AFTER the stub loop so p2's stub is overwritten
 
 
+ANCHOR = "R3-ANCHOR-7Q"
+
+
+def storage_roots() -> list[Path]:
+    """Candidate opencode session-storage roots (linux/mac + windows layouts)."""
+    home = Path.home()
+    return [home / ".local" / "share" / "opencode",
+            home / ".local" / "state" / "opencode",
+            home / "AppData" / "Local" / "opencode",
+            home / "AppData" / "Roaming" / "opencode",
+            home / ".opencode"]
+
+
+def find_session_file(sid: str) -> Path | None:
+    """First file under any storage root whose head mentions the session id.
+    Live-only (acceptance): the full-tree rglob never runs under pytest."""
+    for root in storage_roots():
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*"):
+            if p.is_file() and sid in p.read_text(encoding="utf-8", errors="ignore")[:8000]:
+                return p
+    return None
+
+
+def anchor_in(text: str) -> bool:
+    return ANCHOR in text
+
+
+def probe_p3(ev: Path) -> dict:
+    import re
+    ws = WS_BASE / "r3-p3"
+    proxy, env = start_stack(ws, "r3-p3")
+    out: dict = {"resume": {}}
+    try:
+        # A. plant the anchor
+        a = run_capture(ws, ["run", "--model", "gate-local/research", "--format", "json",
+                             flatten_prompt(f"Remember the token {ANCHOR} for later. Reply ACK.")],
+                        label="p3-a", ev=ev, env=env)
+        m = re.search(r'"sessionID"\s*:\s*"([^"]+)"', a.raw)
+        out["session_id"] = m.group(1) if m else None
+        # B. locate + schema the stored record
+        rec = find_session_file(out["session_id"]) if out["session_id"] else None
+        out["storage_root"] = str(rec) if rec else None
+        if rec:
+            try:
+                data = json.loads(rec.read_text(encoding="utf-8", errors="ignore"))
+                out["session_record_keys"] = sorted(data) if isinstance(data, dict) else ["<non-dict>"]
+            except json.JSONDecodeError:
+                out["session_record_keys"] = ["<not-plain-json>"]
+        # C. kill mid-run, then resume per flag variant
+        k = run_capture(ws, ["run", "--model", "gate-local/research", "--format", "json",
+                             flatten_prompt("Count from 1 to 400, one number per line, no commentary.")],
+                        timeout=30, label="p3-kill", ev=ev, env=env)
+        out["killed_as_planned"] = k.code == 124
+        follow = flatten_prompt("What token did I ask you to remember? Reply with just the token.")
+        for flag_argv, name in ((["--continue"], "--continue"), (["-c"], "-c")):
+            r = run_capture(ws, ["run", *flag_argv, "--model", "gate-local/research",
+                                 "--format", "json", follow],
+                            label=f"p3-resume{name}", ev=ev, env=env)
+            out["resume"][name] = anchor_in(extract_final_text(r.events))
+        if out["session_id"]:
+            r = run_capture(ws, ["run", "--session", out["session_id"], "--model",
+                                 "gate-local/research", "--format", "json", follow],
+                            label="p3-resume-session", ev=ev, env=env)
+            out["resume"]["--session"] = anchor_in(extract_final_text(r.events))
+        out["context_continuity"] = any(out["resume"].values())
+    finally:
+        proxy.stop()
+    return out
+
+
+PROBES["p3"] = probe_p3  # AFTER the stub loop so p3's stub is overwritten
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
