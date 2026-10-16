@@ -101,6 +101,24 @@ def test_p1_registered_not_stub():
     assert m.PROBES["p1"] is m.probe_p1  # stub loop must run BEFORE the p1 overwrite
 
 
+def test_custom_command_md_shape():
+    from scripts.probe_r3_tui import custom_command_md
+    md = custom_command_md("R3-CMD-TOKEN-4F")
+    assert "R3-CMD-TOKEN-4F" in md and md.strip()  # a prompt-template file, no frontmatter required
+
+
+def test_npm_pkg_dir_candidates(monkeypatch):
+    from scripts.probe_r3_tui import npm_pkg_dirs
+    monkeypatch.setenv("APPDATA", r"X:\appdata")
+    dirs = npm_pkg_dirs()
+    assert any("opencode-ai" in str(d) for d in dirs)
+
+
+def test_p2_registered_not_stub():
+    import scripts.probe_r3_tui as m
+    assert m.PROBES["p2"] is m.probe_p2  # stub loop must run BEFORE the p2 overwrite
+
+
 def test_run_capture_tees_raw(monkeypatch, tmp_path):
     import scripts.probe_r3_tui as m
     monkeypatch.setattr(m, "run_opencode", lambda ws, args, timeout=1, env=None: (0, "ok"))

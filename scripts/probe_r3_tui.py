@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess  # noqa: F401 — probe bodies (Tasks 3-9) shell out through it
 import sys
 import time
@@ -214,6 +215,62 @@ def probe_p1(ev: Path) -> dict:
 
 
 PROBES["p1"] = probe_p1  # AFTER the stub loop so p1's stub is overwritten
+
+
+def custom_command_md(token: str) -> str:
+    """A prompt-template command file; opencode custom commands need no frontmatter."""
+    return f"Reply with exactly {token} and nothing else.\n"
+
+
+def npm_pkg_dirs() -> list[Path]:
+    """Candidates for the globally-installed opencode-ai package. APPDATA is read at
+    CALL time so tests can monkeypatch it."""
+    appdata = Path(os.environ.get("APPDATA", ""))
+    return [appdata / "npm" / "node_modules" / "opencode-ai",
+            appdata / "npm" / "node_modules" / "opencode-ai" / "node_modules" / "@opencode-ai"]
+
+
+def probe_p2(ev: Path) -> dict:
+    ws = WS_BASE / "r3-p2"
+    proxy, env = start_stack(ws, "r3-p2")
+    out: dict = {}
+    try:
+        # (a) custom command: drop the file, try the invocation variants run mode allows
+        cmd_dir = ws / ".opencode" / "command"
+        cmd_dir.mkdir(parents=True, exist_ok=True)
+        (cmd_dir / "r3ping.md").write_text(custom_command_md("R3-CMD-TOKEN-4F"),
+                                           encoding="utf-8")
+        tried = {}
+        for i, argv in enumerate((["run", "--format", "json", "/r3ping"],
+                                  ["run", "--command", "r3ping", "--format", "json"],
+                                  ["run", "--format", "json", "--command", "r3ping"]), 1):
+            # unique label per variant: run_capture tees <label>.log, a shared one overwrites
+            r = run_capture(ws, argv, timeout=180, label=f"p2-cmd-{i}", ev=ev, env=env)
+            tried[" ".join(argv)] = "R3-CMD-TOKEN-4F" in r.raw
+        out["custom_commands"] = {"tried": tried,
+                                  "works_via": next((k for k, v in tried.items() if v), None)}
+        # (b) plugin type surface: does the pinned package expose ANY TUI-facing plugin API?
+        tui_mentions: list[str] = []
+        files = 0
+        for pkg in npm_pkg_dirs():
+            if not pkg.is_dir():
+                continue
+            for dts in pkg.rglob("*.d.ts"):
+                files += 1
+                text = dts.read_text(encoding="utf-8", errors="replace")
+                for kw in ("pane", "panel", "widget", "theme", "tui"):
+                    if kw in text.lower():
+                        tui_mentions.append(f"{dts.name}:{kw}")
+        out["plugin_type_surface"] = {"files": files, "tui_mentions": sorted(set(tui_mentions))[:40]}
+        # (c) custom panes: nothing above counts as a renderable-pane API => default False,
+        # flipped only if tui_mentions shows a real component-registration surface
+        out["custom_panes_possible"] = any(":pane" in m or ":panel" in m for m in tui_mentions)
+    finally:
+        proxy.stop()
+    return out
+
+
+PROBES["p2"] = probe_p2  # AFTER the stub loop so p2's stub is overwritten
 
 
 if __name__ == "__main__":
