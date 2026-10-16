@@ -348,5 +348,69 @@ def probe_p3(ev: Path) -> dict:
 PROBES["p3"] = probe_p3  # AFTER the stub loop so p3's stub is overwritten
 
 
+def intervals_overlap(a: tuple[float, float], b: tuple[float, float]) -> bool:
+    return a[0] < b[1] and b[0] < a[1]
+
+
+def _timed_run(ws, argv, env, ev, label, results, key):
+    t0 = time.monotonic()
+    r = run_capture(ws, argv, env=env, ev=ev, label=label)
+    results[key] = {"start": t0, "end": time.monotonic(), "code": r.code, "label": label}
+
+
+def probe_p4(ev: Path) -> dict:
+    import threading
+    from scripts.run_spike_opencode import flatten_prompt
+    shared_matters = WS_BASE / "matters-r3p4"          # ONE served directory
+    ws_a = WS_BASE / "r3-p4-a"                          # own parent (WS_BASE)
+    ws_b = Path.home() / "spike-ws-a2" / "r3-p4-b"      # DIFFERENT parent (instance seam)
+    proxy, env_a = start_stack(ws_a, "r3-p4-a", matters_root=shared_matters)
+    # second mount under its own parent, same proxy + same matters root
+    from scripts.stand_up_opencode import PORT, MOUNT, child_env, sync_mount
+    sync_mount(ws_b, MOUNT, "r3-p4-b", "LOCAL_PREFERRED", PORT, matters_root=shared_matters)
+    env_b = child_env(ws_b)
+    prompt = flatten_prompt("Summarise in two sentences: contracts require consideration.")
+    results: dict = {}
+    try:
+        t = []
+        pairs = [("a1", ws_a, env_a), ("b1", ws_b, env_b)]
+        for key, ws, env in pairs:
+            th = threading.Thread(target=_timed_run, args=(
+                ws, ["run", "--model", "gate-local/research", "--format", "json", prompt],
+                env, ev, f"p4-{key}", results, key))
+            th.start(); t.append(th)
+        for th in t: th.join()
+        overlap = intervals_overlap((results["a1"]["start"], results["a1"]["end"]),
+                                    (results["b1"]["start"], results["b1"]["end"]))
+        # FIFO: two same-matter runs must serialize (a3 starts after a2 ends)
+        t = []
+        for key in ("a2", "a3"):
+            th = threading.Thread(target=_timed_run, args=(
+                ws_a, ["run", "--model", "gate-local/research", "--format", "json", prompt],
+                env_a, ev, f"p4-{key}", results, key))
+            th.start(); t.append(th)
+        for th in t: th.join()
+        serialized = not intervals_overlap((results["a2"]["start"], results["a2"]["end"]),
+                                           (results["a3"]["start"], results["a3"]["end"]))
+    finally:
+        proxy.stop()
+    trace = (ws_a / "trace.db")
+    rows = 0
+    if trace.is_file():
+        import sqlite3
+        con = sqlite3.connect(str(trace)); con.row_factory = sqlite3.Row
+        rows = len(con.execute(
+            "SELECT * FROM dispatches WHERE matter_ref LIKE 'r3-p4%'").fetchall())
+        con.close()
+    return {"overlap": overlap, "serialized": serialized,
+            "cap_observed": 2 if overlap else 1,
+            "trace_rows": rows,
+            "runs": {k: {kk: round(vv, 2) if isinstance(vv, float) else vv
+                         for kk, vv in v.items()} for k, v in results.items()}}
+
+
+PROBES["p4"] = probe_p4  # AFTER the stub loop so p4's stub is overwritten
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

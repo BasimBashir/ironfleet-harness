@@ -142,3 +142,14 @@ def test_anchor_check():
 def test_p3_registered_not_stub():
     import scripts.probe_r3_tui as m
     assert m.PROBES["p3"] is m.probe_p3  # stub loop must run BEFORE the p3 overwrite
+
+
+def test_intervals_overlap():
+    from scripts.probe_r3_tui import intervals_overlap
+    assert intervals_overlap((0.0, 10.0), (5.0, 15.0))
+    assert not intervals_overlap((0.0, 10.0), (10.0, 20.0))  # touch, no overlap
+
+
+def test_p4_registered_not_stub():
+    import scripts.probe_r3_tui as m
+    assert m.PROBES["p4"] is m.probe_p4  # stub loop must run BEFORE the p4 overwrite
