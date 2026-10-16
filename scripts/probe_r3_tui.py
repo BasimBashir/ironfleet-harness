@@ -57,7 +57,10 @@ def pin_check() -> dict:
 def require_pin() -> dict:
     report = pin_check()
     if not report["ok"]:
-        raise SystemExit(f"REFUSING TO MEASURE — pin drift: {report} (spec 16 §7)")
+        # exit 3 per contract: acceptance must distinguish "pin drifted" (3) from
+        # "probe crashed" (1) — a string SystemExit would collapse both to 1.
+        print(f"REFUSING TO MEASURE — pin drift: {report} (spec 16 §7)", file=sys.stderr)
+        raise SystemExit(3)
     return report
 
 
