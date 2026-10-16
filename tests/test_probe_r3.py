@@ -153,3 +153,15 @@ def test_intervals_overlap():
 def test_p4_registered_not_stub():
     import scripts.probe_r3_tui as m
     assert m.PROBES["p4"] is m.probe_p4  # stub loop must run BEFORE the p4 overwrite
+
+
+def test_summarize_events_counts_types():
+    from scripts.probe_r3_tui import summarize_events
+    raw = '{"type":"session.start"}\nnot-json\n{"type":"message.part","part":{"type":"tool"}}\n'
+    s = summarize_events(raw)
+    assert s["parsed"] == 2 and s["types"]["session.start"] == 1 and s["bad_lines"] == 1
+
+
+def test_p5_registered_not_stub():
+    import scripts.probe_r3_tui as m
+    assert m.PROBES["p5"] is m.probe_p5  # stub loop must run BEFORE the p5 overwrite

@@ -412,5 +412,64 @@ def probe_p4(ev: Path) -> dict:
 PROBES["p4"] = probe_p4  # AFTER the stub loop so p4's stub is overwritten
 
 
+def summarize_events(raw: str) -> dict:
+    types: dict[str, int] = {}
+    bad = 0
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            bad += 1
+            continue
+        t = obj.get("type") or (obj.get("part") or {}).get("type") or "<none>"
+        types[t] = types.get(t, 0) + 1
+    return {"parsed": sum(types.values()), "types": types, "bad_lines": bad}
+
+
+P5_PROMPT = ("Call the ironfleet_without_prejudice tool on this text: "
+             "'The claim is discontinued with no admission of liability.' "
+             "Then reply with the tool's output verbatim.")
+
+def probe_p5(ev: Path) -> dict:
+    from scripts.stand_up_opencode import PORT, MOUNT, build_gate, child_env, sync_mount
+    from harness.bootstrap import build_scheduler
+    from harness.egress_proxy import EgressProxy
+    ws = WS_BASE / "r3-p5"
+    root = ws.parent / "matters"
+    sync_mount(ws, MOUNT, "r3-p5", "LOCAL_PREFERRED", PORT, matters_root=root)
+    gate, rt, aliases = build_gate(ws / "trace.db")
+    proxy = EgressProxy("127.0.0.1", PORT, gate, rt, aliases, root, scheduler=build_scheduler())
+    proxy.start()
+    try:
+        env = child_env(ws)
+        r = run_capture(ws, ["run", "--model", "gate-local/toolpath", "--format", "json",
+                             flatten_prompt(P5_PROMPT)], label="p5-toolpath", ev=ev, env=env)
+    finally:
+        proxy.stop()
+    s = summarize_events(r.raw)
+    guard_lines = 0
+    gl = ws / "guard-log.jsonl"
+    if gl.is_file():
+        guard_lines = sum(1 for ln in gl.read_text(encoding="utf-8").splitlines() if ln.strip())
+    import sqlite3
+    con = sqlite3.connect(str(ws / "trace.db")); con.row_factory = sqlite3.Row
+    rows = [dict(x) for x in con.execute(
+        "SELECT * FROM dispatches WHERE matter_ref='r3-p5'").fetchall()]
+    con.close()
+    usage_fields = sorted({k for row in rows for k in row if "token" in k.lower() or k == "verified"})
+    tool_call_seen = any("tool" in t for t in s["types"])
+    return {"event_types": s, "tool_call_seen": tool_call_seen,
+            "usage_fields_seen": usage_fields, "guard_log_lines": guard_lines,
+            "trace_rows": len(rows),
+            "drilldown_equivalent": bool(tool_call_seen and guard_lines and rows),
+            "final_text": extract_final_text(r.events)[:400]}
+
+
+PROBES["p5"] = probe_p5  # AFTER the stub loop so p5's stub is overwritten
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
