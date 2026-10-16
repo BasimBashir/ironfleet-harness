@@ -14,6 +14,8 @@ import argparse
 import json
 import subprocess  # noqa: F401 — probe bodies (Tasks 3-9) shell out through it
 import sys
+import time
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -72,6 +74,39 @@ def evidence_dir(root: Path | None = None) -> Path:
 
 def _write_evidence(ev: Path, name: str, body: str) -> None:
     (ev / name).write_text(body, encoding="utf-8")
+
+
+@dataclass
+class RunResult:
+    code: int
+    raw: str
+    events: list
+    attempts: int
+    label: str
+    seconds: float
+
+
+def run_capture(ws: Path, args: list[str], timeout: int = DEFAULT_TIMEOUT_S,
+                env: dict[str, str] | None = None, label: str = "run",
+                ev: Path | None = None) -> RunResult:
+    """run_opencode + parse_events + evidence tee. Retries ONCE on the startup-hang
+    signature (timeout tree-kill AND nothing parsed — the binary died before speaking).
+    A second identical failure is fatal: two hangs in a row means the box or the mount
+    is broken, and the probe must not burn the schedule retrying (spec 16 §7)."""
+    t0 = time.monotonic()
+    code, raw = run_opencode(ws, args, timeout=timeout, env=env)
+    events = parse_events(raw)
+    attempts = 1
+    if code == 124 and not events:
+        print(f"[{label}] hang signature (124, no events) — retrying once", flush=True)
+        code, raw = run_opencode(ws, args, timeout=timeout, env=env)
+        events = parse_events(raw)
+        attempts = 2
+        if code == 124 and not events:
+            raise SystemExit(f"[{label}] hung twice — aborting probe")
+    if ev is not None:
+        _write_evidence(ev, f"{label}.log", raw)
+    return RunResult(code, raw, events, attempts, label, time.monotonic() - t0)
 
 
 def main(argv: list[str] | None = None) -> int:
