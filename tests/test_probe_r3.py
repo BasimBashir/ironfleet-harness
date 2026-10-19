@@ -85,7 +85,9 @@ def test_canary_primary_md_shape():
     from scripts.probe_r3_tui import canary_primary_md
     md = canary_primary_md("r3canary", "R3-CANARY-TOKEN-9X")
     assert md.startswith("---\n") and "mode: primary" in md
-    assert "model: gate-local/gate/research" in md  # provider/CATALOG — the proven form
+    assert "model: gate-local/gate/extraction" in md  # mechanical class: the one an
+    # honest mechanical-only Ollama admission may serve (policy.MECHANICAL_TASKS; research
+    # is not in it — P1's first live run made the gate refuse exactly that)
     assert "R3-CANARY-TOKEN-9X" in md
     assert "  write: false" in md  # zero-tool body, same as the drive twins
 

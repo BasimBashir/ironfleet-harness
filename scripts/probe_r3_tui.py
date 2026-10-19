@@ -154,7 +154,7 @@ def canary_primary_md(name: str, token: str, tools: dict[str, bool] | None = Non
             # map is keyed `gate/<task-class>` under provider `gate-local`, so the full
             # name is gate-local/gate/<task-class> (accept_s7f.py:359, accept_s7c.py:9,
             # accept_s7i.py:268 — the live-accepted drivers all use the doubled form).
-            "model: gate-local/gate/research\n"
+            "model: gate-local/gate/extraction\n"
             "tools:\n"
             f"{tool_yaml}\n"
             "---\n"
@@ -191,10 +191,10 @@ def probe_p1(ev: Path) -> dict:
         (ws / ".opencode" / "agent" / f"{canary}.md").write_text(
             canary_primary_md(canary, P1_TOKEN), encoding="utf-8")
         prompt = flatten_prompt("What is your token?")
-        hit = run_capture(ws, ["run", "--agent", canary, "--model", "gate-local/gate/research",
+        hit = run_capture(ws, ["run", "--agent", canary, "--model", "gate-local/gate/extraction",
                                "--format", "json", prompt], label="p1-canary", ev=ev, env=env)
         miss = run_capture(ws, ["run", "--agent", "r3-nonexistent", "--model",
-                                "gate-local/gate/research", "--format", "json", prompt],
+                                "gate-local/gate/extraction", "--format", "json", prompt],
                            label="p1-fallback", ev=ev, env=env)
         # CLI surfaces that might list agents — record what exists, evidence for the verdict
         listing = {}
@@ -313,7 +313,7 @@ def probe_p3(ev: Path) -> dict:
     out: dict = {"resume": {}}
     try:
         # A. plant the anchor
-        a = run_capture(ws, ["run", "--model", "gate-local/gate/research", "--format", "json",
+        a = run_capture(ws, ["run", "--model", "gate-local/gate/extraction", "--format", "json",
                              flatten_prompt(f"Remember the token {ANCHOR} for later. Reply ACK.")],
                         label="p3-a", ev=ev, env=env)
         m = re.search(r'"sessionID"\s*:\s*"([^"]+)"', a.raw)
@@ -328,19 +328,19 @@ def probe_p3(ev: Path) -> dict:
             except json.JSONDecodeError:
                 out["session_record_keys"] = ["<not-plain-json>"]
         # C. kill mid-run, then resume per flag variant
-        k = run_capture(ws, ["run", "--model", "gate-local/gate/research", "--format", "json",
+        k = run_capture(ws, ["run", "--model", "gate-local/gate/extraction", "--format", "json",
                              flatten_prompt("Count from 1 to 400, one number per line, no commentary.")],
                         timeout=30, label="p3-kill", ev=ev, env=env)
         out["killed_as_planned"] = k.code == 124
         follow = flatten_prompt("What token did I ask you to remember? Reply with just the token.")
         for flag_argv, name in ((["--continue"], "--continue"), (["-c"], "-c")):
-            r = run_capture(ws, ["run", *flag_argv, "--model", "gate-local/gate/research",
+            r = run_capture(ws, ["run", *flag_argv, "--model", "gate-local/gate/extraction",
                                  "--format", "json", follow],
                             label=f"p3-resume{name}", ev=ev, env=env)
             out["resume"][name] = anchor_in(extract_final_text(r.events))
         if out["session_id"]:
             r = run_capture(ws, ["run", "--session", out["session_id"], "--model",
-                                 "gate-local/gate/research", "--format", "json", follow],
+                                 "gate-local/gate/extraction", "--format", "json", follow],
                             label="p3-resume-session", ev=ev, env=env)
             out["resume"]["--session"] = anchor_in(extract_final_text(r.events))
         out["context_continuity"] = any(out["resume"].values())
@@ -380,7 +380,7 @@ def probe_p4(ev: Path) -> dict:
         pairs = [("a1", ws_a, env_a), ("b1", ws_b, env_b)]
         for key, ws, env in pairs:
             th = threading.Thread(target=_timed_run, args=(
-                ws, ["run", "--model", "gate-local/gate/research", "--format", "json", prompt],
+                ws, ["run", "--model", "gate-local/gate/extraction", "--format", "json", prompt],
                 env, ev, f"p4-{key}", results, key))
             th.start(); t.append(th)
         for th in t: th.join()
@@ -390,7 +390,7 @@ def probe_p4(ev: Path) -> dict:
         t = []
         for key in ("a2", "a3"):
             th = threading.Thread(target=_timed_run, args=(
-                ws_a, ["run", "--model", "gate-local/gate/research", "--format", "json", prompt],
+                ws_a, ["run", "--model", "gate-local/gate/extraction", "--format", "json", prompt],
                 env_a, ev, f"p4-{key}", results, key))
             th.start(); t.append(th)
         for th in t: th.join()
@@ -515,7 +515,7 @@ def spawn_plugin_ts(child_ws: Path) -> str:
         '        const a = (args ?? {}) as { prompt?: string }\n'
         '        const prompt = String(a.prompt ?? "Reply with your token.").replace(/\\r?\\n/g, " ")\n'
         '        const proc = spawnSync("cmd.exe", ["/c", "opencode.cmd", "run", "--agent",\n'
-        '          "r3child", "--model", "gate-local/gate/research", "--format", "json", prompt],\n'
+        '          "r3child", "--model", "gate-local/gate/extraction", "--format", "json", prompt],\n'
         '          { cwd: CHILD_WS, env: { ...process.env, PWD: CHILD_WS },\n'
         '            timeout: 480_000, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })\n'
         '        return (proc.stdout ?? "") + (proc.stderr ? `\\n--stderr--\\n${proc.stderr}` : "")\n'
@@ -580,7 +580,7 @@ def probe_p7(ev: Path) -> dict:
         (ws / ".opencode" / "agent" / "r3s2.md").write_text(
             canary_primary_md("r3s2", "unused", tools={"read": True}), encoding="utf-8")
         # stage 1: produce two artifacts — a workspace FILE and a PROMPT-carriable line
-        s1 = run_capture(ws, ["run", "--agent", "r3s1", "--model", "gate-local/gate/research",
+        s1 = run_capture(ws, ["run", "--agent", "r3s1", "--model", "gate-local/gate/extraction",
                               "--format", "json",
                               flatten_prompt("Do exactly two things. 1: Write this exact line — "
                                              f"{P7_FILE_TOKEN} — to the file handoff.md in the "
@@ -590,14 +590,14 @@ def probe_p7(ev: Path) -> dict:
         sid_m = re.search(r'"sessionID"\s*:\s*"([^"]+)"', s1.raw)
         sid = sid_m.group(1) if sid_m else None
         # file carry: stage 2 reads the workspace artifact
-        f = run_capture(ws, ["run", "--agent", "r3s2", "--model", "gate-local/gate/research",
+        f = run_capture(ws, ["run", "--agent", "r3s2", "--model", "gate-local/gate/extraction",
                              "--format", "json",
                              flatten_prompt("Read the file handoff.md in this workspace and "
                                             "reply with exactly the line it contains.")],
                         label="p7-file-carry", ev=ev, env=env)
         # prompt carry: the harness hands stage 1's final text to stage 2
         carried = extract_final_text(s1.events)
-        p = run_capture(ws, ["run", "--agent", "r3s2", "--model", "gate-local/gate/research",
+        p = run_capture(ws, ["run", "--agent", "r3s2", "--model", "gate-local/gate/extraction",
                              "--format", "json",
                              flatten_prompt(f"Stage 1 reported: {carried} — reply with just "
                                             "the token the report carries.")],
@@ -605,13 +605,13 @@ def probe_p7(ev: Path) -> dict:
         # interjection: continue STAGE 1's session with the user's idea, then re-carry
         interjection_ok = False
         if sid:
-            u = run_capture(ws, ["run", "--session", sid, "--model", "gate-local/gate/research",
+            u = run_capture(ws, ["run", "--session", sid, "--model", "gate-local/gate/extraction",
                                  "--format", "json",
                                  flatten_prompt(f"User idea: the handoff file must also include "
                                                 f"this exact token: {P7_INTERJECT}. Update it now, "
                                                 "reply UPDATED.")],
                             label="p7-interject", ev=ev, env=env)
-            f2 = run_capture(ws, ["run", "--agent", "r3s2", "--model", "gate-local/gate/research",
+            f2 = run_capture(ws, ["run", "--agent", "r3s2", "--model", "gate-local/gate/extraction",
                                   "--format", "json",
                                   flatten_prompt("Read the file handoff.md and reply with ALL "
                                                  "tokens it contains, comma-separated.")],
