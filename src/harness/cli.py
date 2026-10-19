@@ -68,6 +68,24 @@ def main(argv: list[str] | None = None) -> int:
     ps = psub.add_parser("set-key", help="store a cloud API key in the OS keychain")
     ps.add_argument("--provider", required=True, help="registry name, e.g. nvidia-nim")
     ps.add_argument("--key", required=True, help="the API key (never echoed, never written to disk)")
+    # R3 (spec 17 s5.1): the session driver's non-TUI entry point. Same shape as the
+    # other subcommands — argparse here, the real work in scripts/session_cli.py, so the
+    # CLI and the TUI drive ONE SessionDriver, never two.
+    sess = sub.add_parser("session", help="session store CRUD + one agent turn (R3)")
+    sg = sess.add_mutually_exclusive_group(required=True)
+    sg.add_argument("--new", action="store_true", help="start a new session")
+    sg.add_argument("--list", action="store_true", help="list sessions (newest first)")
+    sg.add_argument("--resume", metavar="ID", help="resume <id|last> and print its state")
+    sg.add_argument("--turn", action="store_true", help="run one agent turn")
+    sg.add_argument("--errors", action="store_true",
+                    help="print the recorded error log (where/why/which line)")
+    sess.add_argument("--matter", default=None, help="matter ref (with --new)")
+    sess.add_argument("--display", default="", help="human label (with --new)")
+    sess.add_argument("--session", metavar="ID", default=None,
+                      help="session id for --turn/--resume (default: last)")
+    sess.add_argument("--agent", default=None, help="agent/persona name (with --turn)")
+    sess.add_argument("--prompt", default=None, help="the turn prompt (required with --turn)")
+    sess.add_argument("--model", default="gate-local/gate/extraction", help="routing model")
     args = ap.parse_args(argv)
 
     if args.cmd == "serve":
@@ -140,6 +158,17 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         prov.print_help()
         return 2
+    if args.cmd == "session":
+        # scripts/ is a namespace package at the repo root, not installed — the same
+        # reason `drive` inserts the root (see above).
+        root = Path(__file__).resolve().parents[2]
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        from scripts.session_cli import main_with_args
+        # One parsed namespace, no re-derivation: session_cli's mode flags are the same
+        # flags cli.py already validated (argparse enforces the exactly-one rule twice,
+        # but the namespace passes through untouched instead of being rebuilt as argv).
+        return main_with_args(args)
     ap.print_help()
     return 2
 

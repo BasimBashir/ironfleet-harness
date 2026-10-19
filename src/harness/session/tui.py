@@ -19,6 +19,9 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+# NoMatches is query_one's failure when a widget is not mounted yet (tests build
+# the app without a pilot) — the ONE expected exception in this module.
+from textual.css.query import NoMatches
 # Textual 8.x: TabPanel is gone; the tab-panel class is ContentTab, and it is NOT
 # re-exported from textual.widgets — import from its submodule (verified against
 # the installed 8.2.8: dir(textual.widgets.tabbed_content) -> ['ContentTab', ...]).
@@ -26,6 +29,22 @@ from textual.widgets import Footer, Input, Static, TabbedContent
 from textual.widgets.tabbed_content import ContentTab
 
 from harness.session.store import SessionStore
+
+# -- error policy ---------------------------------------------------------------
+# A caught exception in this app is RECORDED (harness.session.errors), never
+# swallowed: the TUI cannot propagate — it would die mid-flight and take the user's
+# session with it — but a silently-swallowed failure is a shell that stops working
+# with nothing to find in the logs. NoMatches (widget not mounted yet) is the one
+# expected case; everything else is recorded so it is locatable later.
+from harness.session.errors import record_error
+
+
+def _tui_error(where: str, exc: BaseException, *, root=None, **context) -> None:
+    """Record a TUI failure unless it is the expected not-mounted condition.
+    `root` is the store root so the row lands in the durable error log (stderr
+    only as the fallback before a store exists)."""
+    if not isinstance(exc, NoMatches):
+        record_error(exc, where=f"session.tui.{where}", root=root, context=context)
 
 # The three ratified orchestration modes (D-T2). shift+TAB cycles them; the active
 # one is always visible in the status bar.
@@ -125,8 +144,10 @@ class IronFleetApp(App):
     def refresh_status(self) -> None:
         try:
             self.query_one("#status", Static).update(self.render_status_text())
-        except Exception:
-            pass  # not mounted yet (tests construct the app without a pilot)
+        except Exception as exc:                              # noqa: BLE001
+            # Not mounted yet is expected (tests build the app without a pilot);
+            # anything else is recorded so the bar going stale is diagnosable.
+            _tui_error("refresh_status", exc)
 
     # -- the mode cycle (D-T2) -------------------------------------------------
 
