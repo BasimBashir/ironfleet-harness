@@ -127,15 +127,9 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-PROBES: dict[str, object] = {}  # populated per-probe below; registry validated by tests
-
-
-def _stub(ev: Path) -> dict:
-    raise NotImplementedError("probe lands in its own task")
-
-
-for _n in ("p1", "p2", "p3", "p4", "p5", "p6", "p7"):
-    PROBES[_n] = _stub
+# Every probe registers itself below; the suite pins the exact key set
+# (tests/test_probe_r3.py::test_registry_has_seven_probes).
+PROBES: dict = {}
 
 
 def canary_primary_md(name: str, token: str, tools: dict[str, bool] | None = None) -> str:
@@ -218,7 +212,7 @@ def probe_p1(ev: Path) -> dict:
     }
 
 
-PROBES["p1"] = probe_p1  # AFTER the stub loop so p1's stub is overwritten
+PROBES["p1"] = probe_p1
 
 
 def custom_command_md(token: str) -> str:
@@ -274,7 +268,7 @@ def probe_p2(ev: Path) -> dict:
     return out
 
 
-PROBES["p2"] = probe_p2  # AFTER the stub loop so p2's stub is overwritten
+PROBES["p2"] = probe_p2
 
 
 ANCHOR = "R3-ANCHOR-7Q"
@@ -349,7 +343,7 @@ def probe_p3(ev: Path) -> dict:
     return out
 
 
-PROBES["p3"] = probe_p3  # AFTER the stub loop so p3's stub is overwritten
+PROBES["p3"] = probe_p3
 
 
 def intervals_overlap(a: tuple[float, float], b: tuple[float, float]) -> bool:
@@ -413,7 +407,7 @@ def probe_p4(ev: Path) -> dict:
                          for kk, vv in v.items()} for k, v in results.items()}}
 
 
-PROBES["p4"] = probe_p4  # AFTER the stub loop so p4's stub is overwritten
+PROBES["p4"] = probe_p4
 
 
 def summarize_events(raw: str) -> dict:
@@ -491,7 +485,7 @@ def probe_p5(ev: Path) -> dict:
             "final_text": extract_final_text(r.events)[:400]}
 
 
-PROBES["p5"] = probe_p5  # AFTER the stub loop so p5's stub is overwritten
+PROBES["p5"] = probe_p5
 
 
 def spawn_plugin_ts(child_ws: Path) -> str:
@@ -563,7 +557,7 @@ def probe_p6(ev: Path) -> dict:
             "reliability": f"{roundtrip}/{sessions}"}
 
 
-PROBES["p6"] = probe_p6  # AFTER the stub loop so p6's stub is overwritten
+PROBES["p6"] = probe_p6
 
 
 P7_FILE_TOKEN = "R3-HANDOFF-TOKEN-2W"
@@ -627,7 +621,7 @@ def probe_p7(ev: Path) -> dict:
             "session_ids": {"stage1": sid}}
 
 
-PROBES["p7"] = probe_p7  # AFTER the stub loop so p7's stub is overwritten
+PROBES["p7"] = probe_p7
 
 
 if __name__ == "__main__":
