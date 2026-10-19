@@ -351,9 +351,18 @@ def intervals_overlap(a: tuple[float, float], b: tuple[float, float]) -> bool:
 
 
 def _timed_run(ws, argv, env, ev, label, results, key):
+    """Timed run with ONE storage-lock retry. P4's first live run lost a1 to opencode's
+    own "database is locked" under two concurrent writes (its session storage contends —
+    a real R3 finding for the build: concurrent agent sessions need per-workspace
+    storage). The retry is RECORDED, never hidden: the verdict reads the retry count."""
     t0 = time.monotonic()
     r = run_capture(ws, argv, env=env, ev=ev, label=label)
-    results[key] = {"start": t0, "end": time.monotonic(), "code": r.code, "label": label}
+    retries = 0
+    if r.code != 0 and not r.events and "database is locked" in r.raw:
+        retries = 1
+        r = run_capture(ws, argv, env=env, ev=ev, label=label)
+    results[key] = {"start": t0, "end": time.monotonic(), "code": r.code, "label": label,
+                    "storage_retries": retries}
 
 
 def probe_p4(ev: Path) -> dict:
@@ -388,8 +397,19 @@ def probe_p4(ev: Path) -> dict:
                 env_a, ev, f"p4-{key}", results, key))
             th.start(); t.append(th)
         for th in t: th.join()
-        serialized = not intervals_overlap((results["a2"]["start"], results["a2"]["end"]),
-                                           (results["a3"]["start"], results["a3"]["end"]))
+        # The honest serialization measurement comes from the TRACE (the gate's own
+        # dispatch record), not process wall-clock: opencode's startup time (0–30 s,
+        # and the ~2-in-7 hang) makes process intervals meaningless as a queue probe.
+        # Two same-matter dispatches whose trace timestamps are strictly increasing
+        # did not overlap at dispatch time — that is what the FIFO guarantees.
+        import sqlite3
+        same_matter, serialized = [], None
+        con = sqlite3.connect(str(ws_a / "trace.db")); con.row_factory = sqlite3.Row
+        ts_rows = [dict(r) for r in con.execute(
+            "SELECT ts, matter_ref FROM dispatches WHERE matter_ref='r3-p4-a' ORDER BY id")]
+        con.close()
+        same_matter = [r["ts"] for r in ts_rows]
+        serialized = all(a < b for a, b in zip(same_matter, same_matter[1:]))
     finally:
         proxy.stop()
     trace = (ws_a / "trace.db")
@@ -564,15 +584,43 @@ P7_FILE_TOKEN = "R3-HANDOFF-TOKEN-2W"
 P7_PROMPT_TOKEN = "R3-FOX-TOKEN-5V"
 P7_INTERJECT = "R3-INTERJECT-8Z"
 
+def stage_agent_md(name: str, tools: dict[str, bool]) -> str:
+    """A primary-mode agent whose BODY is the stage's standing instruction.
+
+    P7's first run failed on a probe bug: it drove the stage prompts through
+    canary_primary_md, whose body says "reply with exactly unused and nothing
+    else" — the model obeyed the agent file, not the turn prompt, so stage 1
+    answered "unused" and nothing was written. The canary is right for P1's
+    selectability oracle; a stage needs an agent file that agrees with its task.
+    Same frontmatter shape (mode/model/tools), body = the stage instruction."""
+    tool_lines = {n: False for n in ("read", "glob", "grep", "task", "todowrite", "skill",
+                                     "bash", "edit", "write", "webfetch")}
+    tool_lines.update(tools)
+    tool_yaml = "\n".join(f"  {k}: {str(v).lower()}" for k, v in tool_lines.items())
+    return ("---\n"
+            f"description: R3 probe stage ({name})\n"
+            "mode: primary\n"
+            "model: gate-local/gate/extraction\n"
+            "tools:\n"
+            f"{tool_yaml}\n"
+            "---\n"
+            "You are a factory stage. Follow the user's instructions exactly: write the "
+            "requested files into the current workspace and reply with exactly the "
+            "requested sentence. Never editorialise; the harness checks verbatim text.\n")
+
+
 def probe_p7(ev: Path) -> dict:
     import re
     ws = WS_BASE / "r3-p7"
     proxy, env = start_stack(ws, "r3-p7")
     try:
         (ws / ".opencode" / "agent" / "r3s1.md").write_text(
-            canary_primary_md("r3s1", "unused", tools={"write": True}), encoding="utf-8")
+            stage_agent_md("r3s1", {"write": True}), encoding="utf-8")
         (ws / ".opencode" / "agent" / "r3s2.md").write_text(
-            canary_primary_md("r3s2", "unused", tools={"read": True}), encoding="utf-8")
+            stage_agent_md("r3s2", {"read": True}), encoding="utf-8")
+        # stale artifacts from a previous attempt would satisfy the carry checks
+        # without this run doing anything — clear them before stage 1.
+        (ws / "handoff.md").unlink(missing_ok=True)
         # stage 1: produce two artifacts — a workspace FILE and a PROMPT-carriable line
         s1 = run_capture(ws, ["run", "--agent", "r3s1", "--model", "gate-local/gate/extraction",
                               "--format", "json",

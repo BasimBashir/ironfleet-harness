@@ -220,4 +220,18 @@ def test_stage_agent_md_tools():
 
 def test_p7_registered_not_stub():
     import scripts.probe_r3_tui as m
-    assert m.PROBES["p7"] is m.probe_p7  # stub loop must run BEFORE the p7 overwrite
+    assert m.PROBES["p7"] is m.probe_p7
+
+
+def test_stage_agent_md_body_is_the_stage_instruction():
+    """P7's first live run failed on a probe bug: the stage prompt was driven through
+    canary_primary_md, whose body contradicts the task ("reply with exactly unused"),
+    so the model obeyed the agent file and stage 1 produced nothing. The stage agent
+    must carry the stage instruction in its body — and must NOT be the canary."""
+    from scripts.probe_r3_tui import stage_agent_md, canary_primary_md
+    md = stage_agent_md("r3s1", {"write": True})
+    assert "mode: primary" in md and "model: gate-local/gate/extraction" in md
+    assert "  write: true" in md and "  read: false" in md
+    assert "Follow the user's instructions exactly" in md
+    assert "unused" not in md                      # not the canary body
+    assert canary_primary_md("r3s1", "unused", {"write": True}) != md  # stub loop must run BEFORE the p7 overwrite
