@@ -15,6 +15,12 @@ class DispatchRecord(BaseModel):
     engine: str = ""
     backend: str = ""              # S7d: executing backend as proven at dispatch (CR-3)
     verified: int = 0              # 1 = provenance verified at dispatch time (CR-3)
+    # R3 (finding F1): which AGENT and which SESSION this dispatch belongs to. The
+    # per-agent token ledger (D-T3) and the session store's JSONL join both key on
+    # these; before they existed, dispatch rows carried only matter_ref and neither
+    # join was possible.
+    agent: str = ""
+    session_id: str = ""
     tokens_in: int = 0
     tokens_out: int = 0
     tokens_cache: int = 0
@@ -42,6 +48,15 @@ class TraceStore:
             cols = {row[1] for row in c.execute("PRAGMA table_info(dispatches)").fetchall()}
             if "backend" not in cols:
                 c.execute("ALTER TABLE dispatches ADD COLUMN backend TEXT NOT NULL DEFAULT ''")
+            # R3 (finding F1): the same additive, by-name, in-place pattern for the
+            # agent + session identity columns. One block, ALTERs in the same order the
+            # INSERT below lists them — a fresh CREATE already has them, so the ALTERs
+            # are no-ops there.
+            if "agent" not in cols:
+                c.execute("ALTER TABLE dispatches ADD COLUMN agent TEXT NOT NULL DEFAULT ''")
+            if "session_id" not in cols:
+                c.execute("ALTER TABLE dispatches ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_session ON dispatches(session_id)")
 
     def _c(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path)
@@ -50,17 +65,28 @@ class TraceStore:
         with self._c() as c:
             cur = c.execute(
                 "INSERT INTO dispatches(ts,matter_ref,task_class,classification,provider,model,"
-                "weights_revision,engine,backend,verified,tokens_in,tokens_out,tokens_cache,"
+                "weights_revision,engine,backend,verified,agent,session_id,"
+                "tokens_in,tokens_out,tokens_cache,"
                 "latency_ms,status,error)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
                 (datetime.now(timezone.utc).isoformat(), r.matter_ref, r.task_class, r.classification,
                  r.provider, r.model, r.weights_revision, r.engine, r.backend, r.verified,
-                 r.tokens_in, r.tokens_out, r.tokens_cache, r.latency_ms, r.status, r.error))
+                 r.agent, r.session_id,
+                 r.tokens_in, r.tokens_out, r.tokens_cache,
+                 r.latency_ms, r.status, r.error))
             return cur.fetchone()[0]
 
     _FIELDS = ("matter_ref", "task_class", "classification", "provider", "model",
-               "weights_revision", "engine", "backend", "verified", "tokens_in",
-               "tokens_out", "tokens_cache", "latency_ms", "status", "error")
+               "weights_revision", "engine", "backend", "verified", "agent", "session_id",
+               "tokens_in", "tokens_out", "tokens_cache", "latency_ms", "status", "error")
+
+    def by_session(self, session_id: str) -> list[DispatchRecord]:
+        """R3 (finding F1/F7): the session's dispatch rows — the D-T3 per-agent
+        ledger and the turn-row join both read this. Rows are AGGREGATED (a turn
+        can emit more than one dispatch — P4's finding), never counted."""
+        with self._c() as c:
+            return self._rows(c.execute(
+                "SELECT * FROM dispatches WHERE session_id=? ORDER BY id", (session_id,)))
 
     def _rows(self, cur) -> list[DispatchRecord]:
         # By column NAME, never position: a migrated DB's column order (ALTER appends at
