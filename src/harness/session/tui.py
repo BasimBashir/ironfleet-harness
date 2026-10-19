@@ -1,0 +1,163 @@
+# src/harness/session/tui.py
+"""The IronFleet shell: a Textual app with three panes (chat + global view + docs)
+and a status bar that ALWAYS shows the active orchestration mode — the user's D-T2
+ruling. shift+TAB cycles the three modes.
+
+This is the FOREMAN, not the brain: it never calls a model itself. It starts
+opencode sessions (harness.session.workspace.spawn_session), reads visibility from
+trace.db / guard-log.jsonl / the workspace git tree, and everything it drives goes
+through the egress gate. No new egress seam, ever.
+
+The pure functions (cycle_mode, render_status) are unit-tested; the live app needs
+a real terminal, so it is smoke-run by a human, never by the suite.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from textual import on
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal
+# Textual 8.x: TabPanel is gone; the tab-panel class is ContentTab, and it is NOT
+# re-exported from textual.widgets — import from its submodule (verified against
+# the installed 8.2.8: dir(textual.widgets.tabbed_content) -> ['ContentTab', ...]).
+from textual.widgets import Footer, Input, Static, TabbedContent
+from textual.widgets.tabbed_content import ContentTab
+
+from harness.session.store import SessionStore
+
+# The three ratified orchestration modes (D-T2). shift+TAB cycles them; the active
+# one is always visible in the status bar.
+MODES: tuple[str, ...] = ("agent-os", "shell-drives", "hybrid")
+
+
+def cycle_mode(current: str) -> str:
+    """The shift+TAB cycle, wrapped — pure so the bar and the binding can't drift."""
+    if current not in MODES:
+        raise ValueError(f"unknown mode: {current!r} (expected one of {MODES})")
+    return MODES[(MODES.index(current) + 1) % len(MODES)]
+
+
+def render_status(*, mode: str, session_id: str | None, used: int, window: int) -> str:
+    """The status bar's text. The D-T3 meter shows used vs remaining against the
+    user-declared window; honest dashes when either is absent (no session yet, or a
+    provider row that declares no window)."""
+    if session_id is None:
+        sess = "—"
+    else:
+        sess = session_id
+    if window > 0:
+        pct = round(100 * used / window)
+        tokens = f"{used:,}/{window:,} ({pct}%)"
+    else:
+        tokens = f"{used:,}/—"
+    # ASCII separators: the box-drawing │ mojibakes in a cp1252 Windows console,
+    # and this bar is the first thing a user reads.
+    return f" mode: {mode} | session: {sess} | tokens: {tokens}"
+
+
+class IronFleetApp(App):
+    """The shell. One window: chat, the global view, live docs, and the status bar.
+
+    The factory runner is injected (None until Task 7 lands) so the shell is
+    constructible and mode-cyclable before the factory exists — the skeleton is
+    reviewable on its own."""
+
+    TITLE = "IronFleet"
+
+    CSS = """
+    Screen { layout: vertical; }
+    #main { height: 1fr; }
+    #chat { width: 2fr; border: round $primary; }
+    #side { width: 3fr; }
+    #view { height: 1fr; border: round $accent; }
+    #docs { height: 1fr; border: round $success; }
+    #status { dock: bottom; height: 1; background: $panel; color: $text; }
+    #prompt { dock: bottom; height: 3; }
+    """
+
+    BINDINGS = [
+        # priority=True: without it, the focused TabbedContent consumes shift+tab
+        # for its OWN next-tab cycle and this App-level binding never fires
+        # (observed in the headless smoke: the key pressed, the mode unchanged).
+        # Textual 8.x: the tuple form accepts only 2-3 strings, so a priority
+        # binding must be a Binding instance with priority=True.
+        Binding("shift+tab", "cycle_mode", "Cycle mode", priority=True),
+        ("ctrl+q", "quit", "Quit"),
+    ]
+
+    def __init__(self, store: SessionStore, session_id: str | None = None,
+                 mode: str = "agent-os", runner: object | None = None) -> None:
+        super().__init__()
+        if mode not in MODES:
+            raise ValueError(f"unknown mode: {mode!r} (expected one of {MODES})")
+        self.store = store
+        self.session_id = session_id
+        self.mode = mode
+        self.runner = runner
+        # D-T3: the meter's live numbers, refreshed from trace.db by the timer.
+        self.tokens_used = 0
+        self.context_window = 0
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="main"):
+            yield Static("", id="chat")
+            # Textual 8.x: ContentTab(label, content_id) REFERENCES a content widget
+            # by id — it does not wrap one. The panes are declared as siblings and
+            # the tabs point at them.
+            with TabbedContent(id="side"):
+                yield Static("", id="view")
+                yield Static("", id="docs")
+                yield ContentTab("Agents", "view")
+                yield ContentTab("Docs", "docs")
+        yield Static(self.render_status_text(), id="status")
+        yield Input(placeholder="prompt an agent, or /ingest /resume /compact /mode",
+                    id="prompt")
+        yield Footer()
+
+    # -- the status bar (the D-T3 meter + the always-visible mode) -------------
+
+    def render_status_text(self) -> str:
+        return render_status(mode=self.mode, session_id=self.session_id,
+                             used=self.tokens_used, window=self.context_window)
+
+    def refresh_status(self) -> None:
+        try:
+            self.query_one("#status", Static).update(self.render_status_text())
+        except Exception:
+            pass  # not mounted yet (tests construct the app without a pilot)
+
+    # -- the mode cycle (D-T2) -------------------------------------------------
+
+    def set_mode(self, mode: str) -> None:
+        if mode not in MODES:
+            raise ValueError(f"unknown mode: {mode!r} (expected one of {MODES})")
+        self.mode = mode
+        self.refresh_status()
+
+    def action_cycle_mode(self) -> None:
+        self.set_mode(cycle_mode(self.mode))
+
+    # -- the prompt line --------------------------------------------------------
+
+    @on(Input.Submitted, "#prompt")
+    def _submitted(self, event: Input.Submitted) -> None:
+        text = (event.value or "").strip()
+        if not text:
+            return
+        if text == "/mode":
+            self.action_cycle_mode()
+        elif text.startswith("/mode "):
+            self.set_mode(text.split(maxsplit=1)[1])
+        else:
+            self._echo(text)   # the factory wiring lands with Task 7
+
+    def _echo(self, text: str) -> None:
+        try:
+            pane = self.query_one("#chat", Static)
+            # render() is the value accessor in Textual 8.x (there is no
+            # `.renderable` attribute on Static — the smoke proved it).
+            pane.update((pane.render() or "") + f"\n> {text}")
+        except Exception:
+            pass
