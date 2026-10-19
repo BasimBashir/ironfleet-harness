@@ -271,10 +271,17 @@ def test_probe_ollama_registers_chat_and_embedding_providers(monkeypatch):
     monkeypatch.setattr(probe, "register_provider", fake_register)
     monkeypatch.setattr(drv, "get_key", lambda name: "")
     reg = drv._probe_ollama()
-    assert sorted(c.name for c in reg.list()) == ["llama-rerank", "ollama-embed", "ollama-local", "qwen-local"]
+    # R3: the spec table moved to data/providers.yaml — nvidia-nim joins the local rows
+    # (the cloud tier that clears CR-3 fully and serves the non-mechanical classes).
+    assert sorted(c.name for c in reg.list()) == [
+        "llama-rerank", "nvidia-nim", "ollama-embed", "ollama-local", "qwen-local"]
     assert ("ollama-embed", "bge-m3:567m", "ollama", True) in calls
     assert ("ollama-local", "thomson1-chat:latest", "ollama", True) in calls
     assert ("qwen-local", "qwen3.8:27b", "ollama", True) in calls
+    # the cloud row carries url + model + declared revision as one bundle (the
+    # "url changes with the provider" coupling) — asserted as one call, not drift-prone parts
+    nim = [c for c in calls if c[0] == "nvidia-nim"]
+    assert len(nim) == 1 and nim[0][1] == "stepfun-ai/step-5-preview"
 
 def test_build_gate_wraps_the_embedding_transport_too(tmp_path, monkeypatch):
     # Verified live 2026-10-01: /v1/embeddings returns FLAT usage, so _scalar_usage is a

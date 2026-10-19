@@ -38,12 +38,34 @@ ollama pull qwen3.8:27b            # the toolpath class (tool-calling injection 
 ollama pull bge-m3:567m            # embeddings (1024-dim), ~1.2 GiB
 ```
 
-The tags must match exactly what the bootstrap table registers
-(`src/harness/bootstrap.py`, `_probe_ollama`); the verify script checks for these
-three by name. `thomson1-chat` is the programme's in-house model — provision it into
-your Ollama registry the way you obtained it (a public `ollama pull` may not carry
-it). The reranker model `qwen3-reranker-0.6b` (optional, ~1.2 GiB GGUF) is
-downloaded per the `research/06` recipe, not via Ollama.
+The tags must match exactly what the provider registry registers — the tags live in
+`data/providers.yaml` (R3: one row per provider = url + model + engine + kind; the
+doc's drift-guard asserts every registered model is named here); the verify script
+checks for these three by name. `thomson1-chat` is the programme's in-house model —
+provision it into your Ollama registry the way you obtained it (a public `ollama pull`
+may not carry it). The reranker model `qwen3-reranker-0.6b` (optional, ~1.2 GiB GGUF)
+is downloaded per the `research/06` recipe, not via Ollama.
+
+## 3b. Cloud provider (optional; needed for non-mechanical classes)
+
+`nvidia-nim` (`stepfun-ai/step-5-preview`, NVIDIA NIM `integrate.api.nvidia.com`)
+serves drafting / research / analysis / complex_reasoning / summarization / toolpath.
+Ollama is honestly `mechanical-only` on this box (CR-3: its executing backend is
+unverifiable), so **without a cloud provider these classes refuse — by design**, and
+only the mechanical classes (extraction / classification / redaction /
+grounding_check) run locally. Registration is one command (key → OS keychain, never
+on disk):
+
+```powershell
+harness providers set-key --provider nvidia-nim --key <your-nvidia-api-key>
+harness providers list     # the honest probe verdict per provider
+```
+
+**Changing provider / model later (user surface):** edit the provider's row in
+`data/providers.yaml` (url + model + engine + provenance travel together — a swap is
+one row), or override per-row with `IRONFLEET_<NAME>_URL` / `_MODEL` / `_REVISION`
+env vars; which provider serves which class is `data/routing-a1.yaml`. The key stays
+per-provider in the keychain. No code edit, ever.
 
 ## 4. Python packages (installed automatically — no action)
 

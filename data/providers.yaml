@@ -1,0 +1,65 @@
+# data/providers.yaml — the provider registry as data (R3, 2026-10-19)
+#
+# One row per provider is the WHOLE bundle: base_url + model + engine + kind. The
+# routing table (data/routing-a1.yaml) only NAMES providers per task class, so
+# changing which provider serves a class — or swapping a provider's model entirely —
+# is a data edit here, never a code edit. The URL travels with the provider by
+# construction (user directive 2026-10-19: "when provider and model needs change by
+# user then ofcourse target url will also change according to provider").
+#
+# Registration is still by EVIDENCE, never by trust: bootstrap._probe_ollama probes
+# every row below through harness.providers.probe.register_provider (reachable +
+# authed + CR-3 provenance) and an unverifiable cloud row REFUSES. Editing this file
+# changes what gets probed, not what gets trusted.
+#
+# Env overrides (quick swaps with no file edit): IRONFLEET_<NAME>_URL / _MODEL /
+# _REVISION, e.g. IRONFLEET_NVIDIA_NIM_MODEL=moonshotai/kimi-k2...
+#
+# tier: local | cloud. LOCAL_ONLY_TASKS (embedding, rerank, policy.py) can never
+# route to a cloud row, whatever the routing table says — structural, adversarial-tested.
+
+providers:
+  - name: ollama-local
+    base_url: http://127.0.0.1:11434/v1
+    model: thomson1-chat:latest
+    engine: ollama
+    kind: chat
+    tier: local
+    # Ollama's executed backend is unverifiable (CR-3): it admits mechanical-only,
+    # so policy.MECHANICAL_TASKS bounds what it may serve. That is honest, not a defect.
+
+  - name: ollama-embed
+    base_url: http://127.0.0.1:11434/v1
+    model: bge-m3:567m
+    engine: ollama
+    kind: chat
+    tier: local
+
+  - name: qwen-local
+    base_url: http://127.0.0.1:11434/v1
+    model: qwen3.8:27b
+    engine: ollama
+    kind: chat
+    tier: local
+    # The tool-calling leg (S7j-W). Kept as a row so a no-network fallback exists
+    # even though routing now prefers nvidia-nim for toolpath.
+
+  - name: llama-rerank
+    base_url: http://127.0.0.1:8778
+    model: qwen3-reranker-0.6b
+    engine: llamacpp
+    kind: rerank
+    tier: local
+
+  # The cloud tier that clears CR-3 fully: engine=cloud reports declared revision +
+  # saas backend, so it admits as full and may serve the non-mechanical classes
+  # Ollama's mechanical-only verdict may not.
+  - name: nvidia-nim
+    base_url: https://integrate.api.nvidia.com/v1
+    model: stepfun-ai/step-5-preview
+    engine: cloud
+    kind: chat
+    tier: cloud
+    # NIM reports no weights revision of its own; the declared value IS the pin
+    # (provenance.revision_verified + S7h's carry-forward at dispatch).
+    weights_revision: stepfun-ai/step-5-preview

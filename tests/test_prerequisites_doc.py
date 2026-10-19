@@ -2,7 +2,6 @@
 must be named in the doc, discovered FROM the code (R2 spec 15 s2.3)."""
 from __future__ import annotations
 
-import re
 import tomllib
 from pathlib import Path
 
@@ -16,12 +15,17 @@ def test_doc_names_the_opencode_pin():
 
 
 def test_doc_names_every_registered_model():
-    src = (ROOT / "src" / "harness" / "bootstrap.py").read_text(encoding="utf-8")
-    # the _probe_ollama spec-table shape: (provider, model, <URL const|literal>, ...)
-    models = set(re.findall(r'\("[\w-]+",\s*"([^"]+)",\s*(?:OLLAMA_URL|LLAMA_RERANK_URL|https?://)', src))
-    assert {"thomson1-chat:latest", "bge-m3:567m"} <= models  # the regex found the table
+    import yaml
+    # R3 (2026-10-19): the spec table moved from bootstrap.py's source to
+    # data/providers.yaml — one row per provider (url + model + engine + kind), which
+    # is ALSO the user's provider/model/url swap surface. The doc must name every
+    # registered model, discovered from the data file (never a hand-kept list).
+    rows = yaml.safe_load((ROOT / "data" / "providers.yaml").read_text(encoding="utf-8"))
+    models = {r["model"] for r in rows["providers"]}
+    assert {"thomson1-chat:latest", "bge-m3:567m"} <= models  # the file parsed
+    assert "stepfun-ai/step-5-preview" in models             # the R3 cloud row
     for m in sorted(models):
-        assert m in DOC, f"doc must name registered model {m} (bootstrap.py spec table)"
+        assert m in DOC, f"doc must name registered model {m} (data/providers.yaml)"
 
 
 def test_doc_names_pinned_python_deps():

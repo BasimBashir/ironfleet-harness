@@ -58,6 +58,16 @@ def main(argv: list[str] | None = None) -> int:
     cd = csub.add_parser("drop", help="drop the matter's docs/fts/cites tables (destructive)")
     cd.add_argument("--matter", required=True)
     cd.add_argument("--yes", action="store_true", help="required: deletes are irreversible")
+    # R3 (2026-10-19): provider/key management from the CLI — the operator surface the
+    # "change provider/model at any time" directive needs. Keys land in the OS keychain
+    # only (keyring; never on disk, S7h convention); model/URL swaps ride the routing
+    # YAML (data/routing-a1.yaml) or the IRONFLEET_NIM_* env vars.
+    prov = sub.add_parser("providers", help="list providers or set a cloud API key (keychain)")
+    psub = prov.add_subparsers(dest="pcmd")
+    pl = psub.add_parser("list", help="probe every configured provider and print its honest verdict")
+    ps = psub.add_parser("set-key", help="store a cloud API key in the OS keychain")
+    ps.add_argument("--provider", required=True, help="registry name, e.g. nvidia-nim")
+    ps.add_argument("--key", required=True, help="the API key (never echoed, never written to disk)")
     args = ap.parse_args(argv)
 
     if args.cmd == "serve":
@@ -116,6 +126,20 @@ def main(argv: list[str] | None = None) -> int:
         store.drop_matter(args.matter)
         print(f"dropped corpus tables for {args.matter}")
         return 0
+    if args.cmd == "providers":
+        if args.pcmd == "set-key":
+            from harness.keychain import set_key
+            set_key(args.provider, args.key)
+            print(f"key stored for {args.provider} (OS keychain; never on disk)")
+            return 0
+        if args.pcmd == "list":
+            # The honest verdict per provider: the same probe build_gate runs, so what
+            # this prints IS what the gate will admit (no separate code path to drift).
+            from harness.bootstrap import _probe_ollama
+            _probe_ollama()
+            return 0
+        prov.print_help()
+        return 2
     ap.print_help()
     return 2
 

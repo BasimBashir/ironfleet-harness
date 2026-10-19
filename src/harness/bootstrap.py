@@ -13,6 +13,7 @@ knows where the repo's data is; a library function cannot.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -23,11 +24,11 @@ from harness.policy import RoutingTable
 from harness.providers.http_fetch import openai_fetch
 from harness.trace import TraceStore
 
-OLLAMA_URL = "http://127.0.0.1:11434/v1"
-# R1 D3: the local cross-encoder rerank engine (llama-server --reranking; research/06
-# recipe). Root URL — llama-server serves /models and /rerank at the root, and the gate's
-# rerank transport posts to base_url + /rerank.
-LLAMA_RERANK_URL = "http://127.0.0.1:8778"
+# R3 (2026-10-19): the provider registry — url + model + engine + kind + provenance
+# per row — lives in data/providers.yaml, loaded by _provider_specs below. Code no
+# longer hardcodes any endpoint: a user swapping provider/model/url edits that file
+# (or sets IRONFLEET_<NAME>_URL/_MODEL/_REVISION), and the key lands in the keychain
+# via `harness providers set-key`. See _probe_ollama.
 
 
 def _scalar_usage(result: dict) -> dict:
@@ -99,11 +100,44 @@ def build_scheduler(capacity: "Capacity | None" = None) -> "TurnScheduler":
     return TurnScheduler(capacity if capacity is not None else machine_capacity())
 
 
-def _probe_ollama():
+def _provider_specs(path: Path | None = None) -> list[dict]:
+    """The provider registry AS DATA (data/providers.yaml) — one row = url + model +
+    engine + kind, so a user swapping provider/model/url edits data, never code.
+
+    Required by R3 (2026-10-19, user directive): when the provider and model change,
+    the target URL changes WITH them — that coupling is the row. Env override per row:
+    IRONFLEET_<NAME>_URL / _MODEL / _REVISION (name upper-cased, '-' kept), for quick
+    swaps with no file edit. A missing file raises (never silently probes nothing):
+    the same fail-loud shape as cli.default_routing's stranded-data check."""
+    import yaml
+    p = path or (Path(__file__).resolve().parents[2] / "data" / "providers.yaml")
+    if not p.is_file():
+        raise FileNotFoundError(f"provider registry not found at {p} — the distribution "
+                               f"ships data/ at its repo paths; reinstall or set the file")
+    doc = yaml.safe_load(p.read_text(encoding="utf-8"))
+    rows = doc.get("providers") if isinstance(doc, dict) else None
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"provider registry {p}: no 'providers' rows — refusing to probe")
+    out = []
+    for row in rows:
+        env = "IRONFLEET_" + row["name"].upper().replace("-", "_")
+        out.append({
+            "name": row["name"],
+            "base_url": os.environ.get(f"{env}_URL", row["base_url"]),
+            "model": os.environ.get(f"{env}_MODEL", row["model"]),
+            "engine": row["engine"],
+            "kind": row.get("kind", "chat"),
+            "declared": {"weights_revision": os.environ.get(
+                f"{env}_REVISION", row.get("weights_revision", ""))},
+        })
+    return out
+
+
+def _probe_ollama(path: Path | None = None):
     """CR-3: the registry is populated by evidence, never hand-edited.
 
-    Both providers are registered through the SAME probe: the embedding slot is a
-    gate-classified provider, not a new kind of provider (spec §1 item 3)."""
+    Every row in data/providers.yaml is registered through the SAME probe (the embedding
+    slot is a gate-classified provider, not a new kind of provider — spec §1 item 3)."""
     from harness.providers.config import ProviderRegistry
     from harness.providers.probe import register_provider
     reg = ProviderRegistry()
@@ -111,23 +145,16 @@ def _probe_ollama():
     # driver is synchronous, so drive it to completion here. Calling it unawaited would
     # hand back a coroutine object and every attribute read below would blow up at
     # live-run time — the unit tests cannot see this, build_gate is stubbed there.
-    specs = [("ollama-local", "thomson1-chat:latest", OLLAMA_URL, "ollama", "chat"),
-             ("ollama-embed", "bge-m3:567m", OLLAMA_URL, "ollama", "chat"),
-             # S7j-W: the tool-calling injection model — the routing table's toolpath
-             # class names ONLY this provider, so parity never dispatches it.
-             ("qwen-local", "qwen3.8:27b", OLLAMA_URL, "ollama", "chat"),
-             # R1 D3: the local cross-encoder. Its REFUSAL when the server is down is
-             # correct and quiet-in-stderr: the rerank class then has no eligible
-             # provider and the gate refuses at dispatch (fail-closed, D3).
-             ("llama-rerank", "qwen3-reranker-0.6b", LLAMA_RERANK_URL, "llamacpp", "rerank")]
-    for name, model, url, engine, kind in specs:
-        res = asyncio.run(register_provider(name, url, get_key(name) or "",
-                                            model=model, engine=engine, kind=kind,
+    for spec in _provider_specs(path):
+        res = asyncio.run(register_provider(spec["name"], spec["base_url"],
+                                            get_key(spec["name"]) or "",
+                                            model=spec["model"], engine=spec["engine"],
+                                            kind=spec["kind"], declared=spec["declared"],
                                             registry=reg, fetch=openai_fetch))
         if res.admission == "refused":
-            print(f"[gate] {name} REFUSED: reachable={res.reachable} "
+            print(f"[gate] {spec['name']} REFUSED: reachable={res.reachable} "
                   f"auth={res.auth_ok} models={res.models}", file=sys.stderr)
         else:
-            print(f"[gate] {name} admitted as {res.admission} "
+            print(f"[gate] {spec['name']} admitted as {res.admission} "
                   f"(verified={res.provenance.verified})", file=sys.stderr)
     return reg

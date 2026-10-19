@@ -49,15 +49,25 @@ def test_a1_embedding_alias_maps_to_the_embedding_rule():
     rule_classes = {r["task_class"] for r in rt._rules}
     assert "embedding" in rule_classes, "gate/embedding needs a routing rule"
 
-def test_a1_toolpath_rule_names_only_the_qwen_provider():
+def test_a1_toolpath_rule_leads_with_the_cloud_tool_caller():
     # The injection leg's disjointness property (S7j-W spec §1.2): the toolpath class must
     # never share a candidate with parity's research class (which names only ollama-local),
     # or a routing edit could silently move the fail-closed proof onto the
     # non-tool-calling model.
+    # R3 2026-10-19: the leg now LEADS with nvidia-nim (step-5, a full-admission
+    # tool-calling cloud model — the pragmatic path when Ollama's honest mechanical-only
+    # verdict cannot) and keeps qwen-local listed as the local fallback. The invariant
+    # that matters is preserved: toolpath never shares a candidate with research.
     rt = RoutingTable.from_yaml(A1)
-    rule = next(r for r in rt._rules if r["task_class"] == "toolpath")
-    for tier in ("local_only", "local_preferred", "cloud_permitted"):
-        assert rule[tier] == ["qwen-local"], tier
+    rules = {r["task_class"]: r for r in rt._rules}
+    rule = rules["toolpath"]
+    research = rules["research"]
+    assert rule["cloud_permitted"][0] == "nvidia-nim", "cloud leg must lead with NIM"
+    assert "qwen-local" in rule["local_only"] and "qwen-local" in rule["local_preferred"]
+    shared = set(rule["cloud_permitted"]) & set(research["cloud_permitted"])
+    assert not shared, f"toolpath and research must not share a candidate: {shared}"
+    assert "nvidia-nim" not in research["cloud_permitted"], \
+        "research (parity leg) may not name NIM in its cloud candidates while toolpath leads with it"
 
 def test_a1_toolpath_is_not_mechanical():
     # Non-mechanical on purpose: Ollama's honest probe verdict (mechanical-only) must NOT

@@ -34,26 +34,36 @@ rules:
     local_only: [ollama-local]
     local_preferred: [ollama-local]
     cloud_permitted: [ollama-local]
+  # R3 2026-10-19: the non-mechanical classes route to the cloud tier. On this box Ollama
+  # is honestly mechanical-only (CR-3: its executed backend is unverifiable), so these
+  # classes REFUSED entirely until a provider with verifiable provenance serves them —
+  # nvidia-nim (stepfun-ai/step-5-preview) is that provider (bootstrap._probe_ollama).
+  # Local candidates stay listed: when a box runs a verifiable local engine (llama-server
+  # /props.build_info, mlx-lm /health) they route again with no YAML edit.
   - task_class: drafting
-    local_only: [ollama-local]
-    local_preferred: [ollama-local]
-    cloud_permitted: [ollama-local]
+    local_only: [ollama-local, nvidia-nim]
+    local_preferred: [ollama-local, nvidia-nim]
+    cloud_permitted: [nvidia-nim, ollama-local]
   - task_class: research
-    local_only: [ollama-local]
-    local_preferred: [ollama-local]
+    # R3: research is parity's leg and must NEVER share a candidate with the toolpath
+    # injection class (S7j-W §1.2) — hence no nvidia-nim in cloud_permitted. On a
+    # mechanical-only box research then honestly REFUSES unless the matter is cloud_
+    # permitted; the drafting/analysis legs (no disjointness duty) carry NIM.
+    local_only: [ollama-local, nvidia-nim]
+    local_preferred: [ollama-local, nvidia-nim]
     cloud_permitted: [ollama-local]
   - task_class: analysis
-    local_only: [ollama-local]
-    local_preferred: [ollama-local]
-    cloud_permitted: [ollama-local]
+    local_only: [ollama-local, nvidia-nim]
+    local_preferred: [ollama-local, nvidia-nim]
+    cloud_permitted: [nvidia-nim, ollama-local]
   - task_class: complex_reasoning
-    local_only: [ollama-local]
-    local_preferred: [ollama-local]
-    cloud_permitted: [ollama-local]
+    local_only: [ollama-local, nvidia-nim]
+    local_preferred: [ollama-local, nvidia-nim]
+    cloud_permitted: [nvidia-nim, ollama-local]
   - task_class: summarization
-    local_only: [ollama-local]
-    local_preferred: [ollama-local]
-    cloud_permitted: [ollama-local]
+    local_only: [ollama-local, nvidia-nim]
+    local_preferred: [ollama-local, nvidia-nim]
+    cloud_permitted: [nvidia-nim, ollama-local]
   - task_class: embedding
     local_only: [ollama-embed]
     local_preferred: [ollama-embed]
@@ -61,10 +71,13 @@ rules:
   # S7j-W: the tool-calling injection model. NOT mechanical on purpose — Ollama's honest
   # mechanical-only verdict must not silently serve it; the recorded in-memory override
   # admits it, keeping the CR-3 deviation visible.
+  # R3 2026-10-19: the tool-calling injection leg. NIM (step-5) is a full-admission
+  # tool-calling cloud model, so it leads; qwen-local stays listed — with NIM down the
+  # leg degrades to the recorded in-memory-override precedent (S7j-W) instead of dying.
   - task_class: toolpath
-    local_only: [qwen-local]
-    local_preferred: [qwen-local]
-    cloud_permitted: [qwen-local]
+    local_only: [qwen-local, nvidia-nim]
+    local_preferred: [qwen-local, nvidia-nim]
+    cloud_permitted: [nvidia-nim, qwen-local]
   # R1 D3: the cross-encoder rerank class — structurally LOCAL_ONLY (policy.py) and
   # mechanical; served by llama-server --reranking on this box (research/06 recipe).
   - task_class: rerank
