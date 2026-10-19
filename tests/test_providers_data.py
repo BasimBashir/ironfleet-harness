@@ -32,6 +32,19 @@ def test_every_row_carries_url_model_engine_together():
     assert nim["model"] == "stepfun-ai/step-5-preview"
     # declared revision travels in the row (the verified rule's pin)
     assert nim["declared"]["weights_revision"] == "stepfun-ai/step-5-preview"
+    # D-T3: the shell's used-vs-remaining meter + auto-/compact read these
+    assert nim["context_window"] == 128000
+    assert nim["safe_fill"] == 0.8
+
+
+def test_dt3_context_fields_env_overridable(monkeypatch):
+    """D-T3: a model swap via env keeps the meter honest — the window travels with it."""
+    monkeypatch.setenv("IRONFLEET_NVIDIA_NIM_MODEL", "moonshotai/kimi-k2-thinking")
+    monkeypatch.setenv("IRONFLEET_NVIDIA_NIM_CONTEXT_WINDOW", "262144")
+    monkeypatch.setenv("IRONFLEET_NVIDIA_NIM_SAFE_FILL", "0.7")
+    nim = next(s for s in _provider_specs(REGISTRY) if s["name"] == "nvidia-nim")
+    assert (nim["model"], nim["context_window"], nim["safe_fill"]) == (
+        "moonshotai/kimi-k2-thinking", 262144, 0.7)
 
 
 def test_env_override_swaps_model_and_url_without_a_file_edit(monkeypatch):

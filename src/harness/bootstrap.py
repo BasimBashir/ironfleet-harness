@@ -121,6 +121,9 @@ def _provider_specs(path: Path | None = None) -> list[dict]:
     out = []
     for row in rows:
         env = "IRONFLEET_" + row["name"].upper().replace("-", "_")
+        # D-T3: the user-declared context window + reliability-derived safe fill ride
+        # the row too — the R3 shell's used-vs-remaining meter and auto-/compact read
+        # these, so swapping models keeps the meter honest. Env-overridable like the rest.
         out.append({
             "name": row["name"],
             "base_url": os.environ.get(f"{env}_URL", row["base_url"]),
@@ -129,6 +132,10 @@ def _provider_specs(path: Path | None = None) -> list[dict]:
             "kind": row.get("kind", "chat"),
             "declared": {"weights_revision": os.environ.get(
                 f"{env}_REVISION", row.get("weights_revision", ""))},
+            "context_window": int(os.environ.get(
+                f"{env}_CONTEXT_WINDOW", row.get("context_window", 0)) or 0),
+            "safe_fill": float(os.environ.get(
+                f"{env}_SAFE_FILL", row.get("safe_fill", 0.8)) or 0.8),
         })
     return out
 

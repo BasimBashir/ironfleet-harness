@@ -15,6 +15,13 @@
 # Env overrides (quick swaps with no file edit): IRONFLEET_<NAME>_URL / _MODEL /
 # _REVISION, e.g. IRONFLEET_NVIDIA_NIM_MODEL=moonshotai/kimi-k2...
 #
+# Optional per-row fields the R3 shell uses:
+#   context_window — the model's context size (user-declared; drives the shell's
+#                    used-vs-remaining meter and auto-/compact, D-T3).
+#   safe_fill      — the fraction of that window at which auto-/compact fires,
+#                    derived from the model's measured reliability, not a round
+#                    number (default 0.8).
+#   weights_revision — the declared provenance pin the probe's verified rule uses.
 # tier: local | cloud. LOCAL_ONLY_TASKS (embedding, rerank, policy.py) can never
 # route to a cloud row, whatever the routing table says — structural, adversarial-tested.
 
@@ -63,3 +70,13 @@ providers:
     # NIM reports no weights revision of its own; the declared value IS the pin
     # (provenance.revision_verified + S7h's carry-forward at dispatch).
     weights_revision: stepfun-ai/step-5-preview
+    # D-T3 (2026-10-19): the user-declared context window for the R3 shell's
+    # used-vs-remaining display and auto-/compact. SET THIS when you swap models —
+    # the number the provider documents for the model you put in `model:` above.
+    context_window: 128000
+    # Reliability-aware safe fill (D-T3): the fraction of context_window at which
+    # auto-/compact fires. NOT a fixed percentage in code — derived from the
+    # model's MEASURED behaviour on this box (S7h: empty-content cap failures,
+    # mid-generation deaths on buffered POSTs, reasoning-token burn), so the
+    # session uses the maximum of the window SAFELY. Default 0.8 until measured.
+    safe_fill: 0.8
