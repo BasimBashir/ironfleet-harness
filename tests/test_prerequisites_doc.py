@@ -14,6 +14,15 @@ def test_doc_names_the_opencode_pin():
     assert PINS["opencode"] in DOC, f"doc must name the pinned {PINS['opencode']}"
 
 
+def test_doc_names_the_tui_toolkit():
+    # R3 spec 17 D-T1: Textual is the declared TUI dependency — a fresh box that
+    # misses it has no shell at all, so the doc must name exactly what pyproject pins.
+    deps = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    textual = next((d for d in deps["project"]["dependencies"] if d.startswith("textual")), None)
+    assert textual is not None, "textual must be a pinned dependency (spec 17 D-T1)"
+    assert textual in DOC, f"doc must name {textual}"
+
+
 def test_doc_names_every_registered_model():
     import yaml
     # R3 (2026-10-19): the spec table moved from bootstrap.py's source to

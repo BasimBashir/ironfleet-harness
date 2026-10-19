@@ -74,7 +74,9 @@ per-provider in the keychain. No code edit, ever.
 
 `pydantic ≥ 2.6` · `httpx ≥ 0.27` · `keyring ≥ 24` (uses Windows Credential Manager,
 built in — no extra tool) · `pyyaml ≥ 6` · `pypdf ≥ 6.0` · **`sqlite-vec==0.1.9`**
-(pinned, fail-closed — the vector index) · `markitdown ≥ 0.1` (document parsing).
+(pinned, fail-closed — the vector index) · `markitdown ≥ 0.1` (document parsing) ·
+`textual>=3.0` (the R3 TUI's toolkit — MIT, pure-Python; without it the shell
+does not start).
 
 ## 5. Network
 
