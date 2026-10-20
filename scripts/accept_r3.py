@@ -47,9 +47,12 @@ SPAWN_S = 480                # the S7j-W watchdog budget, per spawn
 CLI_S = 300
 # The kill leg (C5): a deliberately long turn, terminated mid-generation after
 # this many seconds — run_opencode's own timeout path tree-kills the REAL
-# process (code 124). No wmic: it is gone from this Windows build.
+# process (code 124). No wmic: it is gone from this Windows build. The count
+# must OUTRUN the budget: 3000 lines ≈ 3x 45s at this box's measured output
+# rate, yet under the 16k output clamp (a clamped-but-finished turn would
+# return 0 and fail the leg loudly).
 KILL_AFTER_S = 45
-KILL_PROMPT = "Count to 400, one number per line."
+KILL_PROMPT = "Count from 1 to 3000, one number per line."
 
 
 # -- pure helpers (the matcher, the argv assembly; unit-tested) -----------------
@@ -214,15 +217,6 @@ def check_ingest(ctx: dict) -> list[str]:
     return problems
 
 
-def _spawn_for_ctx(ws, agent: str, prompt: str, *, timeout: int = SPAWN_S,
-                   continue_session: str | None = None):
-    """One supervised spawn through workspace.spawn_session — the same helper the
-    driver uses (watchdog + one retry, scrubbed env, tree-kill)."""
-    from harness.session.workspace import spawn_env, spawn_session
-    return spawn_session(ws, agent, prompt, env=spawn_env(ws), model=MODEL,
-                         continue_session=continue_session, timeout=timeout)
-
-
 def check_resume(ctx: dict) -> list[str]:
     """A KILLED session continues from the JSONL: tree-kill mid-turn, then resume
     carries the anchor across (P3's continuity proof — the token, not the id)."""
@@ -325,9 +319,18 @@ def check_doclive(ctx: dict) -> list[str]:
     from harness.session.view import doc_changes
     driver = SessionDriver(store, store.root / "workspaces")
     ws = driver.workspace_for(sid, "hunter-drive", ctx["matter"])
-    code, events, _sid = _spawn_for_ctx(
-        ws, "hunter-drive", "Create acceptance-output.md containing: agent wrote"
-                            f" this. Then {ANCHOR_PROMPT}")
+    # Every -drive persona is chat-only by design (scaffold disables its tools)
+    # and the bare twins are subagents opencode refuses to run — the only
+    # writer is opencode's default agent. The doc pane watches the WORKSPACE,
+    # not the persona, so the carrier goes through the same gate + scrubbed env.
+    from harness.session.workspace import spawn_env           # noqa: E402
+    from scripts.run_spike_opencode import (flatten_prompt, parse_events,
+                                            run_opencode)
+    argv = ["run", "--model", MODEL, "--format", "json",
+            flatten_prompt("Create a file named acceptance-output.md containing"
+                           f" exactly: agent wrote this. Then {ANCHOR_PROMPT}")]
+    code, raw = run_opencode(ws, argv, timeout=SPAWN_S, env=spawn_env(ws))
+    events = parse_events(raw)
     changes = doc_changes(ws)
     print(f"    spawn code={code}; workspace changes: {changes}", flush=True)
     if "acceptance-output.md" not in changes:
