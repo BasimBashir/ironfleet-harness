@@ -107,8 +107,8 @@ def check_fanout(ctx: dict) -> list[str]:
     driver = SessionDriver(store, store.root / "workspaces")
     runner = FactoryRunner(driver, store=store, mode="shell-drives")
     plan_text = ("```plan\n"
-                 f"gather|hunter|{ANCHOR_PROMPT}\n"
-                 "verify|clerk|Confirm the gather stage reported. Reply DONE only.\n"
+                 f"gather|hunter-drive|{ANCHOR_PROMPT}\n"
+                 "verify|clerk-drive|Confirm the gather stage reported. Reply DONE only.\n"
                  "```")
     rows = asyncio.run(runner.run_task(sid, ctx["matter"], "R3 acceptance fanout",
                                        plan_text=plan_text))
@@ -131,6 +131,8 @@ def check_view(ctx: dict) -> list[str]:
     app = IronFleetApp(store, session_id=sid,
                        trace=TraceStore(store.root / "trace.db"))
     text = app.refresh_view()
+    # the plan names the PRIMARY (drive) personas; the bare names are their
+    # subagent twins, so a substring match covers both spellings
     problems = [f"view missing {a}: {text!r}" for a in ("hunter", "clerk")
                 if a not in text]
     return problems
@@ -232,10 +234,12 @@ def check_resume(ctx: dict) -> list[str]:
     meta = next((r for r in store.sessions() if r["session_id"] == sid), None)
     if not meta:
         return ["session missing from the store — nothing to resume"]
-    ws = driver.workspace_for(sid, "hunter", ctx["matter"])
+    ws = driver.workspace_for(sid, "hunter-drive", ctx["matter"])
     # Phase 1: an anchor turn, which OPENS an opencode session (the seed whose
     # context the kill/resume must preserve). Its id is the continuation handle.
-    code, events, seed_id = spawn_session(ws, "hunter", ANCHOR_PROMPT,
+    # The -drive persona is mode:primary — bare hunter is a subagent and
+    # opencode silently falls back to its default agent.
+    code, events, seed_id = spawn_session(ws, "hunter-drive", ANCHOR_PROMPT,
                                           env=spawn_env(ws), model=MODEL)
     if not seed_id:
         return [f"the seed turn opened no opencode session id (code={code}) —"
@@ -246,7 +250,7 @@ def check_resume(ctx: dict) -> list[str]:
     # process (code 124). Bypasses spawn_session so the 124 signature gets no
     # hang-retry (this kill is the point, not a failure).
     from scripts.run_spike_opencode import run_opencode
-    code, raw = run_opencode(ws, turn_argv("hunter", MODEL, KILL_PROMPT),
+    code, raw = run_opencode(ws, turn_argv("hunter-drive", MODEL, KILL_PROMPT),
                              timeout=KILL_AFTER_S, env=spawn_env(ws))
     print(f"    kill leg: code={code}", flush=True)
     if code != 124:
@@ -256,8 +260,8 @@ def check_resume(ctx: dict) -> list[str]:
     # Phase 3: the continuation THROUGH THE DRIVER, driving --session <seed_id>
     # (F6's consuming end). The anchor can only be emitted with the seed's
     # context — that is the continuity proof.
-    row = asyncio.run(driver.run_turn(sid, ctx["matter"], "hunter", ANCHOR_PROMPT,
-                                      continue_session=seed_id))
+    row = asyncio.run(driver.run_turn(sid, ctx["matter"], "hunter-drive",
+                                      ANCHOR_PROMPT, continue_session=seed_id))
     if ANCHOR not in (row.output_summary or ""):
         problems.append(f"anchor NOT carried across the continuation:"
                         f" {row.output_summary!r} (see errors.jsonl for the spawn"
@@ -320,10 +324,10 @@ def check_doclive(ctx: dict) -> list[str]:
     from harness.session.driver import SessionDriver
     from harness.session.view import doc_changes
     driver = SessionDriver(store, store.root / "workspaces")
-    ws = driver.workspace_for(sid, "hunter", ctx["matter"])
+    ws = driver.workspace_for(sid, "hunter-drive", ctx["matter"])
     code, events, _sid = _spawn_for_ctx(
-        ws, "hunter", "Create acceptance-output.md containing: agent wrote this. "
-                      f"Then {ANCHOR_PROMPT}")
+        ws, "hunter-drive", "Create acceptance-output.md containing: agent wrote"
+                            f" this. Then {ANCHOR_PROMPT}")
     changes = doc_changes(ws)
     print(f"    spawn code={code}; workspace changes: {changes}", flush=True)
     if "acceptance-output.md" not in changes:

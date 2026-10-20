@@ -87,8 +87,12 @@ def sync_agent_workspace(ws: Path, matter_ref: str, classification: str = "LOCAL
     """sync_mount into an already-created workspace. Imported lazily so the module
     stays importable in a frozen distribution (scripts/ is a namespace package)."""
     from scripts.stand_up_opencode import MOUNT, PORT, sync_mount
+    # The matter record goes to <store>/matters — the directory the proxy serves
+    # (launcher shape, A-5). ws is <store>/workspaces/<sid>/<agent>, so the store
+    # root is three levels up; the proxy refuses the dispatch otherwise
+    # ("matter record unavailable" — the 2026-10-20 live run's root cause).
     sync_mount(ws, MOUNT, matter_ref, classification, PORT,
-               matters_root=ws.parent.parent / "matters")
+               matters_root=ws.parents[2] / "matters")
 
 
 def turn_argv(agent: str, model: str, prompt: str,
