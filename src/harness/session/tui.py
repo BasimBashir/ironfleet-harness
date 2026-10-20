@@ -89,6 +89,19 @@ def render_jobs(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def split_plan(text: str) -> tuple[str, str]:
+    """A typed task may carry a ```plan fenced block — the factory's stage script
+    (stage|agent|prompt per line), the same shape the acceptance driver feeds
+    run_task. The block moves to plan_text verbatim; the rest stays the task.
+    Pure so tests and the dispatch worker share one rule."""
+    import re
+    m = re.search(r"```plan\s*\n.*?```", text, re.S)
+    if not m:
+        return text, ""
+    prose = (text[:m.start()] + text[m.end():]).strip()
+    return (prose or "(run the plan)"), m.group(0)
+
+
 def render_agents(rows: list[dict], jobs: list[dict] | None = None) -> str:
     """The global view's agent table: LIVE status (the jobs ledger's newest row
     per agent), the honest serving tier (whatever the trace recorded — cloud rows
@@ -469,9 +482,12 @@ class IronFleetApp(App):
                 self._echo("auto-compacting…")
             matter_ref = driver.resume(self.session_id)["matter_ref"]
             # The chaired shell runs the FULL crew at the corpus's best serving
-            # tier: HIGH complexity widens the route chain, CLOUD_PERMITTED lets
-            # the routing table send analysis classes to the full-tier provider.
-            rows = await self.runner.run_task(self.session_id, matter_ref, text,
+            # tier: a typed ```plan block scripts the stages exactly; without one,
+            # HIGH complexity widens the route chain, and CLOUD_PERMITTED lets the
+            # routing table send analysis classes to the full-tier provider.
+            task, plan_text = split_plan(text)
+            rows = await self.runner.run_task(self.session_id, matter_ref, task,
+                                              plan_text=plan_text,
                                               complexity="HIGH",
                                               classification="CLOUD_PERMITTED")
             self._echo(f"factory: {len(rows)} stage(s) done")

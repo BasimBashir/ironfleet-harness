@@ -254,3 +254,19 @@ def test_docs_text_shows_the_diff_when_a_workspace_is_set(tmp_path):
     app2 = IronFleetApp(SessionStore(tmp_path), docs_ws=ws)
     text = app2._docs_text()
     assert "draft.md" in text and "v2 — agent edit" in text
+
+
+def test_split_plan_moves_the_fenced_block_to_plan_text():
+    from harness.session.tui import split_plan
+    text = ("Run the full case crew.\n```plan\n"
+            "research|hunter|map the precedent\n"
+            "draft|clerk|write the memo\n```\nGo.")
+    task, plan = split_plan(text)
+    assert task == "Run the full case crew.\n\nGo."
+    assert plan.startswith("```plan") and "b|clerk" not in plan
+    assert "draft|clerk|write the memo" in plan
+
+
+def test_split_plan_without_a_block_is_the_task_verbatim():
+    from harness.session.tui import split_plan
+    assert split_plan("just process the docs") == ("just process the docs", "")
