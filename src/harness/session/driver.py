@@ -30,86 +30,62 @@ from harness.session.workspace import (
     spawn_session,
 )
 
-# A spawn that produced no text and no tool call did not answer. This box hangs
-# after init ~2 in 7 (F8), so it is a known signature, not an emergency — but it
-# is still recorded and still fails the turn's exit code.
-EXIT_NO_OUTPUT = 3
-
-
-# -- pure assembly (tested without any spawn) ---------------------------------
-
-
-def build_turn_row(*, session_id: str, matter_ref: str, agent: str,
-                   events: list[dict], trace_refs: list[int], ts: str) -> TurnRow:
-    """One completed turn, from the event stream.
-
-    The row shape is what the acceptance checks read by name, so it is derived from
-    the events exactly once, here: tools_used is the tool calls in order (the
-    proven stream carries them at the part level), and output_summary is the LAST
-    text part (stream order — the final assistant answer, per extract_final_text's
-    documented rule)."""
-    tools: list[str] = []
-    final_text = ""
-    for ev in events:
-        part = ev.get("part") if isinstance(ev, dict) else None
-        if not isinstance(part, dict):
-            continue
-        kind = part.get("type")
-        if kind == "tool" and part.get("tool"):
-            name = str(part["tool"])
-            if name not in tools:
-                tools.append(name)
-        elif kind == "text" and isinstance(part.get("text"), str):
-            final_text = part["text"]
-    return TurnRow(ts=ts, session_id=session_id, matter_ref=matter_ref, display="",
-                   agent=agent, tools_used=tools,
-                   output_summary=final_text[:2000], docs_touched=[], trace_refs=trace_refs)
-
-
-def resolve_resume_target(store: SessionStore, target: str) -> str:
-    """/resume <id|last> — OUR mapping. P3 proved --continue/-c are dead on 1.18.25,
-    so the shell owns last-session resolution instead of asking opencode for it."""
-    if ":" in target:
-        raise ValueError(f"session id must be colon-free (Windows registry dir names): {target!r}")
-    if target == "last":
-        sid = store.last()
-        if sid is None:
-            raise ValueError("no session to resume — the store is empty")
-        return sid
-    if not any(r["session_id"] == target for r in store.sessions()):
-        raise ValueError(f"unknown session: {target!r} (try `session --list`)")
-    return target
-
-
-def session_cli_argv(argv: list[str]) -> list[str]:
-    """Validate + normalise the CLI argv for the session subcommand. The colon-free
-    rule is enforced here (the registry directory names forbid ':'), so a bad id
-    fails at the CLI, not deep inside a spawn."""
-    if "--matter" in argv:
-        i = argv.index("--matter")
-        matter = argv[i + 1] if i + 1 < len(argv) else ""
-        if ":" in matter:
-            raise ValueError(f"matter ref must be colon-free: {matter!r}")
-    if "--resume" in argv:
-        i = argv.index("--resume")
-        target = argv[i + 1] if i + 1 < len(argv) else ""
-        if ":" in target and target != "last":
-            raise ValueError(f"session id must be colon-free: {target!r}")
-    return list(argv)
-
-
-# -- the driver (the live path; acceptance-only, never in the suite) -----------
+# The gateway the mount's baseURL points at. Every spawn goes through it; a driver
+# that forgets to open it turns every turn into a connection-refused with no trace
+# row (the 2026-10-20 acceptance run found exactly that).
+PROXY_HOST, PROXY_PORT = "127.0.0.1", 7373
 
 
 class SessionDriver:
     """Owns one session: its store row, its workspace, and its turns.
 
     The store and the workspace are separate on purpose — the JSONL is the durable
-    record and the workspace is scratch that sync_mount rebuilds."""
+    record and the workspace is scratch that sync_mount rebuilds.
+    `open_gate()` is the lifecycle seam the shell/driver owns: the trace lands at
+    <store-root>/trace.db (the same place `harness serve` reads) and the port is
+    released when the session ends."""
 
     def __init__(self, store: SessionStore, base: Path) -> None:
+        from contextlib import contextmanager
         self.store = store
         self.base = Path(base)
+        self.store_root = self.store.root
+        self._contextmanager = contextmanager
+        self._gate = None                     # the live proxy while a session runs
+        self._open_gate_calls = 0             # how many times the lifecycle opened
+
+    @property
+    def trace_db(self) -> Path:
+        """Where this session's dispatch rows land — the gate's own trace store."""
+        return self.store.root / "trace.db"
+
+    def open_gate(self):
+        """Context manager: bind the egress proxy + scheduler for the session.
+        Lazy imports so the module stays importable without the stack; the second
+        concurrent open fails loud on the exclusive bind (the launcher's lesson).
+        The routing YAML is repo data (cli.default_routing) — resolved from the
+        file's own path like `harness serve` does, never from the CWD."""
+        from harness.bootstrap import build_gate, build_scheduler
+        from harness.cli import default_routing
+        from harness.egress_proxy import EgressProxy
+
+        @self._contextmanager
+        def _open():
+            gate, rt, aliases = build_gate(self.trace_db, default_routing())
+            proxy = EgressProxy(PROXY_HOST, PROXY_PORT, gate, rt, aliases,
+                                self.store.root / "matters",
+                                scheduler=build_scheduler())
+            proxy.start()
+            self._gate = proxy
+            self._open_gate_calls += 1
+            try:
+                yield proxy
+            finally:
+                proxy.stop()
+                self._gate = None
+        return _open()
+
+    # -- the live path (acceptance-only, never in the suite) -------------------
 
     def start(self, matter_ref: str, display: str = "") -> str:
         """A new session, colon-free validated by the store itself."""
@@ -183,6 +159,74 @@ class SessionDriver:
                 "opencode_session": (meta or {}).get("opencode_session") or "",
                 "turns": len(rows),
                 "last_summary": last.output_summary if last else ""}
+
+
+# A spawn that produced no text and no tool call did not answer. This box hangs
+# after init ~2 in 7 (F8), so it is a known signature, not an emergency — but it
+# is still recorded and still fails the turn's exit code.
+EXIT_NO_OUTPUT = 3
+
+
+# -- pure assembly (tested without any spawn) ---------------------------------
+
+
+def build_turn_row(*, session_id: str, matter_ref: str, agent: str,
+                   events: list[dict], trace_refs: list[int], ts: str) -> TurnRow:
+    """One completed turn, from the event stream.
+
+    The row shape is what the acceptance checks read by name, so it is derived from
+    the events exactly once, here: tools_used is the tool calls in order (the
+    proven stream carries them at the part level), and output_summary is the LAST
+    text part (stream order — the final assistant answer, per extract_final_text's
+    documented rule)."""
+    tools: list[str] = []
+    final_text = ""
+    for ev in events:
+        part = ev.get("part") if isinstance(ev, dict) else None
+        if not isinstance(part, dict):
+            continue
+        kind = part.get("type")
+        if kind == "tool" and part.get("tool"):
+            name = str(part["tool"])
+            if name not in tools:
+                tools.append(name)
+        elif kind == "text" and isinstance(part.get("text"), str):
+            final_text = part["text"]
+    return TurnRow(ts=ts, session_id=session_id, matter_ref=matter_ref, display="",
+                   agent=agent, tools_used=tools,
+                   output_summary=final_text[:2000], docs_touched=[], trace_refs=trace_refs)
+
+
+def resolve_resume_target(store: SessionStore, target: str) -> str:
+    """/resume <id|last> — OUR mapping. P3 proved --continue/-c are dead on 1.18.25,
+    so the shell owns last-session resolution instead of asking opencode for it."""
+    if ":" in target:
+        raise ValueError(f"session id must be colon-free (Windows registry dir names): {target!r}")
+    if target == "last":
+        sid = store.last()
+        if sid is None:
+            raise ValueError("no session to resume — the store is empty")
+        return sid
+    if not any(r["session_id"] == target for r in store.sessions()):
+        raise ValueError(f"unknown session: {target!r} (try `session --list`)")
+    return target
+
+
+def session_cli_argv(argv: list[str]) -> list[str]:
+    """Validate + normalise the CLI argv for the session subcommand. The colon-free
+    rule is enforced here (the registry directory names forbid ':'), so a bad id
+    fails at the CLI, not deep inside a spawn."""
+    if "--matter" in argv:
+        i = argv.index("--matter")
+        matter = argv[i + 1] if i + 1 < len(argv) else ""
+        if ":" in matter:
+            raise ValueError(f"matter ref must be colon-free: {matter!r}")
+    if "--resume" in argv:
+        i = argv.index("--resume")
+        target = argv[i + 1] if i + 1 < len(argv) else ""
+        if ":" in target and target != "last":
+            raise ValueError(f"session id must be colon-free: {target!r}")
+    return list(argv)
 
 
 def _trace_ids(db_path: Path) -> set[int]:

@@ -46,9 +46,10 @@ MODEL = "gate-local/gate/extraction"
 SPAWN_S = 480                # the S7j-W watchdog budget, per spawn
 CLI_S = 300
 # The kill leg (C5): a deliberately long turn, terminated mid-generation after
-# this many seconds — P3's count-to-budget prompt, this box's watchdog.
+# this many seconds — run_opencode's own timeout path tree-kills the REAL
+# process (code 124). No wmic: it is gone from this Windows build.
 KILL_AFTER_S = 45
-KILL_BUDGET_S = 300
+KILL_PROMPT = "Count to 400, one number per line."
 
 
 # -- pure helpers (the matcher, the argv assembly; unit-tested) -----------------
@@ -173,7 +174,10 @@ def check_ingest(ctx: dict) -> list[str]:
         "Acceptance ingestion fixture. Consideration is a foundational element of a"
         " valid contract in New Zealand law.\n", encoding="utf-8")
     from harness.session.commands import ingest_argv
-    argv = ingest_argv(matter, [src], store_root / "ingest-report.json")
+    # The FILE, not the dir: corpus_ingest only recurses a directory for PDFs;
+    # a .txt must be named directly (the live run ingested 0 chunks via [src]).
+    argv = ingest_argv(matter, [src / "acceptance-doc.txt"],
+                       store_root / "ingest-report.json")
     # corpus_ingest.main() reads sys.argv — the CLI argv shape, direct.
     from scripts import corpus_ingest
     old_argv, sys.argv = sys.argv, ["corpus_ingest", *argv]
@@ -218,7 +222,7 @@ def check_resume(ctx: dict) -> list[str]:
     problems: list[str] = []
     store, sid = ctx["store"], ctx["sid"]
     from harness.session.driver import SessionDriver
-    from harness.session.workspace import spawn_env, spawn_session
+    from harness.session.workspace import spawn_env, spawn_session, turn_argv
     driver = SessionDriver(store, store.root / "workspaces")
     meta = next((r for r in store.sessions() if r["session_id"] == sid), None)
     if not meta:
@@ -232,22 +236,18 @@ def check_resume(ctx: dict) -> list[str]:
         return [f"the seed turn opened no opencode session id (code={code}) —"
                 f" F6's chain cannot be exercised"]
     print(f"    seed session {seed_id!r}", flush=True)
-    # Phase 2: KILL the workspace's opencode processes mid-generation — P3's
-    # count-to-budget prompt outruns the watchdog on this box, so there is a
-    # live process to kill.
-    import threading
-    th = threading.Thread(
-        target=lambda: spawn_session(ws, "hunter", "Count to 400, one number"
-                                     " per line.", env=spawn_env(ws), model=MODEL,
-                                     timeout=KILL_BUDGET_S),
-        daemon=True)
-    th.start()
-    time.sleep(KILL_AFTER_S)
-    killed, detail = _tree_kill_ws(ws)
-    print(f"    {detail}", flush=True)
-    if not killed:
-        problems.append("could not kill the long-running turn — the resume leg"
-                        " then proves only a COMPLETED session (research/09 5.1)")
+    # Phase 2: KILL mid-generation — the count-to-budget prompt outruns this
+    # short timeout, and run_opencode's timeout path tree-kills the REAL
+    # process (code 124). Bypasses spawn_session so the 124 signature gets no
+    # hang-retry (this kill is the point, not a failure).
+    from scripts.run_spike_opencode import run_opencode
+    code, raw = run_opencode(ws, turn_argv("hunter", MODEL, KILL_PROMPT),
+                             timeout=KILL_AFTER_S, env=spawn_env(ws))
+    print(f"    kill leg: code={code}", flush=True)
+    if code != 124:
+        problems.append(f"the long turn was not killed by the timeout (code={code})"
+                        " — the resume leg then proves only a COMPLETED session"
+                        " (research/09 5.1)")
     # Phase 3: the continuation THROUGH THE DRIVER, driving --session <seed_id>
     # (F6's consuming end). The anchor can only be emitted with the seed's
     # context — that is the continuity proof.
@@ -262,29 +262,6 @@ def check_resume(ctx: dict) -> list[str]:
     return problems
 
 
-def _tree_kill_ws(ws: Path) -> tuple[bool, str]:
-    """Find and terminate any opencode process whose PWD is this workspace — the
-    kill leg needs the REAL process gone, not just a timed-out future."""
-    try:
-        out = subprocess.run(["wmic", "process", "get", "ProcessId,CommandLine",
-                              "WHERE", "name LIKE '%opencode%'"],
-                             capture_output=True, text=True, timeout=60)
-    except Exception as exc:                                  # noqa: BLE001
-        return False, str(exc)
-    pids = []
-    ws_frag = str(ws).replace("\\", "/").lower()
-    for line in (out.stdout or "").splitlines():
-        if ws_frag not in line.lower():
-            continue
-        tail = line.rsplit(None, 1)[-1]
-        if tail.isdigit():
-            pids.append(tail)
-    for pid in pids:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", pid], capture_output=True)
-    return (len(pids) > 0), f"killed {pids}"
-
-
-
 def check_compact(ctx: dict) -> list[str]:
     """/compact's checkpoint row exists (manual), and the auto trigger fires at
     safe_fill — the trigger with a synthetic usage, so no real window is burned."""
@@ -296,9 +273,10 @@ def check_compact(ctx: dict) -> list[str]:
         return ["no turns to compact (C1 must run first)"]
 
     class _CompactDriver:
-        """The driver seam: records the compaction turn and returns a checkpoint —
-        the SUMMARIZATION dispatch is the live part, the checker verifies the row."""
-        def __init__(self) -> None:
+        """The driver seam: carries the REAL store (compact_session reads and
+        appends turns through driver.store) and records the compaction turn."""
+        def __init__(self, store) -> None:
+            self.store = store
             self.seen: list[str] = []
         async def run_turn(self, session_id, matter_ref, agent, prompt, **kw):
             from harness.session.store import TurnRow
@@ -309,15 +287,15 @@ def check_compact(ctx: dict) -> list[str]:
                           "gathering; next is the verify stage",
                            docs_touched=[], trace_refs=[])
 
-    checkpoint = asyncio.run(compact_session(_CompactDriver(), sid,
+    checkpoint = asyncio.run(compact_session(_CompactDriver(store), sid,
                                              note="acceptance manual"))
     stored = [r for r in store.turns(sid) if is_checkpoint_row(r)]
     if not stored:
         problems.append("compact_session did not land a checkpoint row")
     else:
         print(f"    checkpoint: {stored[-1].display!r}", flush=True)
-    fired = asyncio.run(maybe_compact(object(), sid, used=102_400, window=128_000,
-                                      safe_fill=0.8))
+    fired = asyncio.run(maybe_compact(_CompactDriver(store), sid, used=102_400,
+                                      window=128_000, safe_fill=0.8))
     if fired is None:
         problems.append("maybe_compact did not fire at safe_fill (auto-compact dead)")
     elif not is_checkpoint_row(fired):
