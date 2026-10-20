@@ -106,7 +106,9 @@ class SessionDriver:
 
         The spawn is supervised (watchdog + one retry on the startup hang), the env
         is the scrubbed child_env, and the trace rows this turn produced are read
-        back from the workspace's trace.db so the row's trace_refs are real.
+        back from the session trace store (one db at the store root) so the row's
+        trace_refs are real. The before/after id diff assumes no concurrent
+        dispatch mid-turn — the shell runs turns sequentially.
         `continue_session` is F6's consuming end: the stored opencode session id
         drives `--session` (P3), so a resumed turn inherits its context.
 
@@ -118,7 +120,7 @@ class SessionDriver:
 
         ws = self.workspace_for(session_id, agent, matter_ref, classification)
         env = spawn_env(ws)
-        before = _trace_ids(ws / "trace.db")
+        before = _trace_ids(self.trace_db)
         try:
             code, events, sid = spawn_session(ws, agent, prompt, env=env, model=model,
                                               continue_session=continue_session)
@@ -133,7 +135,7 @@ class SessionDriver:
             # F6: the resume handle — /resume drives `--session <id>` (P3-proven),
             # so the id the spawn opened must outlive the turn.
             self.store.set_opencode_session(session_id, sid)
-        after = _trace_ids(ws / "trace.db")
+        after = _trace_ids(self.trace_db)
         row = build_turn_row(session_id=session_id, matter_ref=matter_ref, agent=agent,
                              events=events, trace_refs=sorted(after - before),
                              ts=datetime.now(timezone.utc).isoformat())
@@ -230,9 +232,9 @@ def session_cli_argv(argv: list[str]) -> list[str]:
 
 
 def _trace_ids(db_path: Path) -> set[int]:
-    """The dispatch ids a workspace's trace.db already holds — the before/after
+    """The dispatch ids the session trace store already holds — the before/after
     span this turn produced. A missing db is an empty set (a first turn, or a
-    workspace that never dispatched)."""
+    store that never dispatched)."""
     if not db_path.is_file():
         return set()
     import sqlite3

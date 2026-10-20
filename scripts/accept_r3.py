@@ -124,8 +124,12 @@ def check_fanout(ctx: dict) -> list[str]:
 def check_view(ctx: dict) -> list[str]:
     """The global view reflects BOTH agents — jobs + agents, from the substrate."""
     from harness.session.tui import IronFleetApp, render_agents
+    from harness.trace import TraceStore
     store, sid = ctx["store"], ctx["sid"]
-    app = IronFleetApp(store, session_id=sid)
+    # The trace injected as the shell does — without it the view's agents half
+    # never renders and the check would pass on the jobs table alone.
+    app = IronFleetApp(store, session_id=sid,
+                       trace=TraceStore(store.root / "trace.db"))
     text = app.refresh_view()
     problems = [f"view missing {a}: {text!r}" for a in ("hunter", "clerk")
                 if a not in text]
@@ -137,19 +141,17 @@ def check_drilldown(ctx: dict) -> list[str]:
     by the join (the pane's rows and the ledger are one truth)."""
     problems: list[str] = []
     store, sid = ctx["store"], ctx["sid"]
-    ws_root = store.root / "workspaces" / sid
-    trace_paths = sorted(ws_root.rglob("trace.db"))
-    if not trace_paths:
-        return [f"no trace.db under {ws_root} — no dispatch to drill into"]
-    seen: set[int] = set()
-    for tp in trace_paths:
-        con = sqlite3.connect(str(tp))
-        con.row_factory = sqlite3.Row
-        try:
-            seen.update(int(r[0]) for r in
-                        con.execute("SELECT id FROM dispatches").fetchall())
-        finally:
-            con.close()
+    # ONE trace store for the whole run: the driver's open_gate writes
+    # <store-root>/trace.db — the production shape `harness serve` reads.
+    trace_db = store.root / "trace.db"
+    if not trace_db.is_file():
+        return [f"no trace store at {trace_db} — no dispatch to drill into"]
+    con = sqlite3.connect(str(trace_db))
+    con.row_factory = sqlite3.Row
+    try:
+        seen = {int(r[0]) for r in con.execute("SELECT id FROM dispatches").fetchall()}
+    finally:
+        con.close()
     refs = {rid for row in store.turns(sid) for rid in row.trace_refs}
     if not refs:
         problems.append("no trace_refs recorded on the session's turns")
@@ -170,9 +172,12 @@ def check_ingest(ctx: dict) -> list[str]:
     store_root = ctx["store"].root
     src = store_root / "workspaces" / "r3-accept-src"
     src.mkdir(parents=True, exist_ok=True)
+    # The text must clear corpus_ingest's scan floor (MIN_WORDS=200) or the
+    # recorded-skip eats the check (the live run: 16 words, skipped).
+    body = ("Consideration is a foundational element of a valid contract in New"
+            " Zealand law. " * 20)
     (src / "acceptance-doc.txt").write_text(
-        "Acceptance ingestion fixture. Consideration is a foundational element of a"
-        " valid contract in New Zealand law.\n", encoding="utf-8")
+        "Acceptance ingestion fixture. " + body + "\n", encoding="utf-8")
     from harness.session.commands import ingest_argv
     # The FILE, not the dir: corpus_ingest only recurses a directory for PDFs;
     # a .txt must be named directly (the live run ingested 0 chunks via [src]).
@@ -355,12 +360,10 @@ def check_tokens(ctx: dict) -> list[str]:
     from harness.session.tokens import (session_trace_refs, usage_for_refs,
                                         window_for)
     from harness.trace import TraceStore
-    merged = TraceStore(store.root / "workspaces" / ".accept-trace.db")
-    for tp in sorted((store.root / "workspaces").glob("**/trace.db")):
-        src = TraceStore(tp)
-        for r in src.by_matter(ctx["matter"]):
-            merged.append(r)
-    usage = usage_for_refs(merged, session_trace_refs(store, sid))
+    # The one store-root trace db the gate wrote — no per-workspace merge; the
+    # join key is the session's OWN recorded refs.
+    usage = usage_for_refs(TraceStore(store.root / "trace.db"),
+                           session_trace_refs(store, sid))
     print(f"    session usage: in={usage['in']} out={usage['out']}"
           f" agents={sorted(usage['per_agent'])}", flush=True)
     if not usage["per_agent"]:
@@ -409,14 +412,20 @@ def main(argv: list[str] | None = None) -> int:
     ctx = {"store": store, "sid": sid, "matter": args.matter}
 
     print("== R3 acceptance (the TUI's own code path) ==", flush=True)
+    # The gate lifecycle the SHELL owns, held for the whole run: one proxy on
+    # 7373, trace at <store-root>/trace.db. Without this every spawn points at
+    # a dead port (the live run's remaining failures were exactly that).
+    from harness.session.driver import SessionDriver
+    gate_driver = SessionDriver(store, Path(home) / "workspaces")
     problems: dict[str, list[str]] = {}
-    for name in [c.strip() for c in args.checks.split(",") if c.strip()]:
-        print(f"C-{name}:", flush=True)
-        try:
-            problems[name] = CHECKS[name](ctx)
-        except Exception as exc:                              # noqa: BLE001
-            problems[name] = [f"{type(exc).__name__}: {exc}",
-                              traceback.format_exc()[-400:]]
+    with gate_driver.open_gate():
+        for name in [c.strip() for c in args.checks.split(",") if c.strip()]:
+            print(f"C-{name}:", flush=True)
+            try:
+                problems[name] = CHECKS[name](ctx)
+            except Exception as exc:                          # noqa: BLE001
+                problems[name] = [f"{type(exc).__name__}: {exc}",
+                                  traceback.format_exc()[-400:]]
     verdicts = {k: ("PASS" if not v else v) for k, v in problems.items()}
     failed = [k for k, v in problems.items() if v]
     for name, v in problems.items():

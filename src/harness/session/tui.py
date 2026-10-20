@@ -184,11 +184,13 @@ class IronFleetApp(App):
                              used=self.tokens_used, window=self.context_window)
 
     def refresh_status(self) -> None:
+        if not self.is_running:
+            return            # not mounted (tests/acceptance build the app headless)
         try:
             self.query_one("#status", Static).update(self.render_status_text())
         except Exception as exc:                              # noqa: BLE001
-            # Not mounted yet is expected (tests build the app without a pilot);
-            # anything else is recorded so the bar going stale is diagnosable.
+            # Anything past a running app is recorded so the bar going stale is
+            # diagnosable.
             _tui_error("refresh_status", exc)
 
     # -- the mode cycle (D-T2) -------------------------------------------------
@@ -228,10 +230,11 @@ class IronFleetApp(App):
             agents = agent_status(self.trace, self.session_id, self.base,
                                   refs=session_trace_refs(self.store, self.session_id))
             text = f"{text}\n---\n{render_agents(agents)}"
-        try:
-            self.query_one("#view", Static).update(text)
-        except Exception as exc:                              # noqa: BLE001
-            _tui_error("refresh_view", exc)
+        if self.is_running:               # headless callers just take the text
+            try:
+                self.query_one("#view", Static).update(text)
+            except Exception as exc:                          # noqa: BLE001
+                _tui_error("refresh_view", exc)
         return text
 
     def _docs_text(self) -> str:
