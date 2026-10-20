@@ -155,25 +155,35 @@ def test_refresh_view_with_no_session_is_empty(tmp_path):
 
 # -- Task 11: the meter fills from live trace rows on the poll -------------------
 
-def _trace_fixture(tmp_path, session_id):
+def _trace_fixture(tmp_path, session_id, store=None):
+    """Trace rows + the session's JSONL turns carrying their trace_refs — the
+    shell's real join key (the live mount does not carry session identity to the
+    gate, so by_session would read empty; the refs are the meter's key)."""
+    from harness.session.store import TurnRow
     from harness.trace import DispatchRecord, TraceStore
     trace = TraceStore(tmp_path / "trace.db")
     rec = lambda agent, i, o: DispatchRecord(          # noqa: E731 — fixture shape
         matter_ref="m1", task_class="extraction", classification="LOCAL_PREFERRED",
         provider="nvidia-nim", model="step-5", tokens_in=i, tokens_out=o,
         agent=agent, session_id=session_id)
-    trace.append(rec("hunter", 1000, 500))
-    trace.append(rec("clerk", 250, 100))
+    id1 = trace.append(rec("hunter", 1000, 500))
+    id2 = trace.append(rec("clerk", 250, 100))
+    if store is not None:
+        for rid in (id1, id2):
+            store.append_turn(TurnRow(ts="t", session_id=session_id, matter_ref="m1",
+                                      display="", agent="hunter", tools_used=[],
+                                      output_summary="", docs_touched=[],
+                                      trace_refs=[rid]))
     return trace
 
 
 def test_tick_fills_the_meter_from_the_trace(tmp_path):
-    """The poll reads trace.db by session (F2: never the event stream) and the
-    window from the provider row — the status bar shows used-vs-remaining."""
+    """The poll reads trace.db (F2: never the event stream) joined on the
+    session's own recorded refs, and the window from the provider row."""
     from harness.session.store import SessionStore
     store = SessionStore(tmp_path)
     sid = store.new_session("m1")
-    trace = _trace_fixture(tmp_path, sid)
+    trace = _trace_fixture(tmp_path, sid, store=store)
     app = IronFleetApp(store, session_id=sid, trace=trace, provider_name="nvidia-nim")
     app._tick()
     assert app.tokens_used == 1000 + 500 + 250 + 100
@@ -215,7 +225,7 @@ def test_tick_renders_agents_into_the_view_text(tmp_path):
     from harness.session.tui import IronFleetApp
     store = SessionStore(tmp_path)
     sid = store.new_session("m1")
-    trace = _trace_fixture(tmp_path, sid)
+    trace = _trace_fixture(tmp_path, sid, store=store)    # turns carry the refs
     app = IronFleetApp(store, session_id=sid, trace=trace,
                        provider_name="nvidia-nim")
     text = app.refresh_view()

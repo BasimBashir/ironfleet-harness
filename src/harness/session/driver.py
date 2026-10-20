@@ -124,12 +124,15 @@ class SessionDriver:
 
     async def run_turn(self, session_id: str, matter_ref: str, agent: str,
                        prompt: str, *, classification: str = "LOCAL_PREFERRED",
-                       model: str = "gate-local/gate/extraction") -> TurnRow:
+                       model: str = "gate-local/gate/extraction",
+                       continue_session: str | None = None) -> TurnRow:
         """ONE agent turn through the proven stack, recorded in the JSONL.
 
         The spawn is supervised (watchdog + one retry on the startup hang), the env
         is the scrubbed child_env, and the trace rows this turn produced are read
         back from the workspace's trace.db so the row's trace_refs are real.
+        `continue_session` is F6's consuming end: the stored opencode session id
+        drives `--session` (P3), so a resumed turn inherits its context.
 
         Failure policy (the user's ruling): a turn that could not run is a RECORDED
         event, not a crash — the row lands with whatever was produced (possibly
@@ -141,7 +144,8 @@ class SessionDriver:
         env = spawn_env(ws)
         before = _trace_ids(ws / "trace.db")
         try:
-            code, events, sid = spawn_session(ws, agent, prompt, env=env, model=model)
+            code, events, sid = spawn_session(ws, agent, prompt, env=env, model=model,
+                                              continue_session=continue_session)
         except Exception as exc:                                  # noqa: BLE001
             # The spawn itself blew up (binary missing, mount unwritable, ...):
             # record where/why and land an honest row so the turn is not lost.

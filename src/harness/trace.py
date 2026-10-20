@@ -96,6 +96,18 @@ class TraceStore:
         return [DispatchRecord(**dict(zip(self._FIELDS, [r[i] for i in idx])))
                 for r in cur.fetchall()]
 
+    def by_ids(self, ids: list[int]) -> list[DispatchRecord]:
+        """R3 (F1/F7 consumer): the dispatch rows for explicit ids — the shell's
+        meter joins on its OWN recorded trace_refs (the live mount does not carry
+        session identity to the gate), so this is the session-ledger read."""
+        if not ids:
+            return []
+        with self._c() as c:
+            marks = ",".join("?" * len(ids))
+            return self._rows(c.execute(
+                f"SELECT * FROM dispatches WHERE id IN ({marks}) ORDER BY id",
+                [int(i) for i in ids]))
+
     def get(self, dispatch_id: int) -> DispatchRecord:
         with self._c() as c:
             rows = self._rows(c.execute("SELECT * FROM dispatches WHERE id=?", (dispatch_id,)))

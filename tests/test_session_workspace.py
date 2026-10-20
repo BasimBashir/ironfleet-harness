@@ -47,6 +47,21 @@ def test_opencode_data_dir_rejects_colons(tmp_path):
         opencode_data_dir(tmp_path, "ses:1", "hunter")
 
 
+def test_turn_argv_carries_the_continuation_session():
+    """F6's consuming end: a resume turn drives --session <id> (P3-proven seam).
+    Without it the stored opencode_session id is printed by --resume and used by
+    nothing — /resume would fork a contextless session every time."""
+    from harness.session.workspace import turn_argv
+    fresh = turn_argv("hunter", "gate-local/gate/extraction", "hello", None)
+    assert "--session" not in fresh
+    assert fresh[:4] == ["run", "--agent", "hunter", "--model"]
+    cont = turn_argv("hunter", "gate-local/gate/extraction", "hello",
+                     "ses_eac83f117ffelNO1uBTK8B52hb")
+    i = cont.index("--session")
+    assert cont[i + 1] == "ses_eac83f117ffelNO1uBTK8B52hb"
+    assert cont[-1] == "hello"                            # flatten_prompt last, always
+
+
 def test_spawn_env_scrubs_bearers_and_pins_pwd():
     """F8/S7b finding S1: the child must run without provider credentials (a dirty
     env lights up opencode's builtin providers — 275 foreign models observed live)

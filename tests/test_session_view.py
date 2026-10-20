@@ -130,3 +130,13 @@ def test_doc_tree_lists_tracked_files(tmp_path):
     ws = _git_repo_with_edit(tmp_path)
     files = doc_tree(ws)
     assert "draft.md" in files
+
+
+def test_doc_changes_sees_a_new_untracked_doc(tmp_path):
+    """The live-view contract: an agent's NEWLY-WRITTEN file must appear — it is
+    untracked, so ls-files and plain git diff both miss it; status sees it."""
+    from harness.session.view import doc_changes
+    ws = _git_repo_with_edit(tmp_path)
+    (ws / "fresh-output.md").write_text("agent wrote this\n", encoding="utf-8")
+    changes = doc_changes(ws)
+    assert "fresh-output.md" in changes and "draft.md" in changes

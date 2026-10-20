@@ -14,16 +14,28 @@ import subprocess
 from pathlib import Path
 
 
-def agent_status(trace, session_id: str, base: Path | None = None) -> list[dict]:
+def _session_rows(trace, session_id: str, refs: list[int] | None) -> list:
+    """The session's dispatch rows: by the gate-side identity column when the
+    caller has it, else by the shell's OWN recorded refs (the live mount does
+    not carry session identity to the gate — F1's columns are
+    write-when-supplied)."""
+    if refs is not None:
+        return trace.by_ids(refs)
+    return trace.by_session(session_id)
+
+
+def agent_status(trace, session_id: str, base: Path | None = None,
+                 refs: list[int] | None = None) -> list[dict]:
     """One row per agent seen in the session's dispatches: identity (F1), the
     honest serving tier (provider/model/verified straight from the trace), the
     token sums (F7: rows aggregated, never counted), the last dispatch's status,
     and the agent's guard-log line count (every line is a guard event; block
     decisions throw into the event stream, not this log — a recorded substrate
     fact, so the count is activity, not blocks). `base` is the session's
-    workspace root (`<base>/<session>/<agent>/guard-log.jsonl`); None -> 0."""
+    workspace root (`<base>/<session>/<agent>/guard-log.jsonl`); None -> 0.
+    `refs` switches the join to the shell's recorded trace ids (live path)."""
     per: dict[str, dict] = {}
-    for r in trace.by_session(session_id):
+    for r in _session_rows(trace, session_id, refs):
         row = per.setdefault(r.agent or "unknown", {
             "agent": r.agent or "unknown", "provider": r.provider,
             "model": r.model, "verified": r.verified,
@@ -39,15 +51,17 @@ def agent_status(trace, session_id: str, base: Path | None = None) -> list[dict]
     return list(per.values())
 
 
-def drilldown(trace, session_id: str, agent: str) -> list[dict]:
+def drilldown(trace, session_id: str, agent: str,
+              refs: list[int] | None = None) -> list[dict]:
     """One agent's dispatch rows in dispatch order — the drill-down pane's data,
-    matching trace.db by construction (P5's contract, in code). by_session
-    already returns id order (the trace's own)."""
+    matching trace.db by construction (P5's contract, in code). by_session /
+    by_ids already return id order (the trace's own). `refs` switches the join
+    to the shell's recorded trace ids (live path)."""
     return [dict(task_class=r.task_class, provider=r.provider,
                  model=r.model, verified=r.verified, tokens_in=r.tokens_in,
                  tokens_out=r.tokens_out, status=r.status, error=r.error,
                  agent=r.agent, session_id=r.session_id)
-            for r in trace.by_session(session_id) if r.agent == agent]
+            for r in _session_rows(trace, session_id, refs) if r.agent == agent]
 
 
 def doc_tree(ws: Path) -> list[str]:
@@ -63,6 +77,19 @@ def doc_diff(ws: Path) -> str:
     r = subprocess.run(["git", "diff"], cwd=str(ws), capture_output=True,
                        text=True, encoding="utf-8", errors="replace", check=False)
     return (r.stdout or "") if r.returncode == 0 else ""
+
+
+def doc_changes(ws: Path) -> list[str]:
+    """Every file the agent touched (new, modified, staged) — `git status
+    --porcelain`. A NEWLY-WRITTEN doc is untracked, invisible to ls-files and
+    plain git diff alike; status is what 'the live view shows agent edits'
+    honestly means. Empty (never a crash) off a repo."""
+    r = subprocess.run(["git", "status", "--porcelain"], cwd=str(ws),
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", check=False)
+    if r.returncode != 0:
+        return []
+    return [ln[3:].strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
 
 
 def _guard_lines(ws: Path) -> int:

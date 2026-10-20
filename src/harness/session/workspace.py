@@ -91,8 +91,21 @@ def sync_agent_workspace(ws: Path, matter_ref: str, classification: str = "LOCAL
                matters_root=ws.parent.parent / "matters")
 
 
+def turn_argv(agent: str, model: str, prompt: str,
+              continue_session: str | None = None) -> list[str]:
+    """One turn's argv — pure so the F6 consuming end is testable: a resume turn
+    drives `--session <id>` (P3: only --session continues on 1.18.25)."""
+    from scripts.run_spike_opencode import flatten_prompt
+    argv = ["run", "--agent", agent, "--model", model, "--format", "json"]
+    if continue_session:
+        argv += ["--session", continue_session]
+    argv.append(flatten_prompt(prompt))
+    return argv
+
+
 def spawn_session(ws: Path, agent: str, prompt: str, *, timeout: int = DEFAULT_TIMEOUT_S,
-                  env: dict | None = None, model: str = "gate-local/gate/extraction"
+                  env: dict | None = None, model: str = "gate-local/gate/extraction",
+                  continue_session: str | None = None
                   ) -> tuple[int, list[dict], str]:
     """One supervised opencode turn in this agent's workspace.
 
@@ -104,9 +117,8 @@ def spawn_session(ws: Path, agent: str, prompt: str, *, timeout: int = DEFAULT_T
 
     The live spawn path is exercised by the acceptance drivers, never by the
     suite (house rule: live probes never run in tests)."""
-    from scripts.run_spike_opencode import extract_final_text, flatten_prompt, parse_events, run_opencode
-    argv = ["run", "--agent", agent, "--model", model, "--format", "json",
-            flatten_prompt(prompt)]
+    from scripts.run_spike_opencode import parse_events, run_opencode
+    argv = turn_argv(agent, model, prompt, continue_session)
     code, raw = run_opencode(ws, argv, timeout=timeout, env=env)
     events = parse_events(raw)
     if code == 124 and not events:

@@ -223,8 +223,10 @@ class IronFleetApp(App):
         rows = self.store.jobs(self.session_id) if self.session_id else []
         text = render_jobs(rows)
         if self.trace is not None and self.session_id:
+            from harness.session.tokens import session_trace_refs
             from harness.session.view import agent_status
-            agents = agent_status(self.trace, self.session_id, self.base)
+            agents = agent_status(self.trace, self.session_id, self.base,
+                                  refs=session_trace_refs(self.store, self.session_id))
             text = f"{text}\n---\n{render_agents(agents)}"
         try:
             self.query_one("#view", Static).update(text)
@@ -233,13 +235,15 @@ class IronFleetApp(App):
         return text
 
     def _docs_text(self) -> str:
-        """The doc pane's text: the watched workspace's tracked files + git diff —
-        output documents update live. No workspace injected yet: an honest dash."""
+        """The doc pane's text: the watched workspace's changed files (status —
+        a NEW doc is untracked and invisible to ls-files/diff) + the diff body.
+        No workspace injected yet: an honest dash."""
         if self.docs_ws is None:
             return "no workspace watched"
-        from harness.session.view import doc_diff, doc_tree
-        files = doc_tree(self.docs_ws)
-        head = f"files: {', '.join(files[:8])}{' …' if len(files) > 8 else ''}" if files else "files: (none tracked)"
+        from harness.session.view import doc_changes, doc_diff
+        changes = doc_changes(self.docs_ws)
+        head = (f"changed: {', '.join(changes[:8])}{' …' if len(changes) > 8 else ''}"
+                if changes else "changed: (nothing yet)")
         diff = doc_diff(self.docs_ws)
         return f"{head}\n{diff}" if diff else head
 
@@ -247,8 +251,13 @@ class IronFleetApp(App):
         """The poll: meter, status bar, view pane (jobs + agents), doc pane — one
         timer, all substrate reads."""
         if self.trace is not None and self.session_id:
-            from harness.session.tokens import usage_for_session, window_for
-            usage = usage_for_session(self.trace, self.session_id)
+            from harness.session.tokens import (session_trace_refs,
+                                                usage_for_refs, window_for)
+            # F2: the TRACE carries the real numbers; the join key is the shell's
+            # OWN record (TurnRow.trace_refs) — the live mount does not carry
+            # session identity to the gate, so by_session would read empty.
+            usage = usage_for_refs(
+                self.trace, session_trace_refs(self.store, self.session_id))
             self.tokens_used = usage["in"] + usage["out"]
             self.context_window = window_for(self.provider_name)[0]
         self.refresh_status()

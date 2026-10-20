@@ -43,11 +43,33 @@ def window_for(provider_name: str) -> tuple[int, float]:
 
 
 def usage_for_session(trace, session_id: str) -> dict:
-    """The session's token ledger: totals plus the per-agent split — both summed
-    from the session's dispatch ROWS (F7), never counted."""
+    """The session's token ledger keyed by the gate-side identity column — for
+    when the gate is TOLD the session id. The live mount does not supply it
+    (F1's columns are write-when-supplied; the opencode.json mount carries only
+    matter identity), so the shell's meter keys on its OWN records instead:
+    usage_for_refs + session_trace_refs."""
+    return usage_for_refs(trace, None, session_id=session_id)
+
+
+def session_trace_refs(store, session_id: str) -> list[int]:
+    """The trace row ids this session's turns produced — the shell-side join key
+    (the union of the JSONL rows' trace_refs; the driver records the before/after
+    span of every turn)."""
+    refs: set[int] = set()
+    for row in store.turns(session_id):
+        refs.update(row.trace_refs)
+    return sorted(refs)
+
+
+def usage_for_refs(trace, refs: list[int] | None, session_id: str = "") -> dict:
+    """The ledger summed over explicit trace row ids (the shell's join), or over
+    a gate-side session_id when given. Totals plus the per-agent split, summed
+    from dispatch ROWS (F7), never counted."""
+    rows = (trace.by_session(session_id) if session_id
+            else [r for rid in (refs or []) for r in trace.by_ids([rid])])
     totals = {"in": 0, "out": 0, "cache": 0}
     per_agent: dict[str, dict[str, int]] = {}
-    for r in trace.by_session(session_id):
+    for r in rows:
         totals["in"] += r.tokens_in
         totals["out"] += r.tokens_out
         totals["cache"] += r.tokens_cache

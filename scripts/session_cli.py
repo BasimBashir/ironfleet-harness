@@ -9,7 +9,8 @@ Usage:
   .venv/Scripts/python.exe scripts/session_cli.py --list
   .venv/Scripts/python.exe scripts/session_cli.py --resume <id|last>
   .venv/Scripts/python.exe scripts/session_cli.py --turn --agent <agent> --prompt <text> \
-      [--session <id|last>] [--model gate-local/gate/extraction]
+      [--session <id|last>] [--continue-session <opencode-id>] \
+      [--model gate-local/gate/extraction]
 """
 from __future__ import annotations
 
@@ -93,8 +94,12 @@ def main_with_args(args: argparse.Namespace) -> int:
             return 2
         sid = resolve_resume_target(store, args.session or "last")
         meta = next(r for r in store.sessions() if r["session_id"] == sid)
+        # F6's consuming end: --session can name OUR session OR the stored
+        # opencode session id to continue — the resume handle --resume printed.
+        cont = args.continue_session or None
         row = asyncio.run(driver.run_turn(sid, meta["matter_ref"], args.agent,
-                                          args.prompt, model=args.model))
+                                          args.prompt, model=args.model,
+                                          continue_session=cont))
         print(f"{sid}\t{row.agent}\t{','.join(row.tools_used) or '-'}\t"
               f"{row.output_summary[:200]!r}\ttrace={row.trace_refs}")
         # A turn that produced neither text nor a tool call did not land — the row is
@@ -134,6 +139,10 @@ def _dispatch(argv: list[str], home: Path) -> int:
                       help="print the recorded error log (where/why/which line)")
     ap.add_argument("--matter", default=None, help="matter ref (with --new)")
     ap.add_argument("--display", default="", help="human label (with --new)")
+    ap.add_argument("--continue-session", dest="continue_session", metavar="ID",
+                    default=None,
+                    help="opencode session id to continue (F6: --session <id>;"
+                         " what --resume prints as 'continue:')")
     ap.add_argument("--session", metavar="ID", default=None,
                     help="session id for --turn/--resume (default: last)")
     ap.add_argument("--agent", default=None, help="agent/persona name (with --turn)")
