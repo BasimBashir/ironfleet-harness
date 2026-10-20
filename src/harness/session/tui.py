@@ -411,12 +411,3 @@ class IronFleetApp(App):
             pane.update((pane.render() or "") + f"\n> {text}")
         except Exception as exc:                              # noqa: BLE001
             _tui_error("echo", exc, root=getattr(self.store, "root", None))
-
-    def _echo(self, text: str) -> None:
-        try:
-            pane = self.query_one("#chat", Static)
-            # render() is the value accessor in Textual 8.x (there is no
-            # `.renderable` attribute on Static — the smoke proved it).
-            pane.update((pane.render() or "") + f"\n> {text}")
-        except Exception as exc:                              # noqa: BLE001
-            _tui_error("echo", exc, root=getattr(self.store, "root", None))
