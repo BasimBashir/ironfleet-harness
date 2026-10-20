@@ -141,8 +141,14 @@ class SessionDriver:
             # so the id the spawn opened must outlive the turn.
             self.store.set_opencode_session(session_id, sid)
         after = _trace_ids(self.trace_db)
+        new = sorted(after - before)
+        if new:
+            # Attribute the span to THIS agent + session — the meter's per-agent
+            # ledger reads these columns, and the gate was never told who asked.
+            from harness.trace import TraceStore
+            TraceStore(self.trace_db).attr(agent, session_id, new)
         row = build_turn_row(session_id=session_id, matter_ref=matter_ref, agent=agent,
-                             events=events, trace_refs=sorted(after - before),
+                             events=events, trace_refs=new,
                              ts=datetime.now(timezone.utc).isoformat())
         self.store.append_turn(row)
         return row

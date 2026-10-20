@@ -82,3 +82,15 @@ def test_migration_is_idempotent(tmp_path):
     TraceStore(db)
     TraceStore(db)                           # second open must not re-add the column
     assert _columns(db).count("backend") == 1
+
+
+def test_attr_writes_agent_and_session_onto_the_span(tmp_path):
+    """F1's columns are write-when-supplied; the SHELL owns the before/after span
+    and attributes it post-turn — the meter's per-agent ledger reads these."""
+    ts = TraceStore(tmp_path / "trace.db")
+    a = ts.append(_rec())
+    b = ts.append(_rec())
+    ts.attr("hunter", "ses-1", [a, b])
+    rows = ts.by_ids([a, b])
+    assert all(r.agent == "hunter" and r.session_id == "ses-1" for r in rows)
+    ts.attr("clerk", "ses-2", [])   # empty span: no-op, no crash

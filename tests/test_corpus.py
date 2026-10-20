@@ -370,3 +370,17 @@ def test_default_gate_never_depends_on_the_scripts_package():
     from harness.corpus import _default_gate
     src = inspect.getsource(_default_gate)
     assert "harness.bootstrap" in src and "from scripts" not in src
+
+
+def test_docs_lists_the_matter_sources_newest_first(tmp_path):
+    from harness.corpus import CorpusStore, DocRecord
+    store = CorpusStore(tmp_path / "corpus.sqlite3")
+    assert store.docs("m-x") == []            # missing tables: empty, not a crash
+    store.ingest("m-x", DocRecord(doc_id="d1",
+                                  text="S 66 PRIORITY\n\nRules follow.",
+                                  source_name="case-a.pdf"),
+                 vectors=[[0.0]], model="bge-m3:567m", provider="ollama-embed")
+    rows = store.docs("m-x")
+    assert len(rows) == 1
+    assert rows[0]["name"] == "case-a.pdf" and rows[0]["chunks"] == 1
+    assert rows[0]["doc_id"] == "d1"

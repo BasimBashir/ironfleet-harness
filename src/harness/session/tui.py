@@ -18,15 +18,14 @@ from pathlib import Path
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Horizontal, VerticalScroll
 # NoMatches is query_one's failure when a widget is not mounted yet (tests build
 # the app without a pilot) — the ONE expected exception in this module.
 from textual.css.query import NoMatches
-# Textual 8.x: TabPanel is gone; the tab-panel class is ContentTab, and it is NOT
-# re-exported from textual.widgets — import from its submodule (verified against
-# the installed 8.2.8: dir(textual.widgets.tabbed_content) -> ['ContentTab', ...]).
-from textual.widgets import Footer, Input, Static, TabbedContent
-from textual.widgets.tabbed_content import ContentTab
+# Textual 8.x: TabPane wraps a pane's widget and NAMES its tab (ContentTab exists
+# but referencing bare sibling widgets auto-creates "Tab N" headers for each —
+# verified by pilot against the installed 8.2.8).
+from textual.widgets import Footer, Input, Static, TabbedContent, TabPane
 
 from harness.session.store import SessionStore
 
@@ -76,16 +75,29 @@ def render_status(*, mode: str, session_id: str | None, used: int, window: int) 
     return f" mode: {mode} | session: {sess} | tokens: {tokens}"
 
 
-def render_jobs(rows: list[dict]) -> str:
+def render_jobs(rows: list[dict], spin: int = 0) -> str:
     """The global view's text: one line per factory job — the stage ledger the
-    runner writes into S7f's jobs table (spec 17 §5.4's thin slice: the pane reads
-    the substrate, it adds no seam). Pure so tests and the timer share one truth."""
+    runner writes into S7f's jobs table. A RUNNING stage shows a spinner and its
+    elapsed time (the user's realtime ask: the shell is visibly alive while a
+    turn is in flight). Pure so tests and the timer share one truth."""
     if not rows:
         return "no jobs yet — give the shell a task"
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    spinner = "|/-\\"[spin % 4]
     lines = []
     for r in rows:
         detail = f" — {r['detail']}" if r.get("detail") else ""
-        lines.append(f"[{r['status']:>7}] {r['stage']} ({r['agent']}){detail}")
+        if r["status"] == "running" and r.get("ts"):
+            try:
+                started = datetime.fromisoformat(r["ts"])
+                mins, secs = divmod(max(0, int((now - started).total_seconds())), 60)
+                mark = f"{spinner} running {mins:02d}:{secs:02d}"
+            except ValueError:
+                mark = f"{spinner} running"
+            lines.append(f"[{mark}] {r['stage']} ({r['agent']}){detail}")
+        else:
+            lines.append(f"[{r['status']:>7}] {r['stage']} ({r['agent']}){detail}")
     return "\n".join(lines)
 
 
@@ -102,25 +114,38 @@ def split_plan(text: str) -> tuple[str, str]:
     return (prose or "(run the plan)"), m.group(0)
 
 
-def render_agents(rows: list[dict], jobs: list[dict] | None = None) -> str:
-    """The global view's agent table: LIVE status (the jobs ledger's newest row
-    per agent), the honest serving tier (whatever the trace recorded — cloud rows
-    read as cloud), the token spend in/out plus THINKING (the trace's reasoning
-    column), guard activity, last dispatch status. One line per agent."""
-    if not rows:
-        return "no agents yet"
+def render_agents(rows: list[dict], jobs: list[dict] | None = None,
+                  spin: int = 0) -> str:
+    """The agent table: one line per agent — LIVE status (the jobs ledger), the
+    honest serving tier (whatever the trace recorded), token spend in/out plus
+    THINKING, guard activity, last dispatch status. A RUNNING agent with no
+    trace rows yet (its first turn is still in flight) still shows, with the
+    spinner — the user must see WHO is working before its dispatch lands."""
+    spinner = "|/-\\"[spin % 4]
     status_by_agent: dict[str, str] = {}
+    running: set[str] = set()
     for j in (jobs or []):
         status_by_agent.setdefault(j["agent"], f"{j['status']} {j['stage']}")
+        if j["status"] == "running":
+            running.add(j["agent"])
     lines = []
     for r in rows:
         v = "verified" if r.get("verified") else "unverified"
         st = status_by_agent.get(r["agent"], "idle")
+        mark = f"{spinner} {st}" if r["agent"] in running else st
         think = r.get("tokens_reasoning") or 0
-        lines.append(f"[{st}] {r['agent']}: {r['provider']}/{r['model']} [{v}] "
+        lines.append(f"[{mark}] {r['agent']}: {r['provider']}/{r['model']} [{v}] "
                      f"in {r['tokens_in']:,} out {r['tokens_out']:,}"
                      + (f" think {think:,}" if think else "")
                      + f" guard {r['guard_flags']} last {r['last_status']}")
+    # In-flight agents the trace cannot see yet — the waiting indicator.
+    traced = {r["agent"] for r in rows}
+    for j in (jobs or []):
+        if j["status"] == "running" and j["agent"] not in traced:
+            lines.append(f"[{spinner} running {j['stage']}] {j['agent']}: "
+                         "first turn in flight — waiting for its model …")
+    if not lines:
+        return "no agents yet"
     return "\n".join(lines)
 
 
@@ -136,12 +161,15 @@ class IronFleetApp(App):
     CSS = """
     Screen { layout: vertical; }
     #main { height: 1fr; }
-    #chat { width: 2fr; border: round $primary; }
+    #chat-scroll { width: 2fr; height: 1fr; border: round $primary; }
     #side { width: 3fr; }
-    #view { height: 1fr; border: round $accent; }
-    #docs { height: 1fr; border: round $success; }
+    #view { height: auto; max-height: 100%; }
+    #docs { height: auto; max-height: 100%; }
+    #mind { height: auto; max-height: 100%; }
+    #corpus { height: auto; max-height: 100%; }
     #status { dock: bottom; height: 1; background: $panel; color: $text; }
     #prompt { dock: bottom; height: 3; margin-bottom: 1; }
+    .pane-scroll { height: 1fr; }
     """
 
     BINDINGS = [
@@ -155,6 +183,10 @@ class IronFleetApp(App):
         # Textual's mouse capture eats drag-selection; ctrl+o hands the whole chat
         # pane to the Windows clipboard (SHIFT+drag selects a region natively).
         ("ctrl+o", "copy_chat", "Copy chat"),
+        # ctrl+c is Textual's own quit (App default, system binding) — the user's
+        # ruling: NOTHING quits the shell but ctrl+q, not even the reflex ctrl+c
+        # (a mis-key would kill a stage mid-flight). Shadow it with a no-op.
+        Binding("ctrl+c", "noop", show=False, priority=True),
     ]
 
     def __init__(self, store: SessionStore, session_id: str | None = None,
@@ -182,24 +214,33 @@ class IronFleetApp(App):
         self.docs_ws = docs_ws
         self.tokens_used = 0
         self.context_window = 0
+        self._spin = 0                       # the ASCII spinner frame (|/-\)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="main"):
-            yield Static("", id="chat")
-            # Textual 8.x: ContentTab(label, content_id) REFERENCES a content widget
-            # by id — declared BEFORE its pane, else the bare Statics auto-tab as
-            # "Tab 1/Tab 2" and the side pane shows four headers for two panes.
+            # The chat scrolls and FOLLOWS the tail: panes update from _echo and
+            # _tick, then scroll_end keeps the newest line visible (the user's
+            # Claude-Code-style follow).
+            with VerticalScroll(id="chat-scroll"):
+                yield Static("", id="chat")
+            # Textual 8.x: TabPane wraps each pane's widget and names the tab —
+            # bare siblings inside TabbedContent auto-tab as "Tab 1..N".
             with TabbedContent(id="side"):
-                yield ContentTab("Jobs", "view")
-                yield Static("", id="view")
-                yield ContentTab("Docs", "docs")
-                yield Static("", id="docs")
-                yield ContentTab("Thinking", "mind")
-                yield Static("", id="mind")
+                yield TabPane("Jobs", VerticalScroll(Static("", id="view"),
+                                                     classes="pane-scroll"))
+                yield TabPane("Docs", VerticalScroll(Static("", id="docs"),
+                                                     classes="pane-scroll"))
+                yield TabPane("Corpus", VerticalScroll(Static("", id="corpus"),
+                                                       classes="pane-scroll"))
+                yield TabPane("Thinking", VerticalScroll(Static("", id="mind"),
+                                                         classes="pane-scroll"))
         yield Static(self.render_status_text(), id="status")
-        yield Input(placeholder="prompt an agent, or /ingest /resume /compact /mode",
+        yield Input(placeholder="prompt an agent, or /ingest /plan <file> /compact /mode",
                     id="prompt")
         yield Footer()
+
+    def action_noop(self) -> None:
+        """The ctrl+c trap (see BINDINGS): swallow the reflex, quit nothing."""
 
     # -- the status bar (the D-T3 meter + the always-visible mode) -------------
 
@@ -247,13 +288,13 @@ class IronFleetApp(App):
         return). Both halves read the substrate: the store's jobs table and
         trace.db via view.agent_status (F1 columns + the guard-log count)."""
         rows = self.store.jobs(self.session_id) if self.session_id else []
-        text = render_jobs(rows)
+        text = render_jobs(rows, self._spin)
         if self.trace is not None and self.session_id:
             from harness.session.tokens import session_trace_refs
             from harness.session.view import agent_status
             agents = agent_status(self.trace, self.session_id, self.base,
                                   refs=session_trace_refs(self.store, self.session_id))
-            text = f"{text}\n---\n{render_agents(agents, rows)}"
+            text = f"{text}\n---\n{render_agents(agents, rows, self._spin)}"
         if self.is_running:               # headless callers just take the text
             try:
                 self.query_one("#view", Static).update(text)
@@ -275,8 +316,10 @@ class IronFleetApp(App):
         return f"{head}\n{diff}" if diff else head
 
     def _tick(self) -> None:
-        """The poll: meter, status bar, view pane (jobs + agents), doc pane — one
-        timer, all substrate reads."""
+        """The poll: meter, status bar, view pane (jobs + agents), doc, corpus and
+        thinking panes — one timer, all substrate reads. The spinner advances so
+        RUNNING rows visibly move: the shell is alive, not idle."""
+        self._spin += 1
         if self.trace is not None and self.session_id:
             from harness.session.tokens import (session_trace_refs,
                                                 usage_for_refs, window_for)
@@ -289,14 +332,49 @@ class IronFleetApp(App):
             self.context_window = window_for(self.provider_name)[0]
         self.refresh_status()
         self.refresh_view()
+        for pane_id, text in (("#docs", self._docs_text()),
+                              ("#corpus", self._corpus_text()),
+                              ("#mind", self._thinking_text())):
+            try:
+                self.query_one(pane_id, Static).update(text)
+            except Exception as exc:                          # noqa: BLE001
+                _tui_error(f"refresh{pane_id}", exc)
+        self._follow()
+
+    def _follow(self) -> None:
+        """Keep the chat pinned to its tail (the follow as contents arrive)."""
+        if self.is_running:
+            try:
+                self.query_one("#chat-scroll", VerticalScroll).scroll_end(
+                    animate=False, duration=0.0)
+            except Exception:                                 # noqa: BLE001
+                pass
+
+    def _corpus_text(self) -> str:
+        """The Corpus pane: what is ACTUALLY in the matter's store — one row per
+        ingested document (name, words, chunks) under the chunk total."""
+        if not self.session_id:
+            return "(no session yet)"
         try:
-            self.query_one("#docs", Static).update(self._docs_text())
+            from harness.corpus import CorpusStore
+            matter = next((r.get("matter_ref") for r in self.store.sessions()
+                           if r["session_id"] == self.session_id), None)
+            if not matter:
+                return "(no matter for this session)"
+            store = CorpusStore(self.store.root / "corpus.sqlite3")
+            docs = store.docs(matter)
+            if not docs:
+                return (f"matter {matter}: nothing ingested yet — /ingest <path>")
+            lines = [f"matter {matter}: {store.doc_count(matter)} docs, "
+                     f"{store.count(matter):,} chunks"]
+            lines += [f"  {d['name']} — {d['words'] or 0:,} words, {d['chunks']} chunks"
+                      for d in docs[:40]]
+            if len(docs) > 40:
+                lines.append(f"  … {len(docs) - 40} more")
+            return "\n".join(lines)
         except Exception as exc:                              # noqa: BLE001
-            _tui_error("refresh_docs", exc)
-        try:
-            self.query_one("#mind", Static).update(self._thinking_text())
-        except Exception as exc:                              # noqa: BLE001
-            _tui_error("refresh_thinking", exc)
+            _tui_error("corpus_pane", exc, root=self.store.root)
+            return "(corpus read failed — see errors.jsonl)"
 
     def _thinking_text(self) -> str:
         """The Thinking pane: each turn's captured reasoning stream (opencode
@@ -318,6 +396,10 @@ class IronFleetApp(App):
 
     def on_mount(self) -> None:
         self.set_interval(2.0, self._tick)
+        if self.session_id:
+            self._echo(f"session {self.session_id} ready — type a task, or "
+                       "/ingest <path> · /plan <file> · /compact · /doctor · "
+                       "/provider · shift+TAB mode · ctrl+o copy · ctrl+q quit")
 
     # -- the prompt line --------------------------------------------------------
 
@@ -338,6 +420,13 @@ class IronFleetApp(App):
             self.run_worker(self._doctor(), exclusive=False)
         elif text.startswith("/ingest "):
             self.run_worker(self._ingest(text.split(maxsplit=1)[1]), exclusive=False)
+        elif text.startswith("/plan "):
+            # The kickoff message lives in a FILE: the prompt line is one line
+            # tall, and a pasted multi-line ```plan block dies in it (the live
+            # session proved it — the crew fell back to two route stages).
+            body = self._read_plan(text.split(maxsplit=1)[1])
+            if body:
+                self.run_worker(self._dispatch_task(body), exclusive=False)
         elif text.startswith("/persona new "):
             self._persona_new(text.split(maxsplit=2)[2])
         elif text == "/provider" or text.startswith("/provider "):
@@ -363,6 +452,19 @@ class IronFleetApp(App):
             self._echo("(chat copied to the clipboard)")
         except Exception as exc:                              # noqa: BLE001
             _tui_error("copy_chat", exc, root=getattr(self.store, "root", None))
+
+    def _read_plan(self, path: str) -> str:
+        """/plan <file>: read the kickoff message (prose + ```plan block) from a
+        file. A missing file or a plan-less file is echoed, never a silent run."""
+        p = Path(path.strip().strip('"'))
+        if not p.is_file():
+            self._echo(f"/plan: no such file: {path}")
+            return ""
+        body = p.read_text(encoding="utf-8", errors="replace")
+        if "```plan" not in body:
+            self._echo("/plan: no ```plan block in the file — running it as a "
+                       "plain task (routes fallback)")
+        return body
 
     async def _doctor(self) -> None:
         """/doctor: the honest state, one screen. The provider rows show what the
@@ -504,3 +606,5 @@ class IronFleetApp(App):
             pane.update((pane.render() or "") + f"\n> {text}")
         except Exception as exc:                              # noqa: BLE001
             _tui_error("echo", exc, root=getattr(self.store, "root", None))
+            return
+        self._follow()

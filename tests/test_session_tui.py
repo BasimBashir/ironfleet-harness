@@ -270,3 +270,56 @@ def test_split_plan_moves_the_fenced_block_to_plan_text():
 def test_split_plan_without_a_block_is_the_task_verbatim():
     from harness.session.tui import split_plan
     assert split_plan("just process the docs") == ("just process the docs", "")
+
+
+def test_tabs_are_exactly_four_and_labeled(tmp_path):
+    """The side pane: exactly Jobs/Docs/Corpus/Thinking — the sibling-ContentTab
+    pattern auto-created 'Tab 1..N' headers for every bare child (the live
+    session's six tabs). TabPane wraps, so no auto tabs."""
+    import asyncio
+    from harness.session.store import SessionStore
+    from textual.widgets import Static, TabbedContent
+    from harness.session.tui import IronFleetApp
+
+    async def body():
+        app = IronFleetApp(SessionStore(tmp_path))
+        async with app.run_test() as pilot:
+            tc = app.query_one(TabbedContent)
+            labels = [str(p._title) for p in tc.query("TabPane")]
+            assert labels == ["Jobs", "Docs", "Corpus", "Thinking"], labels
+            assert app.query_one("#view", Static) is not None
+
+    asyncio.run(body())
+
+
+def test_ctrl_c_does_not_quit_only_ctrl_q(tmp_path):
+    """The user's ruling: NOTHING quits the shell but ctrl+q. ctrl+c is Textual's
+    own system quit — shadowed with a no-op binding."""
+    import asyncio
+    from harness.session.store import SessionStore
+    from harness.session.tui import IronFleetApp
+
+    async def body():
+        app = IronFleetApp(SessionStore(tmp_path))
+        async with app.run_test() as pilot:
+            await pilot.press("ctrl+c")
+            assert app.is_running, "ctrl+c must not quit the shell"
+            await pilot.press("ctrl+q")
+
+    asyncio.run(body())
+
+
+def test_render_agents_shows_in_flight_agent_without_trace_rows():
+    from harness.session.tui import render_agents
+    jobs = [{"stage": "stage-1", "agent": "hunter", "status": "running", "detail": ""}]
+    out = render_agents([], jobs, spin=0)
+    assert "hunter" in out and "in flight" in out
+
+
+def test_render_jobs_running_row_carries_elapsed():
+    from datetime import datetime, timedelta, timezone
+    from harness.session.tui import render_jobs
+    ts = (datetime.now(timezone.utc) - timedelta(seconds=95)).isoformat()
+    out = render_jobs([{"stage": "stage-1", "agent": "hunter", "status": "running",
+                        "detail": "", "ts": ts}], spin=1)
+    assert "01:35" in out

@@ -325,6 +325,19 @@ class CorpusStore:
         except sqlite3.OperationalError:
             return 0
 
+    def docs(self, matter_ref: str) -> list[dict]:
+        """The matter's ingested documents, newest first — the shell's Corpus pane
+        reads this (one row per source file: name, words, chunks, when)."""
+        try:
+            with self._c() as c:
+                rows = c.execute(
+                    f"SELECT doc_id, source_name, words, chunk_count, ts"
+                    f" FROM {_mtable(matter_ref, 'docs')} ORDER BY ts DESC").fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [{"doc_id": r[0], "name": r[1], "words": r[2],
+                 "chunks": r[3], "ts": r[4] or ""} for r in rows]
+
     def drop_matter(self, matter_ref: str) -> None:
         """D for the corpus side (2026-10-14, the matter-CRUD completion): drop the
         matter's docs + fts (+ shadow) + cites tables. ingest is create+update,

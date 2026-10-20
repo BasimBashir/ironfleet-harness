@@ -120,6 +120,21 @@ class TraceStore:
             rows = self._rows(c.execute("SELECT * FROM dispatches WHERE id=?", (dispatch_id,)))
         return rows[0]
 
+    def attr(self, agent: str, session_id: str, ids: list[int]) -> None:
+        """Attribute a turn's dispatch rows to the AGENT + SESSION that produced
+        them. F1's columns are write-when-supplied and the live mount never
+        supplies them — but the SHELL owns the before/after span of every turn it
+        drives, so the span is attributed here, from the driver. The shell runs
+        turns sequentially (one stage at a time), which is what makes the span
+        unambiguous; a concurrent dispatch inside it would be mis-attributed."""
+        if not ids:
+            return
+        with self._c() as c:
+            marks = ",".join("?" * len(ids))
+            c.execute(f"UPDATE dispatches SET agent=?, session_id=?"
+                      f" WHERE id IN ({marks})",
+                      [agent, session_id, *[int(i) for i in ids]])
+
     def by_matter(self, matter_ref: str) -> list[DispatchRecord]:
         with self._c() as c:
             return self._rows(c.execute(
