@@ -186,3 +186,61 @@ def test_tick_without_trace_or_session_stays_at_zero(tmp_path):
     app = IronFleetApp(SessionStore(tmp_path))
     app._tick()
     assert app.tokens_used == 0 and app.context_window == 0
+
+
+# -- Task 12: the view pane shows the agents, the doc pane shows the diff -------
+
+def test_render_agents_one_line_per_agent():
+    from harness.session.tui import render_agents
+    rows = [{"agent": "hunter", "provider": "nvidia-nim", "model": "step-5",
+             "verified": 1, "tokens_in": 100, "tokens_out": 50,
+             "guard_flags": 3, "last_status": "ok"},
+            {"agent": "clerk", "provider": "ollama-local",
+             "model": "thomson1-chat:latest", "verified": 0, "tokens_in": 37,
+             "tokens_out": 23, "guard_flags": 0, "last_status": "refused"}]
+    s = render_agents(rows)
+    assert "hunter" in s and "clerk" in s
+    assert "nvidia-nim" in s and "ollama-local" in s      # the honest tier read
+    assert "refused" in s
+    assert len(s.strip().splitlines()) == 2
+
+
+def test_render_agents_empty():
+    from harness.session.tui import render_agents
+    assert "no agents" in render_agents([])
+
+
+def test_tick_renders_agents_into_the_view_text(tmp_path):
+    from harness.session.store import SessionStore
+    from harness.session.tui import IronFleetApp
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    trace = _trace_fixture(tmp_path, sid)
+    app = IronFleetApp(store, session_id=sid, trace=trace,
+                       provider_name="nvidia-nim")
+    text = app.refresh_view()
+    assert "hunter" in text and "clerk" in text           # agents, not just jobs
+
+
+def test_docs_text_shows_the_diff_when_a_workspace_is_set(tmp_path):
+    """The doc pane reads the injected workspace's git diff (the acceptance
+    driver injects the workspace it watches); none set -> an honest dash. The
+    watched file must be TRACKED and modified — ls-files and plain git diff are
+    the substrate, and an untracked file is invisible to both."""
+    import subprocess
+    from harness.session.store import SessionStore
+    from harness.session.tui import IronFleetApp
+    app = IronFleetApp(SessionStore(tmp_path))
+    assert "no workspace" in app._docs_text()
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    def git(*args):
+        subprocess.run(["git", *args], cwd=str(ws), check=True, capture_output=True)
+    git("-c", "user.email=t@t", "-c", "user.name=t", "init", "-q")
+    (ws / "draft.md").write_text("v1\n", encoding="utf-8")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "v1")
+    (ws / "draft.md").write_text("v2 — agent edit\n", encoding="utf-8")
+    app2 = IronFleetApp(SessionStore(tmp_path), docs_ws=ws)
+    text = app2._docs_text()
+    assert "draft.md" in text and "v2 — agent edit" in text

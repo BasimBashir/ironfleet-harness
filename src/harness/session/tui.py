@@ -89,6 +89,22 @@ def render_jobs(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def render_agents(rows: list[dict]) -> str:
+    """The global view's agent table: identity, the HONEST serving tier (whatever
+    the trace recorded — cloud rows read as cloud), tokens, guard activity, the
+    last dispatch's status. One line per agent (the DataTable upgrade is a UI
+    nicety; this text is the P5 contract)."""
+    if not rows:
+        return "no agents yet"
+    lines = []
+    for r in rows:
+        v = "verified" if r.get("verified") else "unverified"
+        lines.append(f"{r['agent']}: {r['provider']}/{r['model']} [{v}] "
+                     f"tok {r['tokens_in']}/{r['tokens_out']} "
+                     f"guard {r['guard_flags']} last {r['last_status']}")
+    return "\n".join(lines)
+
+
 class IronFleetApp(App):
     """The shell. One window: chat, the global view, live docs, and the status bar.
 
@@ -121,7 +137,8 @@ class IronFleetApp(App):
 
     def __init__(self, store: SessionStore, session_id: str | None = None,
                  mode: str = "agent-os", runner: object | None = None,
-                 runner_factory=None, trace=None, provider_name: str = "") -> None:
+                 runner_factory=None, trace=None, provider_name: str = "",
+                 base: Path | None = None, docs_ws: Path | None = None) -> None:
         super().__init__()
         if mode not in MODES:
             raise ValueError(f"unknown mode: {mode!r} (expected one of {MODES})")
@@ -136,6 +153,11 @@ class IronFleetApp(App):
         # (F2: the TRACE carries the real token counts, never the event stream).
         self.trace = trace
         self.provider_name = provider_name
+        # Task 12: `base` is the session-workspace root (the guard-log read);
+        # `docs_ws` is the workspace the doc pane watches (injected — the factory
+        # or the acceptance driver names the workspace whose edits matter).
+        self.base = base
+        self.docs_ws = docs_ws
         self.tokens_used = 0
         self.context_window = 0
 
@@ -194,20 +216,36 @@ class IronFleetApp(App):
     # -- the global view pane (the session's tasks: the S7f jobs table) --------
 
     def refresh_view(self) -> str:
-        """Render this session's jobs into the Agents pane. Returns the text (the
-        unmounted case — tests, early compose — still gets an honest return)."""
+        """Render this session's jobs AND agents into the view pane. Returns the
+        text (the unmounted case — tests, early compose — still gets an honest
+        return). Both halves read the substrate: the store's jobs table and
+        trace.db via view.agent_status (F1 columns + the guard-log count)."""
         rows = self.store.jobs(self.session_id) if self.session_id else []
         text = render_jobs(rows)
+        if self.trace is not None and self.session_id:
+            from harness.session.view import agent_status
+            agents = agent_status(self.trace, self.session_id, self.base)
+            text = f"{text}\n---\n{render_agents(agents)}"
         try:
             self.query_one("#view", Static).update(text)
         except Exception as exc:                              # noqa: BLE001
             _tui_error("refresh_view", exc)
         return text
 
+    def _docs_text(self) -> str:
+        """The doc pane's text: the watched workspace's tracked files + git diff —
+        output documents update live. No workspace injected yet: an honest dash."""
+        if self.docs_ws is None:
+            return "no workspace watched"
+        from harness.session.view import doc_diff, doc_tree
+        files = doc_tree(self.docs_ws)
+        head = f"files: {', '.join(files[:8])}{' …' if len(files) > 8 else ''}" if files else "files: (none tracked)"
+        diff = doc_diff(self.docs_ws)
+        return f"{head}\n{diff}" if diff else head
+
     def _tick(self) -> None:
-        """The poll: meter, status bar, jobs pane — one timer. F2: the meter's
-        numbers come from trace.db by session, aggregated (F7); Task 12 adds
-        guard/doc reads to this hook."""
+        """The poll: meter, status bar, view pane (jobs + agents), doc pane — one
+        timer, all substrate reads."""
         if self.trace is not None and self.session_id:
             from harness.session.tokens import usage_for_session, window_for
             usage = usage_for_session(self.trace, self.session_id)
@@ -215,6 +253,10 @@ class IronFleetApp(App):
             self.context_window = window_for(self.provider_name)[0]
         self.refresh_status()
         self.refresh_view()
+        try:
+            self.query_one("#docs", Static).update(self._docs_text())
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("refresh_docs", exc)
 
     def on_mount(self) -> None:
         self.set_interval(2.0, self._tick)
