@@ -369,3 +369,19 @@ def test_build_gate_and_scheduler_assemble_the_live_stack(tmp_path, monkeypatch)
     sched = drv.build_scheduler()
     assert sched.max_concurrent >= 1
     assert sched.capacity.source_cores          # provenance carried through
+
+
+def test_child_env_binds_the_workspace_matter(tmp_path):
+    """/plan crews search THE matter's corpus: the tools shim dispatches in the
+    child env, so IRONFLEET_MATTER must come from the workspace's own record —
+    without it every ironfleet_corpus_search fail-closed ("no matter bound")."""
+    import json
+    from scripts import stand_up_opencode as drv
+    (tmp_path / "matter.json").write_text(
+        json.dumps({"matter_ref": "m-smith", "classification": "CLOUD_PERMITTED"}),
+        encoding="utf-8")
+    env = drv.child_env(tmp_path)
+    assert env["IRONFLEET_MATTER"] == "m-smith"
+    # no record -> the key is absent -> the tool stays fail-closed
+    env2 = drv.child_env(tmp_path / "bare")
+    assert "IRONFLEET_MATTER" not in env2

@@ -141,6 +141,17 @@ def child_env(ws: Path | str) -> dict[str, str]:
     env = {**os.environ, "PWD": str(ws), **HARDEN_ENV}
     for key in bearer_keys(env):
         del env[key]
+    # The tools shim's dispatches (python -m harness.module_e.dispatch) run in THIS
+    # env — the matter a tool binds to comes from the workspace's own record.
+    # Without it ironfleet_corpus_search fail-closes with "no matter bound" (the
+    # 2026-10-20 live crew: maps written from model memory, the corpus unasked).
+    matter_file = Path(ws) / "matter.json"
+    if matter_file.is_file():
+        try:
+            env["IRONFLEET_MATTER"] = str(json.loads(
+                matter_file.read_text(encoding="utf-8")).get("matter_ref", "") or "")
+        except (json.JSONDecodeError, OSError):
+            pass
     return env
 
 

@@ -160,5 +160,8 @@ def test_runner_writes_stage_agent_file_after_the_sync(tmp_path):
     runner = FactoryRunner(driver, store=store)
     import asyncio
     asyncio.run(runner.run_task(sid, "m1", "t", plan_text="```plan\ng|hunter|find it\n```"))
-    # workspace_for (the sync) happens before the turn for that agent
-    assert driver.workspaces == ["hunter"]
+    # The workspace is the one run_turn SPAWNS in — named after the stage file
+    # stem, not the bare agent. The old split (md in <agent>\, spawn in <fname>\)
+    # left --agent pointing at a persona opencode could not see, and every stage
+    # silently fell back to the default agent on the extraction class.
+    assert driver.workspaces == ["hunter-stage-g"]

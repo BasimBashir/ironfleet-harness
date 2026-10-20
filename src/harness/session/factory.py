@@ -230,11 +230,16 @@ class FactoryRunner:
         """One stage: sync the workspace, write the stage agent file AFTER the
         sync (F5/P7), then one turn whose prompt carries the previous summary."""
         agent, instruction = stage["agent"], stage["instruction"]
-        ws = self.driver.workspace_for(session_id, agent, matter_ref, classification)
-        (ws / ".opencode" / "agent").mkdir(parents=True, exist_ok=True)
         # P7's interjection rides an existing opencode session; a stage's first
         # turn opens one. The +1 keeps the two concerns from sharing one name.
         fname = f"{agent}-stage-{stage['stage']}"
+        # The stage persona must live in the workspace run_turn will SPAWN in —
+        # named after fname, not the bare agent. The old split (md in <agent>\,
+        # spawn in <fname>\) left --agent pointing at a persona opencode could
+        # not see, and every stage silently fell back to the default agent on
+        # the extraction class (thomson1) — since Task 7 (2026-10-20 live crew).
+        ws = self.driver.workspace_for(session_id, fname, matter_ref, classification)
+        (ws / ".opencode" / "agent").mkdir(parents=True, exist_ok=True)
         (ws / ".opencode" / "agent" / f"{fname}.md").write_text(
             stage_agent_md(stage["stage"], instruction), encoding="utf-8")
         prompt = _stage_prompt(stage=stage["stage"], instruction=instruction, agent=agent,
