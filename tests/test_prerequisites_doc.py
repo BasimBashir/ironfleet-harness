@@ -32,7 +32,7 @@ def test_doc_names_every_registered_model():
     rows = yaml.safe_load((ROOT / "data" / "providers.yaml").read_text(encoding="utf-8"))
     models = {r["model"] for r in rows["providers"]}
     assert {"thomson1-chat:latest", "bge-m3:567m"} <= models  # the file parsed
-    assert "stepfun-ai/step-5-preview" in models             # the R3 cloud row
+    assert "nvidia/nemotron-3.5-super-vl-120b-a12b" in models  # the R3 cloud row
     for m in sorted(models):
         assert m in DOC, f"doc must name registered model {m} (data/providers.yaml)"
 

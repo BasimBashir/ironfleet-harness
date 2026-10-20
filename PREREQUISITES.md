@@ -48,11 +48,12 @@ is downloaded per the `research/06` recipe, not via Ollama.
 
 ## 3b. Cloud provider (optional; needed for non-mechanical classes)
 
-`nvidia-nim` (`stepfun-ai/step-5-preview`, NVIDIA NIM `integrate.api.nvidia.com`)
-serves drafting / research / analysis / complex_reasoning / summarization.
-`nvidia-nim-tool` (`moonshotai/kimi-k2-in-0909`, same NIM endpoint) is the
-tool-calling leg's OWN row — kept a distinct model so the toolpath injection class
-and the research class never share a candidate (S7j-W 1.2, by construction).
+`nvidia-nim` (`nvidia/nemotron-3.5-super-vl-120b-a12b`, NVIDIA NIM
+`integrate.api.nvidia.com`) serves drafting / research / analysis /
+complex_reasoning / summarization — the cloud model for every NIM row (user
+directive 2026-10-20). `nvidia-nim-tool` (same model) is the tool-calling leg's
+OWN row, so the toolpath injection class and the research class never share a
+candidate (S7j-W 1.2, by row name).
 Ollama is honestly `mechanical-only` on this box (CR-3: its executing backend is
 unverifiable), so **without a cloud provider these classes refuse — by design**, and
 only the mechanical classes (extraction / classification / redaction /

@@ -55,8 +55,8 @@ def test_a1_toolpath_rule_leads_with_the_cloud_tool_caller():
     # silently move the fail-closed proof onto the non-tool-calling model.
     # R3 2026-10-19: the leg leads with a full-admission cloud tool-caller — the
     # pragmatic path when Ollama's honest mechanical-only verdict cannot.
-    # R3 2026-10-20: that caller is its OWN row, nvidia-nim-tool (kimi-k2) —
-    # research now names nvidia-nim (step-5) for its cloud leg, and the rows are
+    # R3 2026-10-20: that caller is its OWN row, nvidia-nim-tool —
+    # research now names nvidia-nim for its cloud leg, and the rows are
     # disjoint BY NAME so the invariant holds by construction.
     rt = RoutingTable.from_yaml(A1)
     rules = {r["task_class"]: r for r in rt._rules}
@@ -70,7 +70,7 @@ def test_a1_toolpath_rule_leads_with_the_cloud_tool_caller():
     assert "nvidia-nim-tool" not in research["cloud_permitted"], \
         "research (parity leg) may not name the toolpath row in its cloud candidates"
     assert "nvidia-nim" in research["cloud_permitted"], \
-        "research keeps a real cloud leg (step-5) — that is why the split rows exist"
+        "research keeps a real cloud leg — that is why the split rows exist"
 
 def test_a1_toolpath_is_not_mechanical():
     # Non-mechanical on purpose: Ollama's honest probe verdict (mechanical-only) must NOT

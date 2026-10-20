@@ -29,9 +29,9 @@ def test_every_row_carries_url_model_engine_together():
     nim = next(s for s in specs if s["name"] == "nvidia-nim")
     assert nim["engine"] == "cloud"
     assert nim["base_url"] == "https://integrate.api.nvidia.com/v1"
-    assert nim["model"] == "stepfun-ai/step-5-preview"
+    assert nim["model"] == "nvidia/nemotron-3.5-super-vl-120b-a12b"
     # declared revision travels in the row (the verified rule's pin)
-    assert nim["declared"]["weights_revision"] == "stepfun-ai/step-5-preview"
+    assert nim["declared"]["weights_revision"] == "nvidia/nemotron-3.5-super-vl-120b-a12b"
     # D-T3: the shell's used-vs-remaining meter + auto-/compact read these
     assert nim["context_window"] == 128000
     assert nim["safe_fill"] == 0.8

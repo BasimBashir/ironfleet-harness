@@ -63,13 +63,14 @@ providers:
   # Ollama's mechanical-only verdict may not.
   - name: nvidia-nim
     base_url: https://integrate.api.nvidia.com/v1
-    model: stepfun-ai/step-5-preview
+    model: nvidia/nemotron-3.5-super-vl-120b-a12b
     engine: cloud
     kind: chat
     tier: cloud
     # NIM reports no weights revision of its own; the declared value IS the pin
     # (provenance.revision_verified + S7h's carry-forward at dispatch).
-    weights_revision: stepfun-ai/step-5-preview
+    # User directive 2026-10-20: nemotron-3.5-super-vl is THE NIM cloud model.
+    weights_revision: nvidia/nemotron-3.5-super-vl-120b-a12b
     # D-T3 (2026-10-19): the user-declared context window for the R3 shell's
     # used-vs-remaining display and auto-/compact. SET THIS when you swap models —
     # the number the provider documents for the model you put in `model:` above.
@@ -88,11 +89,15 @@ providers:
   # from nvidia-nim's (one-time: see research/R3-TUI-RUNBOOK.md section 9).
   - name: nvidia-nim-tool
     base_url: https://integrate.api.nvidia.com/v1
-    model: moonshotai/kimi-k2-in-0909
+    model: nvidia/nemotron-3.5-super-vl-120b-a12b
     engine: cloud
     kind: chat
     tier: cloud
-    weights_revision: moonshotai/kimi-k2-in-0909
+    # Same model as nvidia-nim (user directive 2026-10-20: "everywhere") — the
+    # toolpath/research disjointness still holds because it is asserted by ROW
+    # NAME, but the two rows now share one model; the injection proof and the
+    # parity leg therefore ride the same weights.
+    weights_revision: nvidia/nemotron-3.5-super-vl-120b-a12b
     # SET THIS to the catalog value for whatever model you put in `model:` above —
     # the shell's meter and auto-/compact read it (D-T3).
     context_window: 128000

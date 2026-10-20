@@ -281,10 +281,14 @@ def test_probe_ollama_registers_chat_and_embedding_providers(monkeypatch):
     assert ("ollama-embed", "bge-m3:567m", "ollama", True) in calls
     assert ("ollama-local", "thomson1-chat:latest", "ollama", True) in calls
     assert ("qwen-local", "qwen3.8:27b", "ollama", True) in calls
-    # the cloud row carries url + model + declared revision as one bundle (the
-    # "url changes with the provider" coupling) — asserted as one call, not drift-prone parts
-    nim = [c for c in calls if c[0] == "nvidia-nim"]
-    assert len(nim) == 1 and nim[0][1] == "stepfun-ai/step-5-preview"
+    # the cloud rows carry url + model + declared revision as one bundle (the
+    # "url changes with the provider" coupling) — asserted as calls, not drift-prone parts.
+    # R3 2026-10-20: BOTH NIM rows ride nemotron-3.5-super-vl (user directive:
+    # one NIM cloud model everywhere; the rows stay separate for toolpath/research
+    # candidate disjointness).
+    nim = {name: tup[1] for tup in calls for name in [tup[0]] if name.startswith("nvidia-nim")}
+    assert nim.get("nvidia-nim") == "nvidia/nemotron-3.5-super-vl-120b-a12b"
+    assert nim.get("nvidia-nim-tool") == "nvidia/nemotron-3.5-super-vl-120b-a12b"
 
 def test_build_gate_wraps_the_embedding_transport_too(tmp_path, monkeypatch):
     # Verified live 2026-10-01: /v1/embeddings returns FLAT usage, so _scalar_usage is a
