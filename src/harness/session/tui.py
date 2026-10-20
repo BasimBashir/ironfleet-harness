@@ -121,7 +121,7 @@ class IronFleetApp(App):
 
     def __init__(self, store: SessionStore, session_id: str | None = None,
                  mode: str = "agent-os", runner: object | None = None,
-                 runner_factory=None) -> None:
+                 runner_factory=None, trace=None, provider_name: str = "") -> None:
         super().__init__()
         if mode not in MODES:
             raise ValueError(f"unknown mode: {mode!r} (expected one of {MODES})")
@@ -132,7 +132,10 @@ class IronFleetApp(App):
         # D-T2: cycling the mode REBUILDS the runner (the active mode is not a
         # label — the next task must execute under the newly selected mode).
         self._runner_factory = runner_factory
-        # D-T3: the meter's live numbers, refreshed from trace.db by the timer.
+        # D-T3: the meter's live numbers, refreshed from trace.db by the timer
+        # (F2: the TRACE carries the real token counts, never the event stream).
+        self.trace = trace
+        self.provider_name = provider_name
         self.tokens_used = 0
         self.context_window = 0
 
@@ -202,8 +205,14 @@ class IronFleetApp(App):
         return text
 
     def _tick(self) -> None:
-        """The poll: status bar + jobs pane, on one timer. Task 10 adds the trace
-        read that fills the meter; Task 12 adds guard/doc reads to this hook."""
+        """The poll: meter, status bar, jobs pane — one timer. F2: the meter's
+        numbers come from trace.db by session, aggregated (F7); Task 12 adds
+        guard/doc reads to this hook."""
+        if self.trace is not None and self.session_id:
+            from harness.session.tokens import usage_for_session, window_for
+            usage = usage_for_session(self.trace, self.session_id)
+            self.tokens_used = usage["in"] + usage["out"]
+            self.context_window = window_for(self.provider_name)[0]
         self.refresh_status()
         self.refresh_view()
 
@@ -222,7 +231,41 @@ class IronFleetApp(App):
         elif text.startswith("/mode "):
             self._apply_mode_command(text.split(maxsplit=1)[1])
         else:
-            self._echo(text)   # the factory wiring lands with Task 7
+            # A task for the factory — auto-/compact fires FIRST if the meter is
+            # past safe_fill (Claude-Code behaviour, visible line), then the
+            # runner's plan executes under the CURRENT mode.
+            self._echo(f"> {text}")
+            self.run_worker(self._dispatch_task(text), exclusive=False)
+
+    async def _dispatch_task(self, text: str) -> None:
+        from harness.session.tokens import maybe_compact, window_for
+        driver = getattr(self.runner, "driver", None)
+        if driver is None or not self.session_id:
+            self._echo("(no session to run this in — /new --matter <ref> first)")
+            return
+        try:
+            cp = await maybe_compact(driver, self.session_id,
+                                     used=self.tokens_used,
+                                     window=self.context_window,
+                                     safe_fill=window_for(self.provider_name)[1])
+            if cp is not None:
+                self._echo("auto-compacting…")
+            matter_ref = driver.resume(self.session_id)["matter_ref"]
+            rows = await self.runner.run_task(self.session_id, matter_ref, text)
+            self._echo(f"factory: {len(rows)} stage(s) done")
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("dispatch_task", exc, root=self.store.root,
+                       session=self.session_id)
+            self._echo(f"task failed: {exc}")
+
+    def _echo(self, text: str) -> None:
+        try:
+            pane = self.query_one("#chat", Static)
+            # render() is the value accessor in Textual 8.x (there is no
+            # `.renderable` attribute on Static — the smoke proved it).
+            pane.update((pane.render() or "") + f"\n> {text}")
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("echo", exc, root=getattr(self.store, "root", None))
 
     def _echo(self, text: str) -> None:
         try:

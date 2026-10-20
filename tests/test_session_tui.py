@@ -151,3 +151,38 @@ def test_refresh_view_with_no_session_is_empty(tmp_path):
     from harness.session.store import SessionStore
     app = IronFleetApp(SessionStore(tmp_path))
     assert "no jobs" in app.refresh_view()
+
+
+# -- Task 11: the meter fills from live trace rows on the poll -------------------
+
+def _trace_fixture(tmp_path, session_id):
+    from harness.trace import DispatchRecord, TraceStore
+    trace = TraceStore(tmp_path / "trace.db")
+    rec = lambda agent, i, o: DispatchRecord(          # noqa: E731 — fixture shape
+        matter_ref="m1", task_class="extraction", classification="LOCAL_PREFERRED",
+        provider="nvidia-nim", model="step-5", tokens_in=i, tokens_out=o,
+        agent=agent, session_id=session_id)
+    trace.append(rec("hunter", 1000, 500))
+    trace.append(rec("clerk", 250, 100))
+    return trace
+
+
+def test_tick_fills_the_meter_from_the_trace(tmp_path):
+    """The poll reads trace.db by session (F2: never the event stream) and the
+    window from the provider row — the status bar shows used-vs-remaining."""
+    from harness.session.store import SessionStore
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    trace = _trace_fixture(tmp_path, sid)
+    app = IronFleetApp(store, session_id=sid, trace=trace, provider_name="nvidia-nim")
+    app._tick()
+    assert app.tokens_used == 1000 + 500 + 250 + 100
+    assert app.context_window == 128_000
+    assert "1,850" in app.render_status_text() and "128,000" in app.render_status_text()
+
+
+def test_tick_without_trace_or_session_stays_at_zero(tmp_path):
+    from harness.session.store import SessionStore
+    app = IronFleetApp(SessionStore(tmp_path))
+    app._tick()
+    assert app.tokens_used == 0 and app.context_window == 0

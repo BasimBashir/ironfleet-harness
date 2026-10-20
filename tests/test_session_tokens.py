@@ -85,3 +85,34 @@ def test_compact_dispatches_through_the_summarization_alias():
     alias would 403 at dispatch, but only live; the constant is the lock."""
     assert COMPACT_MODEL == "gate-local/gate/summarization"
     assert COMPACT_MARKER == "/compact"
+
+
+# -- maybe_compact: the shell's pre-dispatch gate (Task 11) ----------------------
+
+class _StubDriver:
+    """Records whether the real compaction ran; the injectable seam the plan
+    names — the shell never compacts directly, it asks this helper."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+
+def test_maybe_compact_fires_only_past_the_fill(monkeypatch):
+    import asyncio
+    import harness.session.tokens as tokens
+
+    async def fake_compact(driver, session_id, note=""):
+        driver.calls.append(session_id)
+        return "checkpoint"
+
+    monkeypatch.setattr(tokens, "compact_session", fake_compact)
+    driver = _StubDriver()
+    out = asyncio.run(tokens.maybe_compact(driver, "ses-1", used=102_400,
+                                           window=128_000, safe_fill=0.8))
+    assert out == "checkpoint" and driver.calls == ["ses-1"]
+    out = asyncio.run(tokens.maybe_compact(driver, "ses-1", used=1_000,
+                                           window=128_000, safe_fill=0.8))
+    assert out is None and driver.calls == ["ses-1"]      # not called again
+    out = asyncio.run(tokens.maybe_compact(driver, "ses-1", used=999_999,
+                                           window=0, safe_fill=0.8))
+    assert out is None                                    # no window -> never

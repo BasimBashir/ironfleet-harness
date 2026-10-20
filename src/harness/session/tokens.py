@@ -70,6 +70,17 @@ def build_checkpoint_row(*, session_id: str, matter_ref: str, summary: str,
                    output_summary=summary, docs_touched=[], trace_refs=[])
 
 
+async def maybe_compact(driver, session_id: str, *, used: int, window: int,
+                        safe_fill: float = DEFAULT_SAFE_FILL, note: str = ""):
+    """The shell's pre-dispatch gate (Task 11): fires compact_session ONLY when
+    the projected footprint has reached safe_fill — Claude-Code's auto-/compact,
+    at the model's measured threshold. The driver is the injectable seam, so the
+    trigger is testable without a gate."""
+    if not should_compact(used, window, safe_fill):
+        return None
+    return await compact_session(driver, session_id, note=note)
+
+
 async def compact_session(driver, session_id: str, note: str = ""):
     """A model-summarized checkpoint, written through the gate (never by the
     shell's own summarization — every model call rides the proven path).
