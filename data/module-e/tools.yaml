@@ -180,3 +180,22 @@ tools:
     status: deferred
     source: skills/pagination-index-mapper/scripts/pagination_index_mapper.py
     reason: "two scripts in the dir — check_bounding_boxes rides the batch"
+
+  - name: spawn_agent
+    description: "Start another IronFleet agent on one prompt, in that agent's own workspace
+                  of this session, and return its final reply — the factory's delegation seam
+                  (D-T2 agent-os, P6-proven mechanics)"
+    entry: harness.module_e.spawn_tool:spawn_agent
+    status: ported
+    source: "R3 (new; spec 17 s5.7 + plan Task 8)"
+    parameters:
+      type: object
+      required: [agent, prompt]
+      properties:
+        agent:
+          type: string
+          description: "Target agent name, colon-free (an S7i persona primary, e.g. hunter;
+                        the drivable <name>.md / <name>-memory.md file must exist in the mount)"
+        prompt:
+          type: string
+          description: "The full instruction for the child agent's single turn"

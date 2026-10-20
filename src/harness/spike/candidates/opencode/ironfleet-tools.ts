@@ -20,6 +20,7 @@
 import { spawnSync } from "node:child_process"
 import { readFileSync, writeFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
+import { z } from "zod"
 import { tool, type Plugin } from "@opencode-ai/plugin"
 
 const WS = "__SPIKE_WS__"
@@ -31,8 +32,24 @@ const MANIFEST = "__MANIFEST__"
 
 // Rendered from ported_tools(load_manifest(tools.yaml)) by sync_mount — never hand-typed. The
 // manifest is the single source of truth for what is callable, so the shim cannot advertise a
-// tool the manifest does not declare (S7c spec §3.5).
-const TOOLS: { name: string; description: string }[] = __TOOLS__
+// tool the manifest does not declare (S7c spec §3.5). `parameters` is the row's optional JSON
+// Schema (F3): null keeps the proven passthrough, a schema renders a real property list.
+const TOOLS: { name: string; description: string; parameters: Record<string, unknown> | null }[] = __TOOLS__
+
+// F3 (spec 17 §5.7): derive the model-facing arg shape from the manifest schema, so a model can
+// discover required fields (P5: NIM called a schema-less tool with empty input and failed twice).
+// Bare "zod" resolution inside opencode's plugin runtime is proven by the recorded live smoke —
+// if it ever fails, the plugin fails LOUD at load, never silently.
+function zodShapeOf(p: Record<string, unknown> | null): Record<string, z.ZodType> {
+  const props = (p?.properties ?? {}) as Record<string, { type?: string; description?: string }>
+  const out: Record<string, z.ZodType> = {}
+  for (const [k, v] of Object.entries(props)) {
+    let s: z.ZodType = v.type === "number" ? z.number() : v.type === "boolean" ? z.boolean() : z.string()
+    if (v.description) s = s.describe(v.description)
+    out[k] = s
+  }
+  return out
+}
 
 // SERIALIZED dispatch, same discipline as the guard: hooks and tool calls interleave during task
 // delegation, and concurrent Python spawns were observed failing (status=null) where serialized
@@ -62,16 +79,16 @@ function dispatchOnce(name: string, args: unknown): string {
 // Every export must be a plugin function — opencode's loader treats each module export as one and
 // throws on a non-function export, so TOOLS stays module-private.
 export const IronFleetTools: Plugin = async () => ({
-  tool: Object.fromEntries(TOOLS.map(({ name, description }) => [
+  tool: Object.fromEntries(TOOLS.map(({ name, description, parameters }) => [
     name,
     tool({
       description,
-      // PASSTHROUGH args — the Python side owns the schema. `tool()` takes a z.ZodRawShape
-      // (verified against opencode 1.18.25's packages/plugin/src/tool.ts), so `args` must be a
-      // field map and a bare `z.record(z.unknown())` is not assignable; an EMPTY shape validates
-      // any JSON object and puts no property list in the model-facing schema, which is the
-      // per-tool passthrough this mount means.
-      args: {},
+      // PASSTHROUGH args unless the manifest row declares a schema — the Python side owns the
+      // contract either way. `tool()` takes a z.ZodRawShape (verified against opencode 1.18.25's
+      // packages/plugin/src/tool.ts), so `args` must be a field map: a row WITHOUT `parameters`
+      // keeps the EMPTY shape (validates any JSON object, no property list in the model-facing
+      // schema — the proven passthrough, byte-for-byte); a row WITH one renders its properties.
+      args: parameters ? zodShapeOf(parameters) : {},
       async execute(args) {
         const work = dispatchChain.then(() => dispatchOnce(name, args))
         dispatchChain = work.then(() => undefined, () => undefined)   // never break the chain

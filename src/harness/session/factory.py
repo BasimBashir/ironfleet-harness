@@ -33,8 +33,9 @@ from harness.session.store import SessionStore, TurnRow
 # The stage agent file is a PRIMARY (zero-tool) twin's sibling: mode primary, the
 # tools we need true and every other false (tools: is an override, so an unlisted
 # name keeps its default ENABLED state — the same rule _frontmatter documents).
+# spawn_agent rides here so an agent-os MANAGER stage file can enable it (F3).
 _STAGE_TOOLS = ("read", "glob", "grep", "task", "todowrite", "skill",
-                "bash", "edit", "write", "webfetch")
+                "bash", "edit", "write", "webfetch", "spawn_agent")
 
 
 @dataclass

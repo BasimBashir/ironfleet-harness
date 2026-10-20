@@ -7,7 +7,7 @@ DATA = Path(__file__).resolve().parent.parent / "data" / "module-e"
 
 def test_manifest_loads_every_declared_tool():
     m = load_manifest(DATA / "tools.yaml")
-    assert len(m) == 25                      # 20 deferred + 5 ported (R1: corpus_search)
+    assert len(m) == 26                      # 20 deferred + 6 ported (R1: corpus_search; R3: spawn_agent)
 
 def test_the_two_pattern_proofs_and_two_seam_tools_are_ported():
     p = ported_tools(load_manifest(DATA / "tools.yaml"))
@@ -29,8 +29,9 @@ def test_names_are_unique_and_prefixed():
     names = list(load_manifest(DATA / "tools.yaml"))
     assert len(names) == len(set(names))
     # Custom tools are namespaced so they cannot shadow or be shadowed by builtins.
+    # spawn_agent is exempt like route/refine_output: a harness verb, not a kernel port.
     for n in names:
-        assert n.startswith("ironfleet_") or n in {"route", "refine_output"}
+        assert n.startswith("ironfleet_") or n in {"route", "refine_output", "spawn_agent"}
 
 def test_kernel_aliases_live_on_skill_rows_not_their_own_rows():
     # The 6 kernels are 13-line re-export shims into 6 of these skills; a kernel that became its

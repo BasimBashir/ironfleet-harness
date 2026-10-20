@@ -149,7 +149,8 @@ def test_the_tools_map_is_a_full_override_not_a_whitelist(tmp_path):
     assert rows(auditor.split("---\n", 2)[1]) == ["ironfleet_corpus_search: false",
                                                   "ironfleet_statutory_demand: true",
                                                   "ironfleet_without_prejudice: false",
-                                                  "refine_output: false", "route: false"]
+                                                  "refine_output: false", "route: false",
+                                                  "spawn_agent: false"]
 
 
 def test_no_agent_file_emits_a_bare_tools_key(tmp_path):

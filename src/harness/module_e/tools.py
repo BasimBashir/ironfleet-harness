@@ -13,6 +13,9 @@ class ToolEntry:
     source: str
     reason: str = ""
     aliases: list[str] = None
+    # F3 (spec 17 §5.7): optional JSON Schema the shim renders into the model-facing
+    # tool definition, so a model can discover the fields. None = the proven passthrough.
+    parameters: dict | None = None
 
 def load_manifest(path: Path) -> dict[str, ToolEntry]:
     doc = yaml.safe_load(Path(path).read_text(encoding="utf-8"))

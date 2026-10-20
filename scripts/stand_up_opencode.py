@@ -151,7 +151,8 @@ def render_tools_plugin(template: str, ws: Path, python: str, manifest: Path,
     The TOOLS payload is a JSON array literal, not a bare comma list — the same lesson as the
     guard's annotation whitelist (an unbracketed list renders something that matches nothing) —
     and json.dumps keeps descriptions containing quotes/backslashes valid TypeScript."""
-    tools = json.dumps([{"name": e.name, "description": e.description}
+    tools = json.dumps([{"name": e.name, "description": e.description,
+                         "parameters": e.parameters}
                         for e in sorted(entries, key=lambda e: e.name)], ensure_ascii=False)
     return (template.replace("__SPIKE_WS__", str(ws).replace("\\", "/"))
                     .replace("__PYTHON__", str(python).replace("\\", "/"))
