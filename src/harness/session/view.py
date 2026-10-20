@@ -39,10 +39,12 @@ def agent_status(trace, session_id: str, base: Path | None = None,
         row = per.setdefault(r.agent or "unknown", {
             "agent": r.agent or "unknown", "provider": r.provider,
             "model": r.model, "verified": r.verified,
-            "tokens_in": 0, "tokens_out": 0, "guard_flags": 0,
+            "tokens_in": 0, "tokens_out": 0, "tokens_reasoning": 0,
+            "guard_flags": 0,
             "last_status": ""})
         row["tokens_in"] += r.tokens_in
         row["tokens_out"] += r.tokens_out
+        row["tokens_reasoning"] += getattr(r, "tokens_reasoning", 0)
         row["last_status"] = r.status
         row["provider"], row["model"], row["verified"] = r.provider, r.model, r.verified
     if base is not None:

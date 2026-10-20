@@ -116,14 +116,19 @@ class SessionDriver:
         event, not a crash — the row lands with whatever was produced (possibly
         nothing) and the cause goes to the error log, because a shell that dies on
         a dead spawn takes the whole session with it."""
+        from asyncio import to_thread
         from datetime import datetime, timezone
 
         ws = self.workspace_for(session_id, agent, matter_ref, classification)
         env = spawn_env(ws)
         before = _trace_ids(self.trace_db)
         try:
-            code, events, sid = spawn_session(ws, agent, prompt, env=env, model=model,
-                                              continue_session=continue_session)
+            # to_thread: the spawn is a BLOCKING subprocess ride (watchdog, tree-kill)
+            # — awaited inline it froze the TUI's event loop for the whole turn
+            # (the 2026-10-20 live session's "shell dead while a stage runs").
+            code, events, sid = await to_thread(
+                spawn_session, ws, agent, prompt, env=env, model=model,
+                continue_session=continue_session)
         except Exception as exc:                                  # noqa: BLE001
             # The spawn itself blew up (binary missing, mount unwritable, ...):
             # record where/why and land an honest row so the turn is not lost.
@@ -183,6 +188,7 @@ def build_turn_row(*, session_id: str, matter_ref: str, agent: str,
     documented rule)."""
     tools: list[str] = []
     final_text = ""
+    thinking_parts: list[str] = []
     for ev in events:
         part = ev.get("part") if isinstance(ev, dict) else None
         if not isinstance(part, dict):
@@ -194,9 +200,15 @@ def build_turn_row(*, session_id: str, matter_ref: str, agent: str,
                 tools.append(name)
         elif kind == "text" and isinstance(part.get("text"), str):
             final_text = part["text"]
+        elif kind == "reasoning" and isinstance(part.get("text"), str):
+            thinking_parts.append(part["text"])
+    # The Thinking pane's raw material — capped so a reasoning-heavy turn cannot
+    # bloat the JSONL (the stream itself is the full record while it lives).
+    thinking = "\n".join(thinking_parts)[:8000]
     return TurnRow(ts=ts, session_id=session_id, matter_ref=matter_ref, display="",
                    agent=agent, tools_used=tools,
-                   output_summary=final_text[:2000], docs_touched=[], trace_refs=trace_refs)
+                   output_summary=final_text[:2000], docs_touched=[], trace_refs=trace_refs,
+                   thinking=thinking)
 
 
 def resolve_resume_target(store: SessionStore, target: str) -> str:

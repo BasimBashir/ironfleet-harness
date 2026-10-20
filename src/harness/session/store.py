@@ -35,6 +35,9 @@ class TurnRow:
     output_summary: str = ""
     docs_touched: list[str] = field(default_factory=list)
     trace_refs: list[int] = field(default_factory=list)
+    # R3 refine: the turn's reasoning stream (opencode "reasoning" parts), capped —
+    # the Thinking pane reads it. Additive: older JSONL rows read "".
+    thinking: str = ""
 
 
 def _require_colon_free(*values: str, what: str = "id") -> None:

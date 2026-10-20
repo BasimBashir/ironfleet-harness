@@ -202,6 +202,11 @@ class EgressGate:
             # those as ints and drop the nested breakdown nothing reads.
             usage = {k: int(v) for k, v in (result.get("usage") or {}).items()
                      if isinstance(v, (int, float))}
+            # R3 refine: reasoning tokens ride the nested details dict the flatten above
+            # drops — read them before it is gone (0 when the upstream reports none).
+            reasoning = int((((result.get("usage") or {})
+                              .get("completion_tokens_details") or {})
+                             .get("reasoning_tokens")) or 0)
             self.trace.append(DispatchRecord(
                 matter_ref=request.matter_ref, task_class=request.task_class,
                 classification=request.classification, provider=cfg.name,
@@ -210,6 +215,7 @@ class EgressGate:
                 backend=prov.backend,
                 verified=1 if prov.verified else 0,
                 tokens_in=usage.get("prompt_tokens", 0), tokens_out=usage.get("completion_tokens", 0),
+                tokens_reasoning=reasoning,
                 latency_ms=int((time.monotonic()-t0)*1000)))
             msg = result["choices"][0]["message"]
             return LLMResponse(content=msg.get("content"),

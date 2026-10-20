@@ -89,19 +89,25 @@ def render_jobs(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def render_agents(rows: list[dict]) -> str:
-    """The global view's agent table: identity, the HONEST serving tier (whatever
-    the trace recorded — cloud rows read as cloud), tokens, guard activity, the
-    last dispatch's status. One line per agent (the DataTable upgrade is a UI
-    nicety; this text is the P5 contract)."""
+def render_agents(rows: list[dict], jobs: list[dict] | None = None) -> str:
+    """The global view's agent table: LIVE status (the jobs ledger's newest row
+    per agent), the honest serving tier (whatever the trace recorded — cloud rows
+    read as cloud), the token spend in/out plus THINKING (the trace's reasoning
+    column), guard activity, last dispatch status. One line per agent."""
     if not rows:
         return "no agents yet"
+    status_by_agent: dict[str, str] = {}
+    for j in (jobs or []):
+        status_by_agent.setdefault(j["agent"], f"{j['status']} {j['stage']}")
     lines = []
     for r in rows:
         v = "verified" if r.get("verified") else "unverified"
-        lines.append(f"{r['agent']}: {r['provider']}/{r['model']} [{v}] "
-                     f"tok {r['tokens_in']}/{r['tokens_out']} "
-                     f"guard {r['guard_flags']} last {r['last_status']}")
+        st = status_by_agent.get(r["agent"], "idle")
+        think = r.get("tokens_reasoning") or 0
+        lines.append(f"[{st}] {r['agent']}: {r['provider']}/{r['model']} [{v}] "
+                     f"in {r['tokens_in']:,} out {r['tokens_out']:,}"
+                     + (f" think {think:,}" if think else "")
+                     + f" guard {r['guard_flags']} last {r['last_status']}")
     return "\n".join(lines)
 
 
@@ -122,7 +128,7 @@ class IronFleetApp(App):
     #view { height: 1fr; border: round $accent; }
     #docs { height: 1fr; border: round $success; }
     #status { dock: bottom; height: 1; background: $panel; color: $text; }
-    #prompt { dock: bottom; height: 3; }
+    #prompt { dock: bottom; height: 3; margin-bottom: 1; }
     """
 
     BINDINGS = [
@@ -133,6 +139,9 @@ class IronFleetApp(App):
         # binding must be a Binding instance with priority=True.
         Binding("shift+tab", "cycle_mode", "Cycle mode", priority=True),
         ("ctrl+q", "quit", "Quit"),
+        # Textual's mouse capture eats drag-selection; ctrl+o hands the whole chat
+        # pane to the Windows clipboard (SHIFT+drag selects a region natively).
+        ("ctrl+o", "copy_chat", "Copy chat"),
     ]
 
     def __init__(self, store: SessionStore, session_id: str | None = None,
@@ -165,13 +174,15 @@ class IronFleetApp(App):
         with Horizontal(id="main"):
             yield Static("", id="chat")
             # Textual 8.x: ContentTab(label, content_id) REFERENCES a content widget
-            # by id — it does not wrap one. The panes are declared as siblings and
-            # the tabs point at them.
+            # by id — declared BEFORE its pane, else the bare Statics auto-tab as
+            # "Tab 1/Tab 2" and the side pane shows four headers for two panes.
             with TabbedContent(id="side"):
+                yield ContentTab("Jobs", "view")
                 yield Static("", id="view")
-                yield Static("", id="docs")
-                yield ContentTab("Agents", "view")
                 yield ContentTab("Docs", "docs")
+                yield Static("", id="docs")
+                yield ContentTab("Thinking", "mind")
+                yield Static("", id="mind")
         yield Static(self.render_status_text(), id="status")
         yield Input(placeholder="prompt an agent, or /ingest /resume /compact /mode",
                     id="prompt")
@@ -229,7 +240,7 @@ class IronFleetApp(App):
             from harness.session.view import agent_status
             agents = agent_status(self.trace, self.session_id, self.base,
                                   refs=session_trace_refs(self.store, self.session_id))
-            text = f"{text}\n---\n{render_agents(agents)}"
+            text = f"{text}\n---\n{render_agents(agents, rows)}"
         if self.is_running:               # headless callers just take the text
             try:
                 self.query_one("#view", Static).update(text)
@@ -269,6 +280,28 @@ class IronFleetApp(App):
             self.query_one("#docs", Static).update(self._docs_text())
         except Exception as exc:                              # noqa: BLE001
             _tui_error("refresh_docs", exc)
+        try:
+            self.query_one("#mind", Static).update(self._thinking_text())
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("refresh_thinking", exc)
+
+    def _thinking_text(self) -> str:
+        """The Thinking pane: each turn's captured reasoning stream (opencode
+        'reasoning' parts, capped per turn), newest last — the expandable view of
+        WHAT the agents were thinking while they worked. Empty until a model that
+        reasons actually runs."""
+        if not self.session_id:
+            return "(no session yet)"
+        rows = [r for r in self.store.turns(self.session_id)
+                if (getattr(r, "thinking", "") or "").strip()]
+        if not rows:
+            return "(no thinking captured yet — reasoning parts land here per turn)"
+        lines: list[str] = []
+        for r in rows[-8:]:
+            head = (r.output_summary or "").replace("\n", " ")[:60]
+            lines.append(f"―― {r.agent} · {r.ts[11:19]} · then said: {head}")
+            lines.append(r.thinking.strip()[-2000:])
+        return "\n".join(lines)
 
     def on_mount(self) -> None:
         self.set_interval(2.0, self._tick)
@@ -280,6 +313,10 @@ class IronFleetApp(App):
         text = (event.value or "").strip()
         if not text:
             return
+        # Claude-Code behaviour: the line LEAVES the box and lands in the chat as
+        # the record of what the user asked, in order, whatever it was.
+        event.input.value = ""
+        self._echo(f"> {text}")
         if text == "/mode":
             self.action_cycle_mode()
         elif text.startswith("/mode "):
@@ -296,8 +333,23 @@ class IronFleetApp(App):
             # A task for the factory — auto-/compact fires FIRST if the meter is
             # past safe_fill (Claude-Code behaviour, visible line), then the
             # runner's plan executes under the CURRENT mode.
-            self._echo(f"> {text}")
             self.run_worker(self._dispatch_task(text), exclusive=False)
+
+    def action_copy_chat(self) -> None:
+        """ctrl+o: the whole chat pane to the Windows clipboard (clip.exe, UTF-16
+        with a BOM so unicode survives) — Textual's mouse capture eats drag-selection."""
+        import subprocess
+        try:
+            text = str(self.query_one("#chat", Static).render() or "")
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("copy_chat", exc, root=getattr(self.store, "root", None))
+            return
+        try:
+            subprocess.run("clip", input=b"\xff\xfe" + text.encode("utf-16-le"),
+                           check=False)
+            self._echo("(chat copied to the clipboard)")
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("copy_chat", exc, root=getattr(self.store, "root", None))
 
     async def _doctor(self) -> None:
         """/doctor: the honest state, one screen. The provider rows show what the
@@ -331,24 +383,44 @@ class IronFleetApp(App):
             autoupdate=autoupdate, providers=provs)))
 
     async def _ingest(self, source: str) -> None:
-        """/ingest <path>: corpus_ingest into THIS session's matter, in a worker
-        (sha256 resume, batches of 64, LOCAL_ONLY embeddings — the substrate)."""
+        """/ingest <path>: corpus_ingest into THIS session's matter, in a thread
+        (sha256 resume, batches of 64, LOCAL_ONLY embeddings — the substrate), each
+        doc's verdict echoed as it lands."""
         import asyncio
+        import json as _json
         from pathlib import Path as _Path
-        from harness.session.commands import ingest_argv
         driver = getattr(self.runner, "driver", None)
         if driver is None or not self.session_id:
             self._echo("(no session — /new --matter <ref> first)")
             return
         matter_ref = driver.resume(self.session_id)["matter_ref"]
-        report = self.store.root / "ingest-report.json"
-        argv = ingest_argv(matter_ref, [_Path(source)], report)
         self._echo(f"ingesting {source} into {matter_ref}…")
-        from scripts import corpus_ingest as ci
-        import sys as _sys
-        _sys.argv = ["corpus_ingest", *argv]
-        await asyncio.to_thread(ci.main)
-        self._echo(f"ingest done — report {report}")
+
+        def _run() -> dict:
+            from scripts.corpus_ingest import (build_live_stack, ingest_dir,
+                                               make_embed_fn)
+            gate, store = build_live_stack("corpus_ingest_trace.sqlite3",
+                                           matter_ref)
+            return ingest_dir(matter_ref, [_Path(source)], store,
+                              make_embed_fn(gate, matter_ref))
+
+        try:
+            report = await asyncio.to_thread(_run)
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("ingest", exc, root=self.store.root)
+            self._echo(f"/ingest failed: {exc}")
+            return
+        for name in report["ingested"]:
+            self._echo(f"  ingested: {name}")
+        for s in report["skipped"]:
+            self._echo(f"  SKIPPED: {s}")
+        for s in report.get("skipped_by_resume", []):
+            self._echo(f"  already in corpus: {s}")
+        report_path = self.store.root / "ingest-report.json"
+        report_path.write_text(_json.dumps(report, indent=2, ensure_ascii=False),
+                               encoding="utf-8")
+        self._echo(f"ingest done — {report['chunks']} chunks for {matter_ref}"
+                   f" (report {report_path})")
 
     def _persona_new(self, args: str) -> None:
         """/persona new name|description|tools|prompt — the old agent-authoring
@@ -396,7 +468,12 @@ class IronFleetApp(App):
             if cp is not None:
                 self._echo("auto-compacting…")
             matter_ref = driver.resume(self.session_id)["matter_ref"]
-            rows = await self.runner.run_task(self.session_id, matter_ref, text)
+            # The chaired shell runs the FULL crew at the corpus's best serving
+            # tier: HIGH complexity widens the route chain, CLOUD_PERMITTED lets
+            # the routing table send analysis classes to the full-tier provider.
+            rows = await self.runner.run_task(self.session_id, matter_ref, text,
+                                              complexity="HIGH",
+                                              classification="CLOUD_PERMITTED")
             self._echo(f"factory: {len(rows)} stage(s) done")
         except Exception as exc:                              # noqa: BLE001
             _tui_error("dispatch_task", exc, root=self.store.root,

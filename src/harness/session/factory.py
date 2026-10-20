@@ -35,7 +35,8 @@ from harness.session.store import SessionStore, TurnRow
 # name keeps its default ENABLED state — the same rule _frontmatter documents).
 # spawn_agent rides here so an agent-os MANAGER stage file can enable it (F3).
 _STAGE_TOOLS = ("read", "glob", "grep", "task", "todowrite", "skill",
-                "bash", "edit", "write", "webfetch", "spawn_agent")
+                "bash", "edit", "write", "webfetch", "spawn_agent",
+                "ironfleet_corpus_search")
 
 
 @dataclass
@@ -94,7 +95,11 @@ def stage_agent_md(stage: str, instruction: str, tools: dict[str, bool] | None =
     the standing instruction, and the tools map is an override — the stage's tool
     set is written true/false for every name so an unlisted tool cannot stay
     enabled by default. Never the canary body (it answers "unused")."""
-    wanted = tools or {"read": True, "write": True}
+    wanted = tools or {"read": True, "write": True,
+                       # the ingested corpus is the stage's evidence base — a stage
+                       # without it "found no case documents" while the corpus sat
+                       # full (the 2026-10-20 live session)
+                       "ironfleet_corpus_search": True}
     lines = {t: (t in wanted and bool(wanted[t])) for t in _STAGE_TOOLS}
     tool_yaml = "\n".join(f"  {t}: {str(v).lower()}" for t, v in lines.items())
     return ("---\n"
@@ -181,7 +186,8 @@ class FactoryRunner:
 
     async def run_task(self, session_id: str, matter_ref: str, task: str,
                        plan_text: str = "", intent: str = "",
-                       complexity: str = "LOW") -> list[TurnRow]:
+                       complexity: str = "LOW",
+                       classification: str = "LOCAL_PREFERRED") -> list[TurnRow]:
         """Resolve the plan, then run its stages IN ORDER, each in its own
         workspace, handing the previous stage's summary forward in the prompt."""
         plan = self.plan(task, plan_text, intent=intent, complexity=complexity)
@@ -194,7 +200,8 @@ class FactoryRunner:
                                    f"{plan.source} plan")
             try:
                 row = await self._run_stage(session_id, matter_ref, task, stage,
-                                            prev_stage, prev_summary)
+                                            prev_stage, prev_summary,
+                                            classification=classification)
             except Exception as exc:                              # noqa: BLE001
                 # A dead stage is recorded and the run CONTINUES: one failed stage
                 # must not take the session's remaining stages with it.
@@ -213,11 +220,12 @@ class FactoryRunner:
         return rows
 
     async def _run_stage(self, session_id: str, matter_ref: str, task: str, stage: dict,
-                         prev_stage: str, prev_summary: str) -> TurnRow:
+                         prev_stage: str, prev_summary: str,
+                         classification: str = "LOCAL_PREFERRED") -> TurnRow:
         """One stage: sync the workspace, write the stage agent file AFTER the
         sync (F5/P7), then one turn whose prompt carries the previous summary."""
         agent, instruction = stage["agent"], stage["instruction"]
-        ws = self.driver.workspace_for(session_id, agent, matter_ref)
+        ws = self.driver.workspace_for(session_id, agent, matter_ref, classification)
         (ws / ".opencode" / "agent").mkdir(parents=True, exist_ok=True)
         # P7's interjection rides an existing opencode session; a stage's first
         # turn opens one. The +1 keeps the two concerns from sharing one name.
@@ -227,7 +235,8 @@ class FactoryRunner:
         prompt = _stage_prompt(stage=stage["stage"], instruction=instruction, agent=agent,
                                index=1, total=1, task=task, previous_stage=prev_stage,
                                previous_summary=prev_summary)
-        row = await self.driver.run_turn(session_id, matter_ref, fname, prompt)
+        row = await self.driver.run_turn(session_id, matter_ref, fname, prompt,
+                                         classification=classification)
         # The row records WHO ran (the persona), not the generated stage-file stem
         # the spawn needed: the JSONL row and the acceptance checks read `agent`
         # by name, and "hunter-stage-gather" is an implementation detail.

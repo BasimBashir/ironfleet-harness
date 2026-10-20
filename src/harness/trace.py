@@ -27,6 +27,10 @@ class DispatchRecord(BaseModel):
     latency_ms: int = 0
     status: str = "ok"             # ok | error | refused
     error: str = ""
+    # R3 refine: the provider's reasoning-token count (completion_tokens_details
+    # .reasoning_tokens when the upstream reports it), 0 when it does not — the
+    # per-agent ledger's "think" column. Additive column, in-place migration.
+    tokens_reasoning: int = 0
 
 class TraceStore:
     def __init__(self, db_path: Path) -> None:
@@ -56,6 +60,8 @@ class TraceStore:
                 c.execute("ALTER TABLE dispatches ADD COLUMN agent TEXT NOT NULL DEFAULT ''")
             if "session_id" not in cols:
                 c.execute("ALTER TABLE dispatches ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
+            if "tokens_reasoning" not in cols:
+                c.execute("ALTER TABLE dispatches ADD COLUMN tokens_reasoning INTEGER NOT NULL DEFAULT 0")
             c.execute("CREATE INDEX IF NOT EXISTS idx_session ON dispatches(session_id)")
 
     def _c(self) -> sqlite3.Connection:
@@ -67,18 +73,19 @@ class TraceStore:
                 "INSERT INTO dispatches(ts,matter_ref,task_class,classification,provider,model,"
                 "weights_revision,engine,backend,verified,agent,session_id,"
                 "tokens_in,tokens_out,tokens_cache,"
-                "latency_ms,status,error)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                "latency_ms,status,error,tokens_reasoning)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
                 (datetime.now(timezone.utc).isoformat(), r.matter_ref, r.task_class, r.classification,
                  r.provider, r.model, r.weights_revision, r.engine, r.backend, r.verified,
                  r.agent, r.session_id,
                  r.tokens_in, r.tokens_out, r.tokens_cache,
-                 r.latency_ms, r.status, r.error))
+                 r.latency_ms, r.status, r.error, r.tokens_reasoning))
             return cur.fetchone()[0]
 
     _FIELDS = ("matter_ref", "task_class", "classification", "provider", "model",
                "weights_revision", "engine", "backend", "verified", "agent", "session_id",
-               "tokens_in", "tokens_out", "tokens_cache", "latency_ms", "status", "error")
+               "tokens_in", "tokens_out", "tokens_cache", "latency_ms", "status", "error",
+               "tokens_reasoning")
 
     def by_session(self, session_id: str) -> list[DispatchRecord]:
         """R3 (finding F1/F7): the session's dispatch rows — the D-T3 per-agent
