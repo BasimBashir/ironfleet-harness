@@ -58,12 +58,19 @@ class SessionStore:
             c.executescript("""
             CREATE TABLE IF NOT EXISTS sessions(
               session_id TEXT PRIMARY KEY, matter_ref TEXT, display TEXT,
-              turns INTEGER DEFAULT 0, started TEXT, updated TEXT);
+              turns INTEGER DEFAULT 0, started TEXT, updated TEXT,
+              opencode_session TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS jobs(
               id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, stage TEXT,
               agent TEXT, status TEXT, detail TEXT, ts TEXT);
             CREATE INDEX IF NOT EXISTS idx_jobs_session ON jobs(session_id);
             """)
+            # additive in-place migration (the S7d `backend` precedent): a store
+            # written before the column existed gains it on open; old rows read ''
+            cols = {r[1] for r in c.execute("PRAGMA table_info(sessions)").fetchall()}
+            if "opencode_session" not in cols:
+                c.execute("ALTER TABLE sessions ADD COLUMN opencode_session"
+                          " TEXT NOT NULL DEFAULT ''")
 
     def _c(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.index)
@@ -88,8 +95,17 @@ class SessionStore:
     def sessions(self) -> list[dict]:
         with self._c() as c:
             rows = c.execute("SELECT session_id, matter_ref, display, turns, started,"
-                             " updated FROM sessions ORDER BY started DESC").fetchall()
+                             " updated, opencode_session FROM sessions"
+                             " ORDER BY started DESC").fetchall()
         return [dict(r) for r in rows]
+
+    def set_opencode_session(self, session_id: str, opencode_session: str) -> None:
+        """The resume handle (F6): the opencode session id `--session <id>` needs
+        (P3 — `--continue`/`-c` are dead on 1.18.25). Written by the driver after
+        each spawn; the newest id wins."""
+        with self._c() as c:
+            c.execute("UPDATE sessions SET opencode_session = ? WHERE session_id = ?",
+                      (opencode_session, session_id))
 
     def last(self, matter_ref: str | None = None) -> str | None:
         rows = self.sessions()

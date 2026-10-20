@@ -79,3 +79,37 @@ def test_sessions_list_is_ordered_newest_first(tmp_path):
     a = s.new_session("m1")
     b = s.new_session("m1")
     assert [r["session_id"] for r in s.sessions()] == [b, a]
+
+
+# -- the opencode session id (F6: /resume drives --session <id>, P3-proven) ----
+
+def test_opencode_session_persists_for_resume(tmp_path):
+    """The spawn's opencode session id must survive the turn: /resume reads it
+    back to drive `--session <id>` (P3: --continue/-c are dead on 1.18.25)."""
+    s = SessionStore(tmp_path)
+    sid = s.new_session("m1")
+    assert next(r for r in s.sessions() if r["session_id"] == sid)["opencode_session"] == ""
+    s.set_opencode_session(sid, "oc-abc123")
+    assert next(r for r in s.sessions() if r["session_id"] == sid)["opencode_session"] == "oc-abc123"
+    # a later turn overwrites it — the newest opencode session is the resume handle
+    s.set_opencode_session(sid, "oc-next")
+    assert next(r for r in s.sessions() if r["session_id"] == sid)["opencode_session"] == "oc-next"
+
+
+def test_old_index_gains_the_column_in_place(tmp_path):
+    """A store written BEFORE the column existed migrates in place on open —
+    the S7d `backend` precedent (additive, by-name reads, old rows read '')."""
+    import sqlite3
+    (tmp_path / "sessions").mkdir(parents=True)
+    con = sqlite3.connect(str(tmp_path / "sessions" / "index.sqlite3"))
+    con.executescript(
+        "CREATE TABLE sessions(session_id TEXT PRIMARY KEY, matter_ref TEXT,"
+        " display TEXT, turns INTEGER DEFAULT 0, started TEXT, updated TEXT);")
+    con.execute("INSERT INTO sessions VALUES('ses-old', 'm1', '', 0, 't', 't')")
+    con.commit()
+    con.close()
+    s = SessionStore(tmp_path)                       # opening migrates
+    row = next(r for r in s.sessions() if r["session_id"] == "ses-old")
+    assert row["opencode_session"] == ""             # honest empty, never a crash
+    s.set_opencode_session("ses-old", "oc-late")     # and the migrated store accepts writes
+    assert next(r for r in s.sessions() if r["session_id"] == "ses-old")["opencode_session"] == "oc-late"

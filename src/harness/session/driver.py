@@ -148,7 +148,11 @@ class SessionDriver:
             record_error(exc, where="session.driver.run_turn.spawn", root=self.store.root,
                          context={"session_id": session_id, "agent": agent,
                                   "model": model, "workspace": str(ws)})
-            events, code = [], EXIT_NO_OUTPUT
+            events, code, sid = [], EXIT_NO_OUTPUT, ""
+        if sid:
+            # F6: the resume handle — /resume drives `--session <id>` (P3-proven),
+            # so the id the spawn opened must outlive the turn.
+            self.store.set_opencode_session(session_id, sid)
         after = _trace_ids(ws / "trace.db")
         row = build_turn_row(session_id=session_id, matter_ref=matter_ref, agent=agent,
                              events=events, trace_refs=sorted(after - before),
