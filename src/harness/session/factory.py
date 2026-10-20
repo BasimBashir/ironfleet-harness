@@ -105,7 +105,12 @@ def stage_agent_md(stage: str, instruction: str, tools: dict[str, bool] | None =
     return ("---\n"
             f"description: factory stage {stage}\n"
             "mode: primary\n"
-            "model: gate-local/gate/extraction\n"
+            # The stage's chat class: DRAFTING (the personas.yaml law — clerk IS
+            # drafting), not extraction. Extraction is mechanical, so ollama-local
+            # served every stage on this box and the crew ran on the 1k-output
+            # local model no matter the classification; drafting is non-mechanical,
+            # so the routing table promotes stages to the full-tier provider.
+            "model: gate-local/gate/drafting\n"
             "tools:\n"
             f"{tool_yaml}\n"
             "---\n"

@@ -80,3 +80,20 @@ providers:
     # mid-generation deaths on buffered POSTs, reasoning-token burn), so the
     # session uses the maximum of the window SAFELY. Default 0.8 until measured.
     safe_fill: 0.8
+
+  # The toolpath leg's cloud row. Deliberately a DIFFERENT model from nvidia-nim:
+  # S7j-W 1.2 disjointness — research (parity's leg) and toolpath (the injection
+  # class) must never share a candidate, and research needs nvidia-nim (step-5) for
+  # its cloud leg. Same NIM endpoint; the keychain key is the ROW NAME, so seed it
+  # from nvidia-nim's (one-time: see research/R3-TUI-RUNBOOK.md section 9).
+  - name: nvidia-nim-tool
+    base_url: https://integrate.api.nvidia.com/v1
+    model: moonshotai/kimi-k2-in-0909
+    engine: cloud
+    kind: chat
+    tier: cloud
+    weights_revision: moonshotai/kimi-k2-in-0909
+    # SET THIS to the catalog value for whatever model you put in `model:` above —
+    # the shell's meter and auto-/compact read it (D-T3).
+    context_window: 128000
+    safe_fill: 0.8

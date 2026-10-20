@@ -45,13 +45,14 @@ rules:
     local_preferred: [ollama-local, nvidia-nim]
     cloud_permitted: [nvidia-nim, ollama-local]
   - task_class: research
-    # R3: research is parity's leg and must NEVER share a candidate with the toolpath
-    # injection class (S7j-W §1.2) — hence no nvidia-nim in cloud_permitted. On a
-    # mechanical-only box research then honestly REFUSES unless the matter is cloud_
-    # permitted; the drafting/analysis legs (no disjointness duty) carry NIM.
+    # R3 2026-10-20: research keeps its cloud leg — nvidia-nim (step-5) — WITHOUT
+    # sharing a candidate with the toolpath injection class (S7j-W 1.2): toolpath
+    # moved to its own row (nvidia-nim-tool, kimi-k2), so the disjointness holds
+    # by construction. On a mechanical-only box with no full-tier provider,
+    # research still honestly REFUSES (policy filters ollama-local here).
     local_only: [ollama-local, nvidia-nim]
     local_preferred: [ollama-local, nvidia-nim]
-    cloud_permitted: [ollama-local]
+    cloud_permitted: [nvidia-nim, ollama-local]
   - task_class: analysis
     local_only: [ollama-local, nvidia-nim]
     local_preferred: [ollama-local, nvidia-nim]
@@ -75,9 +76,9 @@ rules:
   # tool-calling cloud model, so it leads; qwen-local stays listed — with NIM down the
   # leg degrades to the recorded in-memory-override precedent (S7j-W) instead of dying.
   - task_class: toolpath
-    local_only: [qwen-local, nvidia-nim]
-    local_preferred: [qwen-local, nvidia-nim]
-    cloud_permitted: [nvidia-nim, qwen-local]
+    local_only: [qwen-local, nvidia-nim-tool]
+    local_preferred: [qwen-local, nvidia-nim-tool]
+    cloud_permitted: [nvidia-nim-tool, qwen-local]
   # R1 D3: the cross-encoder rerank class — structurally LOCAL_ONLY (policy.py) and
   # mechanical; served by llama-server --reranking on this box (research/06 recipe).
   - task_class: rerank

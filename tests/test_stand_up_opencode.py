@@ -273,8 +273,11 @@ def test_probe_ollama_registers_chat_and_embedding_providers(monkeypatch):
     reg = drv._probe_ollama()
     # R3: the spec table moved to data/providers.yaml — nvidia-nim joins the local rows
     # (the cloud tier that clears CR-3 fully and serves the non-mechanical classes).
+    # R3 2026-10-20: nvidia-nim-tool joins too — toolpath's OWN cloud row, disjoint
+    # from research's nvidia-nim by name (S7j-W 1.2 by construction).
     assert sorted(c.name for c in reg.list()) == [
-        "llama-rerank", "nvidia-nim", "ollama-embed", "ollama-local", "qwen-local"]
+        "llama-rerank", "nvidia-nim", "nvidia-nim-tool", "ollama-embed",
+        "ollama-local", "qwen-local"]
     assert ("ollama-embed", "bge-m3:567m", "ollama", True) in calls
     assert ("ollama-local", "thomson1-chat:latest", "ollama", True) in calls
     assert ("qwen-local", "qwen3.8:27b", "ollama", True) in calls

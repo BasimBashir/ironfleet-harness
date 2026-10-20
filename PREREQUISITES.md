@@ -49,15 +49,19 @@ is downloaded per the `research/06` recipe, not via Ollama.
 ## 3b. Cloud provider (optional; needed for non-mechanical classes)
 
 `nvidia-nim` (`stepfun-ai/step-5-preview`, NVIDIA NIM `integrate.api.nvidia.com`)
-serves drafting / research / analysis / complex_reasoning / summarization / toolpath.
+serves drafting / research / analysis / complex_reasoning / summarization.
+`nvidia-nim-tool` (`moonshotai/kimi-k2-in-0909`, same NIM endpoint) is the
+tool-calling leg's OWN row — kept a distinct model so the toolpath injection class
+and the research class never share a candidate (S7j-W 1.2, by construction).
 Ollama is honestly `mechanical-only` on this box (CR-3: its executing backend is
 unverifiable), so **without a cloud provider these classes refuse — by design**, and
 only the mechanical classes (extraction / classification / redaction /
-grounding_check) run locally. Registration is one command (key → OS keychain, never
-on disk):
+grounding_check) run locally. Registration is one command per row (key → OS
+keychain, never on disk):
 
 ```powershell
 harness providers set-key --provider nvidia-nim --key <your-nvidia-api-key>
+harness providers set-key --provider nvidia-nim-tool --key <your-nvidia-api-key>
 harness providers list     # the honest probe verdict per provider
 ```
 

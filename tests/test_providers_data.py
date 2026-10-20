@@ -21,7 +21,7 @@ def test_every_row_carries_url_model_engine_together():
     can name a model without its base_url and engine — a swap is one row edit."""
     specs = _provider_specs(REGISTRY)
     assert {"ollama-local", "ollama-embed", "qwen-local", "llama-rerank",
-            "nvidia-nim"} == {s["name"] for s in specs}
+            "nvidia-nim", "nvidia-nim-tool"} == {s["name"] for s in specs}
     for s in specs:
         assert s["base_url"].startswith("http"), s
         assert s["model"], s
