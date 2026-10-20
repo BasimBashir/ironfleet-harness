@@ -272,12 +272,103 @@ class IronFleetApp(App):
             self.action_cycle_mode()
         elif text.startswith("/mode "):
             self._apply_mode_command(text.split(maxsplit=1)[1])
+        elif text == "/doctor":
+            self.run_worker(self._doctor(), exclusive=False)
+        elif text.startswith("/ingest "):
+            self.run_worker(self._ingest(text.split(maxsplit=1)[1]), exclusive=False)
+        elif text.startswith("/persona new "):
+            self._persona_new(text.split(maxsplit=2)[2])
+        elif text == "/provider" or text.startswith("/provider "):
+            self._providers()
         else:
             # A task for the factory — auto-/compact fires FIRST if the meter is
             # past safe_fill (Claude-Code behaviour, visible line), then the
             # runner's plan executes under the CURRENT mode.
             self._echo(f"> {text}")
             self.run_worker(self._dispatch_task(text), exclusive=False)
+
+    async def _doctor(self) -> None:
+        """/doctor: the honest state, one screen. The provider rows show what the
+        REGISTRY declares (tier, window) — the probe verdict lands at registration
+        (harness providers / stack start); re-probing every provider on a slash
+        command would re-key the world for a view."""
+        import json as _json
+        from pathlib import Path as _Path
+        from harness.bootstrap import _provider_specs
+        from harness.packaging.macdist import PINS
+        from harness.session.commands import doctor_lines
+        try:
+            from scripts.verify_opencode_mount import installed_version
+            installed = installed_version()
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("doctor_version", exc)
+            installed = None
+        cfg = _Path.home() / ".config" / "opencode" / "opencode.jsonc"
+        autoupdate = None
+        if cfg.is_file():
+            try:
+                body = cfg.read_text(encoding="utf-8")
+                autoupdate = '"autoupdate": false' in body or '"autoupdate":false' in body
+            except Exception as exc:                          # noqa: BLE001
+                _tui_error("doctor_cfg", exc)
+        provs = [(s["name"], f"declared {s.get('tier', '?')},"
+                 f" window {s.get('context_window') or '—'}")
+                 for s in _provider_specs()]
+        self._echo("\n".join(doctor_lines(
+            installed=installed, pin=str(PINS["opencode"]),
+            autoupdate=autoupdate, providers=provs)))
+
+    async def _ingest(self, source: str) -> None:
+        """/ingest <path>: corpus_ingest into THIS session's matter, in a worker
+        (sha256 resume, batches of 64, LOCAL_ONLY embeddings — the substrate)."""
+        import asyncio
+        from pathlib import Path as _Path
+        from harness.session.commands import ingest_argv
+        driver = getattr(self.runner, "driver", None)
+        if driver is None or not self.session_id:
+            self._echo("(no session — /new --matter <ref> first)")
+            return
+        matter_ref = driver.resume(self.session_id)["matter_ref"]
+        report = self.store.root / "ingest-report.json"
+        argv = ingest_argv(matter_ref, [_Path(source)], report)
+        self._echo(f"ingesting {source} into {matter_ref}…")
+        from scripts import corpus_ingest as ci
+        import sys as _sys
+        _sys.argv = ["corpus_ingest", *argv]
+        await asyncio.to_thread(ci.main)
+        self._echo(f"ingest done — report {report}")
+
+    def _persona_new(self, args: str) -> None:
+        """/persona new name|description|tools|prompt — the old agent-authoring
+        CLI, folded in. Appends the validated row to personas.yaml; the mount
+        regen rides the next sync_mount."""
+        import yaml as _yaml
+        from harness.session.commands import build_persona_row, parse_persona_new
+        try:
+            name, desc, allowed, prompt = parse_persona_new(args)
+            row = build_persona_row(name, desc, allowed, prompt)
+        except ValueError as exc:
+            _tui_error("persona_new", exc)
+            self._echo(f"/persona new: {exc}")
+            return
+        target = Path(__file__).resolve().parents[3] / "data" / "module-e" / "personas.yaml"
+        doc = _yaml.safe_load(target.read_text(encoding="utf-8"))
+        doc["personas"].append(row)
+        target.write_text(_yaml.safe_dump(doc, allow_unicode=True, sort_keys=False),
+                          encoding="utf-8")
+        self._echo(f"persona {name} added to personas.yaml — mounts pick it up at"
+                   " the next sync (the S7i canon then improves it).")
+
+    def _providers(self) -> None:
+        """/provider: the registry as data — rows, tiers, windows. Switching a
+        class's provider is a routing-table edit (data/, by ruling); the shell
+        shows, it does not secretly rewire."""
+        from harness.bootstrap import _provider_specs
+        lines = [f"{s['name']}: {s['model']} @ {s['base_url']}"
+                 f" (tier {s.get('tier', '?')}, window {s.get('context_window') or '—'})"
+                 for s in _provider_specs()]
+        self._echo("\n".join(lines) +
+                   "\n(route edits are data edits in data/routing-a1.yaml)")
 
     async def _dispatch_task(self, text: str) -> None:
         from harness.session.tokens import maybe_compact, window_for
