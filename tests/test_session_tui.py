@@ -67,3 +67,87 @@ def test_app_set_mode_validates_and_rebuilds(tmp_path):
     assert app.mode == "shell-drives"
     with pytest.raises(ValueError, match="unknown mode"):
         app.set_mode("nonsense")
+
+
+# -- Task 9: cycling REBUILDS the runner with the new mode ---------------------
+
+class _StubRunner:
+    def __init__(self, mode: str):
+        self.mode = mode
+
+
+def test_cycle_rebuilds_the_runner_with_the_new_mode(tmp_path):
+    """D-T2: the active mode is not a label — the shell's runner is rebuilt so the
+    NEXT task executes under the newly selected orchestration."""
+    from harness.session.store import SessionStore
+    made: list[str] = []
+
+    def factory(mode: str) -> _StubRunner:
+        made.append(mode)
+        return _StubRunner(mode)
+
+    app = IronFleetApp(SessionStore(tmp_path), runner_factory=factory)
+    app.action_cycle_mode()
+    assert app.mode == "shell-drives"
+    assert isinstance(app.runner, _StubRunner) and app.runner.mode == "shell-drives"
+    app.action_cycle_mode()
+    assert app.mode == "hybrid" and app.runner.mode == "hybrid"
+    assert made == ["shell-drives", "hybrid"]
+
+
+def test_cycle_without_a_factory_keeps_a_none_runner(tmp_path):
+    from harness.session.store import SessionStore
+    app = IronFleetApp(SessionStore(tmp_path))
+    app.action_cycle_mode()
+    assert app.mode == "shell-drives" and app.runner is None
+
+
+def test_slash_mode_with_a_name_sets_it_explicitly(tmp_path):
+    from harness.session.store import SessionStore
+    app = IronFleetApp(SessionStore(tmp_path))
+    app._apply_mode_command("hybrid")
+    assert app.mode == "hybrid"
+    # an unknown name: recorded and echoed, never a crash of the submit handler
+    app._apply_mode_command("nope")            # must not raise
+    assert app.mode == "hybrid"                # unchanged
+
+
+# -- the global view pane: the session's tasks (the jobs table) ----------------
+
+def test_render_jobs_shows_stage_agent_status():
+    from harness.session.tui import render_jobs
+    rows = [{"stage": "gather", "agent": "hunter", "status": "running", "detail": ""},
+            {"stage": "gather", "agent": "hunter", "status": "done",
+             "detail": "found A and B"}]
+    s = render_jobs(rows)
+    assert "gather" in s and "hunter" in s
+    assert "running" in s and "done" in s
+    assert "found A and B" in s
+    # the status column is readable at a glance — one line per job
+    assert len(s.strip().splitlines()) == 2
+
+
+def test_render_jobs_empty_is_honest():
+    from harness.session.tui import render_jobs
+    assert "no jobs" in render_jobs([])
+
+
+def test_refresh_view_renders_the_sessions_jobs(tmp_path):
+    """The pane reads the S7f jobs table through the store — visibility from the
+    substrate, no new seam. Returns the rendered text (and updates the pane when
+    mounted; unmounted is the expected NoMatches, recorded not raised)."""
+    from harness.session.store import SessionStore
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    store.add_job(sid, "gather", "hunter", "running")
+    store.add_job(sid, "draft", "clerk", "done", detail="handoff.md")
+    app = IronFleetApp(store, session_id=sid)
+    text = app.refresh_view()
+    assert "gather" in text and "hunter" in text
+    assert "done" in text and "handoff.md" in text
+
+
+def test_refresh_view_with_no_session_is_empty(tmp_path):
+    from harness.session.store import SessionStore
+    app = IronFleetApp(SessionStore(tmp_path))
+    assert "no jobs" in app.refresh_view()

@@ -76,6 +76,19 @@ def render_status(*, mode: str, session_id: str | None, used: int, window: int) 
     return f" mode: {mode} | session: {sess} | tokens: {tokens}"
 
 
+def render_jobs(rows: list[dict]) -> str:
+    """The global view's text: one line per factory job — the stage ledger the
+    runner writes into S7f's jobs table (spec 17 §5.4's thin slice: the pane reads
+    the substrate, it adds no seam). Pure so tests and the timer share one truth."""
+    if not rows:
+        return "no jobs yet — give the shell a task"
+    lines = []
+    for r in rows:
+        detail = f" — {r['detail']}" if r.get("detail") else ""
+        lines.append(f"[{r['status']:>7}] {r['stage']} ({r['agent']}){detail}")
+    return "\n".join(lines)
+
+
 class IronFleetApp(App):
     """The shell. One window: chat, the global view, live docs, and the status bar.
 
@@ -107,7 +120,8 @@ class IronFleetApp(App):
     ]
 
     def __init__(self, store: SessionStore, session_id: str | None = None,
-                 mode: str = "agent-os", runner: object | None = None) -> None:
+                 mode: str = "agent-os", runner: object | None = None,
+                 runner_factory=None) -> None:
         super().__init__()
         if mode not in MODES:
             raise ValueError(f"unknown mode: {mode!r} (expected one of {MODES})")
@@ -115,6 +129,9 @@ class IronFleetApp(App):
         self.session_id = session_id
         self.mode = mode
         self.runner = runner
+        # D-T2: cycling the mode REBUILDS the runner (the active mode is not a
+        # label — the next task must execute under the newly selected mode).
+        self._runner_factory = runner_factory
         # D-T3: the meter's live numbers, refreshed from trace.db by the timer.
         self.tokens_used = 0
         self.context_window = 0
@@ -155,10 +172,43 @@ class IronFleetApp(App):
         if mode not in MODES:
             raise ValueError(f"unknown mode: {mode!r} (expected one of {MODES})")
         self.mode = mode
+        if self._runner_factory is not None:
+            self.runner = self._runner_factory(mode)
         self.refresh_status()
 
     def action_cycle_mode(self) -> None:
         self.set_mode(cycle_mode(self.mode))
+
+    def _apply_mode_command(self, name: str) -> None:
+        """/mode <name>: the typed form of shift+TAB. An unknown name is recorded
+        and echoed — the submit handler must never crash on a typo."""
+        try:
+            self.set_mode(name)
+        except ValueError as exc:
+            _tui_error("mode_command", exc)
+            self._echo(f"/mode: {exc}")
+
+    # -- the global view pane (the session's tasks: the S7f jobs table) --------
+
+    def refresh_view(self) -> str:
+        """Render this session's jobs into the Agents pane. Returns the text (the
+        unmounted case — tests, early compose — still gets an honest return)."""
+        rows = self.store.jobs(self.session_id) if self.session_id else []
+        text = render_jobs(rows)
+        try:
+            self.query_one("#view", Static).update(text)
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("refresh_view", exc)
+        return text
+
+    def _tick(self) -> None:
+        """The poll: status bar + jobs pane, on one timer. Task 10 adds the trace
+        read that fills the meter; Task 12 adds guard/doc reads to this hook."""
+        self.refresh_status()
+        self.refresh_view()
+
+    def on_mount(self) -> None:
+        self.set_interval(2.0, self._tick)
 
     # -- the prompt line --------------------------------------------------------
 
@@ -170,7 +220,7 @@ class IronFleetApp(App):
         if text == "/mode":
             self.action_cycle_mode()
         elif text.startswith("/mode "):
-            self.set_mode(text.split(maxsplit=1)[1])
+            self._apply_mode_command(text.split(maxsplit=1)[1])
         else:
             self._echo(text)   # the factory wiring lands with Task 7
 
@@ -180,5 +230,5 @@ class IronFleetApp(App):
             # render() is the value accessor in Textual 8.x (there is no
             # `.renderable` attribute on Static — the smoke proved it).
             pane.update((pane.render() or "") + f"\n> {text}")
-        except Exception:
-            pass
+        except Exception as exc:                              # noqa: BLE001
+            _tui_error("echo", exc, root=getattr(self.store, "root", None))
