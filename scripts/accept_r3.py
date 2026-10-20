@@ -45,12 +45,11 @@ ANCHOR_PROMPT = f"Reply with exactly {ANCHOR} and nothing else."
 MODEL = "gate-local/gate/extraction"
 SPAWN_S = 480                # the S7j-W watchdog budget, per spawn
 CLI_S = 300
-# The kill leg (C5): a deliberately long turn, terminated mid-generation after
-# this many seconds — run_opencode's own timeout path tree-kills the REAL
-# process (code 124). No wmic: it is gone from this Windows build. The count
-# must OUTRUN the budget: 3000 lines ≈ 3x 45s at this box's measured output
-# rate, yet under the 16k output clamp (a clamped-but-finished turn would
-# return 0 and fail the leg loudly).
+# The kill leg (C5): the victim turn is killed by ITS OWN pid once its first
+# streamed event line proves it is live and generating — a prompt-vs-budget
+# race lost twice to this fast extraction leg, so no timeout wins it.
+# taskkill /T is the same tree-kill run_opencode's timeout path uses;
+# KILL_AFTER_S is only the startup-hang budget for that first event.
 KILL_AFTER_S = 45
 KILL_PROMPT = "Count from 1 to 3000, one number per line."
 
@@ -239,18 +238,37 @@ def check_resume(ctx: dict) -> list[str]:
         return [f"the seed turn opened no opencode session id (code={code}) —"
                 f" F6's chain cannot be exercised"]
     print(f"    seed session {seed_id!r}", flush=True)
-    # Phase 2: KILL mid-generation — the count-to-budget prompt outruns this
-    # short timeout, and run_opencode's timeout path tree-kills the REAL
-    # process (code 124). Bypasses spawn_session so the 124 signature gets no
-    # hang-retry (this kill is the point, not a failure).
-    from scripts.run_spike_opencode import run_opencode
-    code, raw = run_opencode(ws, turn_argv("hunter-drive", MODEL, KILL_PROMPT),
-                             timeout=KILL_AFTER_S, env=spawn_env(ws))
-    print(f"    kill leg: code={code}", flush=True)
-    if code != 124:
-        problems.append(f"the long turn was not killed by the timeout (code={code})"
-                        " — the resume leg then proves only a COMPLETED session"
-                        " (research/09 5.1)")
+    # Phase 2: KILL mid-generation, deterministically. The victim spawns with
+    # run_opencode's exact Popen shape so the kill owns the pid; its first
+    # streamed event line is the proof it is live and past startup (the read
+    # itself gets the hang budget — F8), then taskkill /T, the same tree-kill
+    # run_opencode's timeout path uses.
+    import threading
+    from scripts.run_spike_opencode import opencode_cmd
+    env = {**spawn_env(ws), "PWD": str(ws)}      # PWD re-pinned, as run_opencode
+    victim = subprocess.Popen(
+        opencode_cmd() + turn_argv("hunter-drive", MODEL, KILL_PROMPT),
+        cwd=str(ws), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace", env=env)
+    first: list[str] = []
+    reader = threading.Thread(target=lambda: first.append(victim.stdout.readline()),
+                              daemon=True)
+    reader.start()
+    reader.join(KILL_AFTER_S)
+    # No grace sleep: this extraction leg finishes a whole reply in <2s past
+    # step_start, so the kill fires the moment liveness is proven — the turn is
+    # then mid-flight by construction (its request is in flight, unlanded).
+    if victim.poll() is None:
+        subprocess.run(["taskkill", "/PID", str(victim.pid), "/T", "/F"],
+                       capture_output=True)
+        head = first[0].strip()[:60] if first else "(no event yet)"
+        print(f"    kill leg: first event {head!r};"
+              f" tree-killed pid {victim.pid}", flush=True)
+    else:
+        head = first[0].strip()[:60] if first else ""
+        problems.append("the victim turn exited before the kill (stream closed"
+                        f" early, first={head!r}) — the resume leg then proves"
+                        " only a COMPLETED session (research/09 5.1)")
     # Phase 3: the continuation THROUGH THE DRIVER, driving --session <seed_id>
     # (F6's consuming end). The anchor can only be emitted with the seed's
     # context — that is the continuity proof.
