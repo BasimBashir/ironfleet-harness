@@ -36,13 +36,6 @@ from harness.session.workspace import (
 # row (the 2026-10-20 acceptance run found exactly that).
 PROXY_HOST, PROXY_PORT = "127.0.0.1", 7373
 
-# The outer hostage bound on ONE turn's spawn: the watchdog budget plus headroom
-# for the mount sync and the post-turn trace reads. A spawn that outlives it is
-# ABANDONED (recorded) rather than allowed to freeze the whole shell — the
-# 2026-10-21 live freeze: one wedged stage held the event loop for 54 minutes.
-# Legit long turns (a 20-tool research stage) finish inside 480s on this box.
-TURN_TIMEOUT_S = 660
-
 
 class SessionDriver:
     """Owns one session: its store row, its workspace, and its turns.
@@ -52,6 +45,14 @@ class SessionDriver:
     `open_gate()` is the lifecycle seam the shell/driver owns: the trace lands at
     <store-root>/trace.db (the same place `harness serve` reads) and the port is
     released when the session ends."""
+
+    # The outer hostage bound on ONE turn's spawn: the watchdog budget plus
+    # headroom for the mount sync and the post-turn trace reads. A spawn that
+    # outlives it is ABANDONED (recorded) rather than allowed to freeze the whole
+    # shell — the 2026-10-21 live freeze: one wedged stage held the event loop
+    # for 54 minutes. Legit long turns (a 20-tool research stage) finish inside
+    # 480s on this box. Class attribute so a test can bound it on the instance.
+    TURN_TIMEOUT_S = 660
 
     def __init__(self, store: SessionStore, base: Path) -> None:
         from contextlib import contextmanager

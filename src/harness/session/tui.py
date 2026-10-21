@@ -91,8 +91,8 @@ def render_jobs(rows: list[dict], spin: int = 0) -> str:
     for r in rows:
         key = (r["stage"], r["agent"])
         if r["status"] == "running":
-            started.setdefault(key, r.get("ts") or "")
-        latest[key] = r
+            started[key] = r.get("ts") or ""    # OVERWRITE: the latest start,
+        latest[key] = r                          # never a prior run's start ts
     lines = []
 
     def _mins_secs(seconds: float) -> str:
@@ -138,13 +138,17 @@ def render_agents(rows: list[dict], jobs: list[dict] | None = None,
     trace rows yet (its first turn is still in flight) still shows, with the
     spinner — the user must see WHO is working before its dispatch lands."""
     spinner = "|/-\\"[spin % 4]
+    # collapse to the LATEST row per (stage, agent) — the raw ledger spams every
+    # past run's start rows as "in flight" forever otherwise
+    latest: dict[tuple[str, str], dict] = {}
+    for j in (jobs or []):                      # jobs() is oldest-first: last wins
+        latest[(j["stage"], j["agent"])] = j
     status_by_agent: dict[str, str] = {}
     running: set[str] = set()
-    for j in (jobs or []):                      # jobs() is oldest-first: last wins
-        status_by_agent[j["agent"]] = f"{j['status']} {j['stage']}"
-        running.discard(j["agent"])
+    for (stage, agent), j in latest.items():
+        status_by_agent[agent] = f"{j['status']} {stage}"
         if j["status"] == "running":
-            running.add(j["agent"])
+            running.add(agent)
     lines = []
     for r in rows:
         v = "verified" if r.get("verified") else "unverified"
@@ -155,11 +159,12 @@ def render_agents(rows: list[dict], jobs: list[dict] | None = None,
                      f"in {r['tokens_in']:,} out {r['tokens_out']:,}"
                      + (f" think {think:,}" if think else "")
                      + f" guard {r['guard_flags']} last {r['last_status']}")
-    # In-flight agents the trace cannot see yet — the waiting indicator.
+    # In-flight agents the trace cannot see yet — the waiting indicator, from
+    # the COLLAPSED view only (latest row per stage+agent actually running).
     traced = {r["agent"] for r in rows}
-    for j in (jobs or []):
-        if j["status"] == "running" and j["agent"] not in traced:
-            lines.append(f"[{spinner} running {j['stage']}] {j['agent']}: "
+    for (stage, agent), j in latest.items():
+        if j["status"] == "running" and agent not in traced:
+            lines.append(f"[{spinner} running {stage}] {agent}: "
                          "first turn in flight — waiting for its model …")
     if not lines:
         return "no agents yet"

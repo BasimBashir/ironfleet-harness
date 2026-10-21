@@ -426,3 +426,18 @@ def test_echo_deliverables_announces_each_agent_md_once(tmp_path):
             assert "junk" not in chat
 
     asyncio.run(body())
+
+
+def test_render_agents_does_not_spam_superseded_in_flight_rows():
+    """Past runs' running rows (superseded by done rows) must NOT render as
+    "in flight" forever — only a stage whose LATEST row is running shows."""
+    from harness.session.tui import render_agents
+    jobs = [
+        {"stage": "intake", "agent": "ingestor", "status": "running", "detail": ""},
+        {"stage": "intake", "agent": "ingestor", "status": "done", "detail": "wrote"},
+        {"stage": "draft", "agent": "clerk", "status": "running", "detail": ""},
+    ]
+    out = render_agents([], jobs, spin=0)
+    assert out.count("in flight") == 1          # only clerk's live row
+    assert "ingestor" not in out.splitlines()[-1] or "running" not in \
+        [l for l in out.splitlines() if "ingestor" in l][0]
