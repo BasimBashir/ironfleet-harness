@@ -237,6 +237,8 @@ class IronFleetApp(App):
         self.tokens_used = 0
         self.context_window = 0
         self._spin = 0                       # the ASCII spinner frame (|/-\)
+        self._doc_links: dict[str, str] = {}  # link token -> file path
+        self._echoed_docs: set[str] = set()   # deliverables already announced
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="main"):
@@ -263,6 +265,37 @@ class IronFleetApp(App):
 
     def action_noop(self) -> None:
         """The ctrl+c trap (see BINDINGS): swallow the reflex, quit nothing."""
+
+    def _link(self, path: Path) -> str:
+        """A clickable Textual action link for a file. The token keeps paths
+        (spaces, backslashes) out of the action markup's quoting hell."""
+        token = f"d{len(self._doc_links)}"
+        self._doc_links[token] = str(path)
+        return f"[@click=app.open_doc('{token}')]{path.name}[/]"
+
+    def action_open_doc(self, token: str) -> None:
+        """Click a linked deliverable — the OS default handler opens it (no ctrl
+        needed: Textual action links route inside the app)."""
+        import os
+        path = self._doc_links.get(token)
+        if not path or not Path(path).is_file():
+            self._echo("(that link is stale — the file moved or predates this run)")
+            return
+        try:
+            os.startfile(path)                 # Windows default handler
+        except OSError as exc:                 # noqa: BLE001
+            _tui_error("open_doc", exc, root=self.store.root)
+            self._echo(f"(could not open {path}: {exc})")
+
+    def _echo_deliverables(self) -> None:
+        """Announce every doc an agent wrote as a clickable line (once per file)."""
+        if not (self.session_id and self.base):
+            return
+        for f in sorted((Path(self.base) / self.session_id).glob("*/*.md")):
+            if ".opencode" in f.parts or str(f) in self._echoed_docs:
+                continue
+            self._echoed_docs.add(str(f))
+            self._echo(f"deliverable: {self._link(f)}")
 
     # -- the status bar (the D-T3 meter + the always-visible mode) -------------
 
@@ -325,19 +358,23 @@ class IronFleetApp(App):
         return text
 
     def _docs_text(self) -> str:
-        """The doc pane's text: the ACTIVE stage workspace's changed files
-        (git status — a NEW doc is untracked and invisible to ls-files/diff) +
-        the diff body. The watched workspace follows the crew: the latest job's
-        `<agent>-stage-<stage>` directory, falling back to the injected docs_ws
-        (the pinned hunter-drive watch never saw stage output)."""
+        """The doc pane's text: the ACTIVE stage workspace's changed files as
+        CLICKABLE links (git status — a NEW doc is untracked and invisible to
+        ls-files/diff) + the diff body. The watched workspace follows the crew:
+        the latest job's `<agent>-stage-<stage>` directory, falling back to the
+        injected docs_ws."""
         ws = self._active_ws()
         if ws is None:
             return "no workspace watched"
         from harness.session.view import doc_changes, doc_diff
         changes = doc_changes(ws)
-        head = (f"watching {ws.name} — changed: "
-                f"{', '.join(changes[:8])}{' …' if len(changes) > 8 else ''}"
-                if changes else f"watching {ws.name} — changed: (nothing yet)")
+        if changes:
+            linked = ", ".join(self._link(ws / c) if not c.endswith("/") else c
+                               for c in changes[:8])
+            head = (f"watching {ws.name} — changed: {linked}"
+                    f"{' …' if len(changes) > 8 else ''}")
+        else:
+            head = f"watching {ws.name} — changed: (nothing yet)"
         diff = doc_diff(ws)
         return f"{head}\n{diff}" if diff else head
 
@@ -630,6 +667,7 @@ class IronFleetApp(App):
                                               complexity="HIGH",
                                               classification="CLOUD_PERMITTED")
             self._echo(f"factory: {len(rows)} stage(s) done")
+            self._echo_deliverables()
         except Exception as exc:                              # noqa: BLE001
             _tui_error("dispatch_task", exc, root=self.store.root,
                        session=self.session_id)

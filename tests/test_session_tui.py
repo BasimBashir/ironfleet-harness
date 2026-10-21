@@ -377,3 +377,52 @@ def test_side_panes_scroll_when_content_overflows(tmp_path):
                 "Docs pane cannot scroll after tab select — height chain broken"
 
     asyncio.run(body())
+
+
+def test_doc_links_register_render_and_stale_tokens_are_safe(tmp_path):
+    """Deliverables render as Textual action links backed by a token registry —
+    paths (spaces, backslashes) never enter the action markup; a stale or
+    unknown token echoes instead of raising, and startfile is never reached."""
+    import asyncio
+    from harness.session.store import SessionStore
+    from harness.session.tui import IronFleetApp
+
+    async def body():
+        app = IronFleetApp(SessionStore(tmp_path))
+        async with app.run_test():
+            f = tmp_path / "a doc with spaces.md"
+            f.write_text("x", encoding="utf-8")
+            markup = app._link(f)
+            assert "@click=app.open_doc('d0')" in markup and "a doc with spaces.md" in markup
+            assert app._doc_links["d0"] == str(f)
+            app.action_open_doc("d999")          # unknown token: echoed, no crash
+            (tmp_path / "gone.md").write_text("x", encoding="utf-8")
+            gone = app._link(tmp_path / "gone.md")
+            (tmp_path / "gone.md").unlink()      # file vanished after linking
+            app.action_open_doc(gone.split("'")[1])  # stale: echoed, no crash
+
+    asyncio.run(body())
+
+
+def test_echo_deliverables_announces_each_agent_md_once(tmp_path):
+    import asyncio
+    from textual.widgets import Static
+    from harness.session.store import SessionStore
+    from harness.session.tui import IronFleetApp
+
+    async def body():
+        app = IronFleetApp(SessionStore(tmp_path), session_id="ses-1",
+                           base=tmp_path)
+        ws = tmp_path / "ses-1" / "clerk-stage-draft"
+        (ws / ".opencode").mkdir(parents=True)
+        (ws / "precedent-brief.md").write_text("brief", encoding="utf-8")
+        (ws / ".opencode" / "junk.md").write_text("junk", encoding="utf-8")
+        async with app.run_test():
+            app._echo_deliverables()
+            app._echo_deliverables()             # second scan: no duplicates
+            chat = str(app.query_one("#chat", Static).render())
+            assert chat.count("deliverable:") == 1
+            assert "precedent-brief.md" in chat
+            assert "junk" not in chat
+
+    asyncio.run(body())
