@@ -72,3 +72,46 @@ def test_session_cli_argv_shapes():
 def test_session_cli_rejects_colons_in_matter():
     with pytest.raises(ValueError, match="colon-free"):
         session_cli_argv(["--new", "--matter", "bad:ref"])
+
+
+def test_run_turn_abandons_a_wedged_spawn_instead_of_freezing(tmp_path):
+    """The 2026-10-21 live freeze: one wedged stage (orphaned grandchild holding
+    the stdout pipe) froze the TUI's event loop for ~an hour. run_turn now bounds
+    the spawn: a turn that outlives TURN_TIMEOUT_S FAILS RECORDED and the row
+    lands — the shell carries on."""
+    import asyncio
+    from harness.session.driver import SessionDriver
+    from harness.session.store import SessionStore
+
+    store = SessionStore(tmp_path)
+    drv = SessionDriver(store, tmp_path / "workspaces")
+    drv.TURN_TIMEOUT_S = 1                      # the test's own bound
+    sid = store.new_session("m1")
+
+    class _Wedged:
+        """A spawn that never returns — the pipe-deadlock signature."""
+        def workspace_for(self, *a, **kw):
+            return tmp_path / "ws"
+        def spawn_env(self, ws):
+            return {}
+        def _trace_ids(self, p):
+            return set()
+    # patch the module-level pieces run_turn uses
+    import harness.session.driver as drv_mod
+
+    async def never(*a, **kw):
+        await asyncio.sleep(30)
+
+    orig, drv_mod.spawn_session = drv_mod.spawn_session, never
+    orig_ids, drv_mod._trace_ids = drv_mod._trace_ids, lambda p: set()
+    orig_ws, drv.workspace_for = drv.workspace_for, lambda *a, **k: tmp_path / "ws"
+    try:
+        row = asyncio.run(asyncio.wait_for(
+            drv.run_turn(sid, "m1", "clerk", "do it"), timeout=10))
+        assert row.output_summary == "" and row.agent == "clerk"
+        turns = store.turns(sid)
+        assert len(turns) == 1                   # the row LANDED either way
+    finally:
+        drv_mod.spawn_session = orig
+        drv_mod._trace_ids = orig_ids
+        drv.workspace_for = orig_ws

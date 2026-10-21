@@ -169,23 +169,51 @@ def run_opencode(ws: Path, args: list[str], timeout: int = RUN_TIMEOUT_S,
     9). None (the default, and every spike-driver call) keeps the historical behaviour of
     building the child env from os.environ. A caller-supplied env is used verbatim for
     everything EXCEPT PWD, which is always re-pinned to `ws`: the process runs with cwd=ws,
-    and a stale PWD is the wrong-instance failure above, so this seam never reintroduces it."""
+    and a stale PWD is the wrong-instance failure above, so this seam never reintroduces it.
+
+    Deadlock law (2026-10-21 live freeze, root-caused): the pipes are drained by READER
+    threads, never by communicate(). opencode's grandchild (node.exe, e.g. the tools
+    shim's dispatch spawns) can survive its parent's tree-kill and keep the pipe's write
+    end open; communicate() then blocks on read() FOREVER — the timeout means nothing and
+    the whole runner thread wedges (the session's remaining stages never start). Reading
+    on threads makes the timeout authoritative: kill the tree, join the readers with a
+    bounded wait, return 124 whatever the grandchild does."""
+    import os
+    import threading
     if env is None:
-        import os
         env = {**os.environ, "PWD": str(ws)}
     else:
         env = {**env, "PWD": str(ws)}
     proc = subprocess.Popen(opencode_cmd() + args, cwd=str(ws),
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, encoding="utf-8", errors="replace", env=env)
+    chunks: dict[str, list[str]] = {"out": [], "err": []}
+    readers = [threading.Thread(target=lambda k, p=p: chunks[k].append(
+                                   p.read() or ""), daemon=True)
+               for k, p in (("out", proc.stdout), ("err", proc.stderr))]
+    for th in readers:
+        th.start()
     try:
-        out, err = proc.communicate(timeout=timeout)
+        proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
         try:
-            out, err = proc.communicate(timeout=30)
+            proc.wait(timeout=15)
         except subprocess.TimeoutExpired:
-            out, err = "", ""
+            pass                                  # the grandchild may outlive the tree
+    for th in readers:                            # bounded: a dead pipe closes now
+        th.join(5)
+    out, err = "".join(chunks["out"]), "".join(chunks["err"])
+    # Explicit closes: an inherited pipe handle keeps the parent's FDs alive.
+    for pipe in (proc.stdout, proc.stderr):
+        try:
+            pipe.close()
+        except OSError:
+            pass
+    if proc.returncode == 124 or (proc.returncode is None):
+        # returncode None: the process is still running after the bounded wait —
+        # the spawn KILLED its turn; report the watchdog's code, never a crash.
         return 124, (out or "") + f"\n--timeout: tree-killed after {timeout}s--\n"
     return proc.returncode, (out or "") + ("\n--stderr--\n" + (err or "") if err else "")
 

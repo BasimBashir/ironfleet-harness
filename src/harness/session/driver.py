@@ -13,6 +13,7 @@ identity (finding F1's columns).
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
 from pathlib import Path
@@ -34,6 +35,13 @@ from harness.session.workspace import (
 # that forgets to open it turns every turn into a connection-refused with no trace
 # row (the 2026-10-20 acceptance run found exactly that).
 PROXY_HOST, PROXY_PORT = "127.0.0.1", 7373
+
+# The outer hostage bound on ONE turn's spawn: the watchdog budget plus headroom
+# for the mount sync and the post-turn trace reads. A spawn that outlives it is
+# ABANDONED (recorded) rather than allowed to freeze the whole shell — the
+# 2026-10-21 live freeze: one wedged stage held the event loop for 54 minutes.
+# Legit long turns (a 20-tool research stage) finish inside 480s on this box.
+TURN_TIMEOUT_S = 660
 
 
 class SessionDriver:
@@ -116,7 +124,7 @@ class SessionDriver:
         event, not a crash — the row lands with whatever was produced (possibly
         nothing) and the cause goes to the error log, because a shell that dies on
         a dead spawn takes the whole session with it."""
-        from asyncio import to_thread
+        import asyncio
         from datetime import datetime, timezone
 
         ws = self.workspace_for(session_id, agent, matter_ref, classification)
@@ -126,15 +134,26 @@ class SessionDriver:
             # to_thread: the spawn is a BLOCKING subprocess ride (watchdog, tree-kill)
             # — awaited inline it froze the TUI's event loop for the whole turn
             # (the 2026-10-20 live session's "shell dead while a stage runs").
-            code, events, sid = await to_thread(
+            # The OUTER wait_for is the shell's hostage clause: if even the
+            # deadlock-fixed spawn fails to return (a wedged grandchild, a locked
+            # store), the turn FAILS RECORDED and the shell carries on. The thread
+            # itself is a detached daemon — nothing joins it, so it cannot leak.
+            code, events, sid = await asyncio.wait_for(to_thread(
                 spawn_session, ws, agent, prompt, env=env, model=model,
-                continue_session=continue_session)
+                continue_session=continue_session), timeout=self.TURN_TIMEOUT_S)
         except Exception as exc:                                  # noqa: BLE001
-            # The spawn itself blew up (binary missing, mount unwritable, ...):
-            # record where/why and land an honest row so the turn is not lost.
+            # asyncio.TimeoutError IS an Exception subclass in 3.11+, and
+            # CancelledError is NOT — a shell-level cancel (user quit mid-turn)
+            # propagates correctly instead of being recorded as a spawn failure.
+            # The spawn blew up, hung, or timed out (binary missing, mount
+            # unwritable, the Windows pipe deadlock, ...): record where/why and
+            # land an honest row — a dead spawn is a RECORDED failure, never a
+            # crash that takes the session (and the whole shell) with it.
             record_error(exc, where="session.driver.run_turn.spawn", root=self.store.root,
                          context={"session_id": session_id, "agent": agent,
-                                  "model": model, "workspace": str(ws)})
+                                  "model": model, "workspace": str(ws),
+                                  "phase": "spawn-supervision",
+                                  "timed_out": isinstance(exc, asyncio.TimeoutError)})
             events, code, sid = [], EXIT_NO_OUTPUT, ""
         if sid:
             # F6: the resume handle — /resume drives `--session <id>` (P3-proven),

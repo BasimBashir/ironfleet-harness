@@ -162,6 +162,12 @@ def test_run_opencode_honours_a_caller_supplied_env(monkeypatch):
             seen["env"] = kw.get("env")
             self.pid = 4242
             self.returncode = 0
+            # the runner reads pipes on threads and proc.wait()s now: a fake
+            # needs read()+close() pipes and a wait() that returns immediately
+            self.stdout = type("P", (), {"read": lambda s: "", "close": lambda s: None})()
+            self.stderr = type("P", (), {"read": lambda s: "", "close": lambda s: None})()
+        def wait(self, timeout=None):
+            return 0
         def communicate(self, timeout=None):
             return "", ""
 
@@ -191,6 +197,12 @@ def test_run_opencode_repins_pwd_even_for_a_caller_supplied_env(monkeypatch):
             seen["cwd"] = kw.get("cwd")
             self.pid = 4242
             self.returncode = 0
+            # the runner reads pipes on threads and proc.wait()s now: a fake
+            # needs read()+close() pipes and a wait() that returns immediately
+            self.stdout = type("P", (), {"read": lambda s: "", "close": lambda s: None})()
+            self.stderr = type("P", (), {"read": lambda s: "", "close": lambda s: None})()
+        def wait(self, timeout=None):
+            return 0
         def communicate(self, timeout=None):
             return "", ""
 
@@ -214,6 +226,12 @@ def test_run_opencode_default_still_builds_from_parent_env(monkeypatch):
             seen["env"] = kw.get("env")
             self.pid = 4242
             self.returncode = 0
+            # the runner reads pipes on threads and proc.wait()s now: a fake
+            # needs read()+close() pipes and a wait() that returns immediately
+            self.stdout = type("P", (), {"read": lambda s: "", "close": lambda s: None})()
+            self.stderr = type("P", (), {"read": lambda s: "", "close": lambda s: None})()
+        def wait(self, timeout=None):
+            return 0
         def communicate(self, timeout=None):
             return "", ""
 
