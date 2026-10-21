@@ -120,3 +120,37 @@ def test_run_turn_abandons_a_wedged_spawn_instead_of_freezing(tmp_path):
         drv_mod.spawn_session = orig
         drv_mod._trace_ids = orig_ids
         drv.workspace_for = orig_ws
+
+
+def test_run_turn_happy_path_records_no_error(tmp_path):
+    """The catch-all except means ANY reference slip in the spawn block lands as
+    a silent recorded failure and '9 stages done'. The happy path must complete
+    with ZERO error-log entries — that is what proves the block is clean."""
+    import asyncio
+    from harness.session.driver import SessionDriver
+    from harness.session.store import SessionStore
+    import harness.session.driver as drv_mod
+
+    store = SessionStore(tmp_path)
+    drv = SessionDriver(store, tmp_path / "workspaces")
+    sid = store.new_session("m1")
+
+    async def fast_spawn(*a, **kw):
+        return 0, [{"type": "text", "part": {"type": "text", "text": "ok"}}], "ses_x"
+
+    orig_tt = drv_mod.asyncio.to_thread
+    orig_ws = drv.workspace_for
+    orig_ids = drv_mod._trace_ids
+    drv_mod.asyncio.to_thread = fast_spawn
+    drv.workspace_for = lambda *a, **k: tmp_path / "ws"
+    drv_mod._trace_ids = lambda p: set()
+    try:
+        row = asyncio.run(drv.run_turn(sid, "m1", "clerk", "do it"))
+        assert row.output_summary == "ok"
+        err = tmp_path / "errors.jsonl"
+        assert not err.exists() or "run_turn.spawn" not in err.read_text(encoding="utf-8"), \
+            "a happy-path turn must not record a spawn error — some reference slipped"
+    finally:
+        drv_mod.asyncio.to_thread = orig_tt
+        drv_mod._trace_ids = orig_ids
+        drv.workspace_for = orig_ws
