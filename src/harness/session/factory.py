@@ -82,19 +82,44 @@ def parse_plan(text: str) -> StagePlan | None:
     return StagePlan(stages=stages, source="model") if stages else None
 
 
-def fallback_plan(intent: str, complexity: str, task: str) -> StagePlan:
-    """SupervisorRoutes.resolve() (hybrid's fallback). Each resolved persona
-    becomes a stage; the instruction names the task and the previous stage's
-    artifact, so the chain has somewhere to stand even when no model planned it."""
-    data = Path(__file__).resolve().parents[3] / "data" / "module-e" / "supervisor.yaml"
-    agents = load_routes(data).resolve(intent, complexity)
+def load_legal_pipeline() -> list[dict]:
+    """The one-prompt crew, as data (data/module-e/legal_pipeline.yaml): the stages
+    a typed case goal runs when the user supplies no ```plan block. Lazy + cached
+    by the loader's caller; a missing/broken file is a loud error, not a silent
+    two-stage fallback."""
+    import yaml
+    data = Path(__file__).resolve().parents[3] / "data" / "module-e" / "legal_pipeline.yaml"
+    doc = yaml.safe_load(data.read_text(encoding="utf-8"))
+    stages = doc.get("pipeline")
+    if not stages:
+        raise ValueError(f"legal pipeline {data}: no 'pipeline' stages — refusing to plan")
+    return stages
+
+
+def legal_plan(task: str) -> StagePlan:
+    """The one-prompt plan: every pipeline stage becomes a real stage with the
+    user's ask interpolated ({task} — .replace, never .format: instructions carry
+    braces of their own)."""
     stages = []
-    for i, agent in enumerate(agents, start=1):
-        stages.append({"stage": f"stage-{i}", "agent": agent,
-                       "instruction": f"Contribute to: {task}",
-                       "prompt": _stage_prompt(stage=f"stage-{i}", instruction=task,
-                                               agent=agent, index=i, total=len(agents))})
-    return StagePlan(stages=stages, source="routes")
+    specs = load_legal_pipeline()
+    total = len(specs)
+    for i, spec in enumerate(specs, start=1):
+        instruction = spec["instruction"].replace("{task}", task)
+        stages.append({"stage": spec["stage"], "agent": spec["agent"],
+                       "instruction": instruction,
+                       "prompt": _stage_prompt(stage=spec["stage"], instruction=task,
+                                               agent=spec["agent"], index=i, total=total,
+                                               task=task)})
+    return StagePlan(stages=stages, source="legal-pipeline")
+
+
+def fallback_plan(intent: str, complexity: str, task: str) -> StagePlan:
+    """The default crew for a typed goal. The product is legal work and the user's
+    ruling (2026-10-21) is one prompt -> the whole pipeline, so the legal pipeline
+    IS the fallback; SupervisorRoutes.resolve() stays available for hybrid intents
+    (load_routes is unchanged). Each stage's instruction names the task, so the
+    chain has somewhere to stand even when no model planned it."""
+    return legal_plan(task)
 
 
 def stage_agent_md(stage: str, instruction: str, tools: dict[str, bool] | None = None) -> str:
@@ -203,12 +228,18 @@ class FactoryRunner:
     async def run_task(self, session_id: str, matter_ref: str, task: str,
                        plan_text: str = "", intent: str = "",
                        complexity: str = "LOW",
-                       classification: str = "LOCAL_PREFERRED") -> list[TurnRow]:
+                       classification: str = "LOCAL_PREFERRED",
+                       session_digest: str = "") -> list[TurnRow]:
         """Resolve the plan, then run its stages IN ORDER, each in its own
-        workspace, handing the previous stage's summary forward in the prompt."""
+        workspace, handing the previous stage's summary forward in the prompt.
+        `session_digest` is run-2+'s memory: the caller's summary of the last
+        checkpoint/turns, seeded as stage 1's "previous stage" so a follow-up
+        prompt continues from where the session left off (files hand forward
+        separately, via the from-* copies)."""
         plan = self.plan(task, plan_text, intent=intent, complexity=complexity)
         rows: list[TurnRow] = []
-        prev_stage = prev_summary = ""
+        prev_stage: str = "prior session" if session_digest else ""
+        prev_summary: str = session_digest
         for stage in plan.stages:
             agent, instruction = stage["agent"], stage["instruction"]
             if self.store:

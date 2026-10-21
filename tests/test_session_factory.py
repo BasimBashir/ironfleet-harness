@@ -42,17 +42,22 @@ def test_parse_plan_ignores_text_outside_the_fence():
 
 # -- the fallback (hybrid: SupervisorRoutes when the plan will not parse) ------
 
-def test_fallback_plan_uses_supervisor_routes():
+def test_fallback_plan_is_the_legal_pipeline_and_names_the_task():
+    """User ruling 2026-10-21: one typed prompt runs the WHOLE legal crew — the
+    supervisor routes default (two generic stages) cannot produce a legal
+    outcome. load_routes itself stays untouched for hybrid intents."""
     plan = fallback_plan("drafting", "LOW", "draft a response")
-    assert plan.source == "routes"
-    assert [s["agent"] for s in plan.stages] == ["hunter", "clerk"]
-    # every stage names the task (the generic instruction's contract)
-    assert all("draft a response" in s["prompt"] for s in plan.stages)
+    assert plan.source == "legal-pipeline"
+    assert len(plan.stages) >= 8
+    # every stage names the task (the interpolation contract)
+    assert all("draft a response" in s["instruction"] for s in plan.stages)
 
 
-def test_fallback_plan_unknown_intent_defaults():
-    plan = fallback_plan("no-such-intent", "LOW", "t")
-    assert [s["agent"] for s in plan.stages] == ["hunter"]     # default_route
+def test_supervisor_routes_still_resolve_for_hybrid_intents():
+    from harness.module_e.supervisor import load_routes
+    agents = load_routes(Path(__file__).parents[1] / "data" / "module-e" /
+                         "supervisor.yaml").resolve("drafting", "LOW")
+    assert agents == ["hunter", "clerk"]          # the table is unchanged
 
 
 # -- the per-stage agent file (F5: the body carries the instruction) -----------
@@ -145,9 +150,9 @@ def test_runner_falls_back_to_routes_when_plan_is_garbage(tmp_path):
     driver = _FakeDriver()
     runner = FactoryRunner(driver, store=store)
     import asyncio
-    # no plan text -> routes for the default intent; passes a stage count > 0
+    # no plan text -> the legal pipeline for a typed goal; every stage lands a row
     rows = asyncio.run(runner.run_task(sid, "m1", "some task", plan_text="not a plan"))
-    assert [r.agent for r in rows] == ["hunter"]
+    assert len(rows) >= 8 and rows[0].agent == "ingestor"
 
 
 def test_runner_writes_stage_agent_file_after_the_sync(tmp_path):
@@ -194,3 +199,46 @@ def test_runner_hands_prior_deliverables_forward(tmp_path):
     copied = tmp_path / "workspaces" / sid / "clerk-stage-d" / \
         "from-hunter-stage-x--precedent-map.md"
     assert copied.read_text(encoding="utf-8") == "the map"
+
+
+def test_legal_pipeline_is_the_fallback_and_carries_the_task():
+    """One prompt -> the whole crew: a typed goal (no plan block) builds the
+    legal pipeline with the ask interpolated into every stage instruction."""
+    from harness.session.factory import fallback_plan
+    plan = fallback_plan("", "HIGH", "see if i can win the case and what to file")
+    assert plan.source == "legal-pipeline"
+    assert len(plan.stages) >= 8
+    assert all("see if i can win the case" in s["instruction"] for s in plan.stages)
+    agents = [s["agent"] for s in plan.stages]
+    assert agents[0] == "ingestor" and agents[-1] == "auditor"
+    assert "clerk" in agents and "adversary" in agents and "evaluator" in agents
+
+
+def test_pipeline_yaml_agents_all_exist_in_the_scaffold():
+    """Drift-guard: every pipeline persona must be a mount scaffold agent, or the
+    stage spawn falls back to the default agent (the Task-7 lesson)."""
+    import yaml
+    from pathlib import Path
+    doc = yaml.safe_load(
+        (Path(__file__).parents[1] / "data" / "module-e" /
+         "legal_pipeline.yaml").read_text(encoding="utf-8"))
+    known = {"ingestor", "hunter", "strategist", "adversary", "evaluator",
+             "clerk", "citation", "auditor", "negotiator", "wargamer",
+             "architect", "verifier", "ambiguity"}
+    for spec in doc["pipeline"]:
+        assert spec["agent"] in known, f"unknown pipeline agent {spec['agent']}"
+        assert "{task}" in spec["instruction"]
+
+
+def test_run_task_seeds_the_session_digest_into_stage_one(tmp_path):
+    """Run-2+'s memory: the digest rides as stage 1's previous-stage summary."""
+    import asyncio
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    driver = _FakeDriver()
+    runner = FactoryRunner(driver, store=store)
+    asyncio.run(runner.run_task(sid, "m1", "assess my case",
+                                session_digest="Last checkpoint: map written"))
+    first_prompt = driver.calls[0][2]
+    assert "prior session" in first_prompt
+    assert "Last checkpoint: map written" in first_prompt

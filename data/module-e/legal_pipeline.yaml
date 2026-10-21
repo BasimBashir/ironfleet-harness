@@ -1,0 +1,92 @@
+# data/module-e/legal_pipeline.yaml — the one-prompt legal case pipeline (R3, 2026-10-21)
+#
+# The factory's default crew for a TYPED case goal (no ```plan block): the user states
+# the ask once — "process my docs, can I win, how do I file / how do I minimise damage" —
+# and these stages run in order, each grounded in ironfleet_corpus_search, each writing
+# its deliverable to its workspace. The user's {task} text is interpolated into every
+# stage's instruction. Continuation: a session digest (last checkpoint / last summaries)
+# seeds stage 1, and prior runs' files are handed forward, so a follow-up prompt
+# continues from the last checkpoint.
+#
+# House law: this file is DATA — editing the pipeline is a data edit, never code.
+
+pipeline:
+  - stage: intake
+    agent: ingestor
+    instruction: >
+      Intake for this matter. The user's ask: {task}
+      Extract every case fact the ask states (parties, dates, agreements, registrations,
+      events, what went wrong, what the user wants). Write case-summary.md stating the
+      facts, the practice areas in play (from the corpus inventory), and — if material
+      facts are MISSING to answer the ask — also write fact-questions.md listing the
+      questions the user must answer, numbered. Where you proceed on an assumption,
+      mark it [ASSUMPTION]. Do not invent facts.
+  - stage: research
+    agent: hunter
+    instruction: >
+      Research the issues raised by the intake for this ask: {task}
+      Use ironfleet_corpus_search on each issue (statutory sections and case law).
+      Write research-memo.md: per issue — the governing provisions (exact sections),
+      the controlling authorities in this corpus (parties, citation, holding), and
+      anything the corpus does NOT answer. Flag every authority not found in the
+      corpus [NOT IN CORPUS].
+  - stage: strategy
+    agent: strategist
+    instruction: >
+      Build the case theory for this ask: {task}
+      From the research memo and intake facts, write case-theory.md: the viable cause(s)
+      of action or defence paths, the elements to prove, the strongest authorities for
+      each, the weaknesses, and the facts that would decide each path. Mark assumptions
+      [ASSUMPTION].
+  - stage: attack
+    agent: adversary
+    instruction: >
+      You are opposing counsel for this ask: {task}
+      Write attack-brief.md: for every path in the case theory, the strongest counter —
+      the competing authority from the corpus, the section reading that defeats it, and
+      the fact pattern where the user loses. Do not soften it.
+  - stage: assess
+    agent: evaluator
+    instruction: >
+      Weigh theory against attack for this ask: {task}
+      Write win-assessment.md: per cause of action — win probability (with reasons),
+      the single decisive fact or section, and BOTH branches stated concretely:
+      (a) PROCEED — the path to win; (b) if losing — MINIMUM DAMAGE: the mitigation
+      moves (settlement posture, remedy exposure under the corpus's provisions,
+      steps that reduce liability). Every judgement tied to an authority or [ASSUMPTION].
+  - stage: filings
+    agent: clerk
+    instruction: >
+      Produce the filings roadmap for this ask: {task}
+      Write filings-roadmap.md from the win-assessment's proceed branch (and the
+      minimum-damage branch if that is the live one): every filing and step in order —
+      what document, which court/registry, the governing rule or section (High Court
+      Rules 2016, limitation periods from the Limitation Act 2010, PPSA registration
+      steps under the PPSA 1999, any pre-action requirement), who acts, and WHEN
+      (deadlines computed as relative dates from today; never invent absolute dates
+      you cannot ground). Use ironfleet_corpus_search for each rule you cite.
+  - stage: advice
+    agent: clerk
+    instruction: >
+      Write the client answer for this ask: {task}
+      Write advice-letter.md — the document the user actually reads: a plain-language
+      answer (can I win? how? or how do I take minimum damage?), the recommendation,
+      ALL steps with what and when (from the filings roadmap), the risks, and the
+      open questions (from fact-questions.md) that would change the advice. Sign-off
+      block as for a client letter. No informalities.
+  - stage: verify
+    agent: citation
+    instruction: >
+      Verify the record for this ask: {task}
+      Spot-check advice-letter.md and win-assessment.md against ironfleet_corpus_search:
+      every case and section must support its proposition. Write citation-check.md
+      listing VERIFIED, CORRECTED, and [NOT IN CORPUS] citations.
+  - stage: close
+    agent: auditor
+    instruction: >
+      Close the run for this ask: {task}
+      Write closing-summary.md: what was produced (every file, one line each), the
+      direct answer to the user's ask in five lines, the open risks, and how the user
+      continues this session (type a follow-up to explain or change; answer
+      fact-questions.md if it exists and ask again — the crew continues from the last
+      checkpoint).

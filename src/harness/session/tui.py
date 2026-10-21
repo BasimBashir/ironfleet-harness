@@ -643,6 +643,29 @@ class IronFleetApp(App):
         self._echo("\n".join(lines) +
                    "\n(route edits are data edits in data/routing-a1.yaml)")
 
+    def _session_digest(self) -> str:
+        """Run-2+'s memory: the last checkpoint's summary (or the last two turn
+        summaries) plus the deliverables already produced — seeded into stage 1
+        so a follow-up prompt continues from the last checkpoint."""
+        rows = self.store.turns(self.session_id) if self.session_id else []
+        if not rows:
+            return ""
+        parts: list[str] = []
+        checkpoints = [r for r in rows if (r.display or "").startswith("/compact")]
+        if checkpoints:
+            parts.append("Last checkpoint: " + (checkpoints[-1].output_summary or "")[:600])
+        else:
+            for r in rows[-2:]:
+                if r.output_summary:
+                    parts.append(f"{r.agent} reported: {r.output_summary[:300]}")
+        if self.base and self.session_id:
+            names = [f"{f.parent.name}/{f.name}"
+                     for f in (Path(self.base) / self.session_id).glob("*/*.md")
+                     if ".opencode" not in f.parts]
+            if names:
+                parts.append("Files already produced: " + ", ".join(names[-12:]))
+        return " | ".join(parts)[:2000]
+
     async def _dispatch_task(self, text: str) -> None:
         from harness.session.tokens import maybe_compact, window_for
         driver = getattr(self.runner, "driver", None)
@@ -658,16 +681,22 @@ class IronFleetApp(App):
                 self._echo("auto-compacting…")
             matter_ref = driver.resume(self.session_id)["matter_ref"]
             # The chaired shell runs the FULL crew at the corpus's best serving
-            # tier: a typed ```plan block scripts the stages exactly; without one,
-            # HIGH complexity widens the route chain, and CLOUD_PERMITTED lets the
-            # routing table send analysis classes to the full-tier provider.
+            # tier: a typed ```plan block scripts the stages exactly; a plain
+            # goal gets the legal pipeline (data/module-e/legal_pipeline.yaml)
+            # with the session digest seeded, so follow-ups continue from the
+            # last checkpoint; CLOUD_PERMITTED lets the routing table send
+            # analysis classes to the full-tier provider.
             task, plan_text = split_plan(text)
             rows = await self.runner.run_task(self.session_id, matter_ref, task,
                                               plan_text=plan_text,
                                               complexity="HIGH",
-                                              classification="CLOUD_PERMITTED")
+                                              classification="CLOUD_PERMITTED",
+                                              session_digest=self._session_digest())
             self._echo(f"factory: {len(rows)} stage(s) done")
             self._echo_deliverables()
+            self._echo("continue: type a follow-up (explain, change, refine — the "
+                       "crew starts from the last checkpoint). If fact-questions.md "
+                       "was written, answer it and ask again.")
         except Exception as exc:                              # noqa: BLE001
             _tui_error("dispatch_task", exc, root=self.store.root,
                        session=self.session_id)
