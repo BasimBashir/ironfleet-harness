@@ -180,10 +180,14 @@ class IronFleetApp(App):
     #main { height: 1fr; }
     #chat-scroll { width: 2fr; height: 1fr; border: round $primary; }
     #side { width: 3fr; }
-    #view { height: auto; max-height: 100%; }
-    #docs { height: auto; max-height: 100%; }
-    #mind { height: auto; max-height: 100%; }
-    #corpus { height: auto; max-height: 100%; }
+    /* height:auto (no max-height clamp): the Static must GROW past the
+       viewport for the VerticalScroll around it to have anything to scroll —
+       max-height:100% flattened every pane to the viewport (the non-scroll
+       bug the live session hit) */
+    #view { height: auto; }
+    #docs { height: auto; }
+    #mind { height: auto; }
+    #corpus { height: auto; }
     #status { dock: bottom; height: 1; background: $panel; color: $text; }
     #prompt { dock: bottom; height: 3; margin-bottom: 1; }
     TabPane { height: 1fr; }

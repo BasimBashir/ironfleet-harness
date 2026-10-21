@@ -341,3 +341,39 @@ def test_render_jobs_collapses_superseded_running_rows():
     out = render_jobs(rows, spin=0)
     assert "running" not in out
     assert "done" in out and "02:20" in out and "wrote map" in out
+
+
+def test_side_panes_scroll_when_content_overflows(tmp_path):
+    """The four side panes must actually SCROLL: a pane whose content exceeds
+    the viewport needs max_scroll_y > 0 — the height chain (TabbedContent ->
+    TabPane -> VerticalScroll) silently disengaged once already."""
+    import asyncio
+    from textual.containers import VerticalScroll
+    from textual.widgets import Static, TabbedContent, TabPane
+    from harness.session.store import SessionStore
+    from harness.session.tui import IronFleetApp
+
+    async def body():
+        app = IronFleetApp(SessionStore(tmp_path))
+        async with app.run_test() as pilot:
+            body_text = "\n".join(f"line {i}" for i in range(200))
+            app.query_one("#view", Static).update(body_text)
+            app.query_one("#docs", Static).update(body_text)
+            app._echo("\n".join(f"chat {i}" for i in range(80)))
+            await pilot.pause()
+            # the ACTIVE pane + chat scroll now
+            assert app.query_one("#view", Static).parent.max_scroll_y > 0, \
+                "Jobs pane cannot scroll — height chain broken"
+            assert app.query_one("#chat", Static).parent.max_scroll_y > 0, \
+                "chat cannot scroll"
+            # an INACTIVE pane scrolls once its tab is selected (Textual gives
+            # hidden TabPanes zero height — display:none until active)
+            docs_pane = app.query_one("#docs", Static).parent
+            while not isinstance(docs_pane, TabPane):
+                docs_pane = docs_pane.parent
+            app.query_one(TabbedContent).active = docs_pane.id
+            await pilot.pause()
+            assert app.query_one("#docs", Static).parent.max_scroll_y > 0, \
+                "Docs pane cannot scroll after tab select — height chain broken"
+
+    asyncio.run(body())
