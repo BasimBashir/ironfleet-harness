@@ -121,10 +121,11 @@ def test_render_jobs_shows_stage_agent_status():
              "detail": "found A and B"}]
     s = render_jobs(rows)
     assert "gather" in s and "hunter" in s
-    assert "running" in s and "done" in s
-    assert "found A and B" in s
-    # the status column is readable at a glance — one line per job
-    assert len(s.strip().splitlines()) == 2
+    # the pair collapses: the superseded running row does NOT render as running
+    assert "running" not in s
+    assert "done" in s and "found A and B" in s
+    # one line per (stage, agent), readable at a glance
+    assert len(s.strip().splitlines()) == 1
 
 
 def test_render_jobs_empty_is_honest():
@@ -323,3 +324,20 @@ def test_render_jobs_running_row_carries_elapsed():
     out = render_jobs([{"stage": "stage-1", "agent": "hunter", "status": "running",
                         "detail": "", "ts": ts}], spin=1)
     assert "01:35" in out
+
+
+def test_render_jobs_collapses_superseded_running_rows():
+    """The ledger is append-only: yesterday's running row + its done row must
+    render ONCE as done with the duration — not "running 749:06" forever."""
+    from datetime import datetime, timedelta, timezone
+    from harness.session.tui import render_jobs
+    t0 = datetime.now(timezone.utc)
+    rows = [
+        {"stage": "inventory", "agent": "ingestor", "status": "running",
+         "detail": "", "ts": t0.isoformat()},
+        {"stage": "inventory", "agent": "ingestor", "status": "done",
+         "detail": "wrote map", "ts": (t0 + timedelta(seconds=140)).isoformat()},
+    ]
+    out = render_jobs(rows, spin=0)
+    assert "running" not in out
+    assert "done" in out and "02:20" in out and "wrote map" in out

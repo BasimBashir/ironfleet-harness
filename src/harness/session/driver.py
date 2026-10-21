@@ -206,7 +206,7 @@ def build_turn_row(*, session_id: str, matter_ref: str, agent: str,
                 tools.append(name)
         elif kind == "text" and isinstance(part.get("text"), str):
             final_text = part["text"]
-        elif kind == "reasoning" and isinstance(part.get("text"), str):
+        elif kind in ("reasoning", "thinking") and isinstance(part.get("text"), str):
             thinking_parts.append(part["text"])
     # The Thinking pane's raw material — capped so a reasoning-heavy turn cannot
     # bloat the JSONL (the stream itself is the full record while it lives).

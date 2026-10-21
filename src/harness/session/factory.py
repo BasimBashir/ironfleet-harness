@@ -38,6 +38,12 @@ _STAGE_TOOLS = ("read", "glob", "grep", "task", "todowrite", "skill",
                 "bash", "edit", "write", "webfetch", "spawn_agent",
                 "ironfleet_corpus_search")
 
+# The stage turn's task class — ONE constant for the agent md and the spawn's
+# --model flag, which OVERRIDES agent frontmatter in opencode. The 2026-10-21
+# live crew: the md pinned drafting but the flag still said extraction, so
+# thomson1 served every stage no matter what the routing table promised.
+STAGE_MODEL = "gate-local/gate/drafting"
+
 
 @dataclass
 class StagePlan:
@@ -110,7 +116,7 @@ def stage_agent_md(stage: str, instruction: str, tools: dict[str, bool] | None =
             # served every stage on this box and the crew ran on the 1k-output
             # local model no matter the classification; drafting is non-mechanical,
             # so the routing table promotes stages to the full-tier provider.
-            "model: gate-local/gate/drafting\n"
+            f"model: {STAGE_MODEL}\n"
             "tools:\n"
             f"{tool_yaml}\n"
             "---\n"
@@ -246,7 +252,8 @@ class FactoryRunner:
                                index=1, total=1, task=task, previous_stage=prev_stage,
                                previous_summary=prev_summary)
         row = await self.driver.run_turn(session_id, matter_ref, fname, prompt,
-                                         classification=classification)
+                                         classification=classification,
+                                         model=STAGE_MODEL)
         # The row records WHO ran (the persona), not the generated stage-file stem
         # the spawn needed: the JSONL row and the acceptance checks read `agent`
         # by name, and "hunter-stage-gather" is an implementation detail.
@@ -255,6 +262,7 @@ class FactoryRunner:
             # P7's interjection: continue the stage's OWN opencode session by id
             # when we have it, else a fresh turn in the same workspace.
             row = await self.driver.run_turn(session_id, matter_ref, fname,
-                                             f"User interjection: {text}")
+                                             f"User interjection: {text}",
+                                             model=STAGE_MODEL)
             row.agent = agent
         return row

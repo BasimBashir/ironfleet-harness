@@ -593,8 +593,14 @@ def ironfleet_corpus_search(query, k: int = 5, rerank: bool = True,
                 RerankRequest(matter_ref=matter, query=query, texts=texts)))
             return res.scores
     if rerank and rerank_fn is not None and hits:
-        scores = rerank_fn(query[:1200], [h.text[:4000] for h in hits])
-        hits = [h for _, h in sorted(zip(scores, hits), key=lambda p: -p[0])]
+        try:
+            scores = rerank_fn(query[:1200], [h.text[:4000] for h in hits])
+            hits = [h for _, h in sorted(zip(scores, hits), key=lambda p: -p[0])]
+        except Exception:
+            # The reranker being down (llama-rerank REFUSED on this box) must
+            # degrade, not blind the search: un-reranked fusion order beats an
+            # error envelope — the agent can still read the passages.
+            pass
     top = hits[:k]
     out = {"passages": [{"doc_id": h.doc_id, "heading": h.heading, "text": h.text,
                          "source_name": h.source_name, "score": h.score} for h in top],

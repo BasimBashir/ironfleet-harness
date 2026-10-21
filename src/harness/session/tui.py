@@ -76,28 +76,44 @@ def render_status(*, mode: str, session_id: str | None, used: int, window: int) 
 
 
 def render_jobs(rows: list[dict], spin: int = 0) -> str:
-    """The global view's text: one line per factory job — the stage ledger the
-    runner writes into S7f's jobs table. A RUNNING stage shows a spinner and its
-    elapsed time (the user's realtime ask: the shell is visibly alive while a
-    turn is in flight). Pure so tests and the timer share one truth."""
+    """The stage ledger, COLLAPSED to the latest row per (stage, agent): the
+    table is append-only (a running row, then its done/failed row), and the raw
+    stream read as "running 749:06" for stages that finished yesterday. A stage
+    still running shows the spinner + live elapsed; a finished one shows its
+    total duration. Pure so tests and the timer share one truth."""
     if not rows:
         return "no jobs yet — give the shell a task"
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     spinner = "|/-\\"[spin % 4]
-    lines = []
+    latest: dict[tuple[str, str], dict] = {}
+    started: dict[tuple[str, str], str] = {}
     for r in rows:
+        key = (r["stage"], r["agent"])
+        if r["status"] == "running":
+            started.setdefault(key, r.get("ts") or "")
+        latest[key] = r
+    lines = []
+
+    def _mins_secs(seconds: float) -> str:
+        m, s = divmod(max(0, int(seconds)), 60)
+        return f"{m:02d}:{s:02d}"
+
+    for (stage, agent), r in latest.items():
         detail = f" — {r['detail']}" if r.get("detail") else ""
-        if r["status"] == "running" and r.get("ts"):
-            try:
-                started = datetime.fromisoformat(r["ts"])
-                mins, secs = divmod(max(0, int((now - started).total_seconds())), 60)
-                mark = f"{spinner} running {mins:02d}:{secs:02d}"
-            except ValueError:
-                mark = f"{spinner} running"
-            lines.append(f"[{mark}] {r['stage']} ({r['agent']}){detail}")
+        start_ts = started.get((stage, agent)) or r.get("ts") or ""
+        try:
+            began = datetime.fromisoformat(start_ts)
+        except ValueError:
+            began = None
+        if r["status"] == "running" and began is not None:
+            lines.append(f"[{spinner} running {_mins_secs((now - began).total_seconds())}"
+                         f"] {stage} ({agent}){detail}")
+        elif r["status"] in ("done", "failed") and began is not None:
+            took = _mins_secs((datetime.fromisoformat(r["ts"]) - began).total_seconds())
+            lines.append(f"[{r['status']:>7} {took}] {stage} ({agent}){detail}")
         else:
-            lines.append(f"[{r['status']:>7}] {r['stage']} ({r['agent']}){detail}")
+            lines.append(f"[{r['status']:>7}] {stage} ({agent}){detail}")
     return "\n".join(lines)
 
 
@@ -124,8 +140,9 @@ def render_agents(rows: list[dict], jobs: list[dict] | None = None,
     spinner = "|/-\\"[spin % 4]
     status_by_agent: dict[str, str] = {}
     running: set[str] = set()
-    for j in (jobs or []):
-        status_by_agent.setdefault(j["agent"], f"{j['status']} {j['stage']}")
+    for j in (jobs or []):                      # jobs() is oldest-first: last wins
+        status_by_agent[j["agent"]] = f"{j['status']} {j['stage']}"
+        running.discard(j["agent"])
         if j["status"] == "running":
             running.add(j["agent"])
     lines = []
@@ -169,6 +186,7 @@ class IronFleetApp(App):
     #corpus { height: auto; max-height: 100%; }
     #status { dock: bottom; height: 1; background: $panel; color: $text; }
     #prompt { dock: bottom; height: 3; margin-bottom: 1; }
+    TabPane { height: 1fr; }
     .pane-scroll { height: 1fr; }
     """
 
@@ -303,17 +321,32 @@ class IronFleetApp(App):
         return text
 
     def _docs_text(self) -> str:
-        """The doc pane's text: the watched workspace's changed files (status —
-        a NEW doc is untracked and invisible to ls-files/diff) + the diff body.
-        No workspace injected yet: an honest dash."""
-        if self.docs_ws is None:
+        """The doc pane's text: the ACTIVE stage workspace's changed files
+        (git status — a NEW doc is untracked and invisible to ls-files/diff) +
+        the diff body. The watched workspace follows the crew: the latest job's
+        `<agent>-stage-<stage>` directory, falling back to the injected docs_ws
+        (the pinned hunter-drive watch never saw stage output)."""
+        ws = self._active_ws()
+        if ws is None:
             return "no workspace watched"
         from harness.session.view import doc_changes, doc_diff
-        changes = doc_changes(self.docs_ws)
-        head = (f"changed: {', '.join(changes[:8])}{' …' if len(changes) > 8 else ''}"
-                if changes else "changed: (nothing yet)")
-        diff = doc_diff(self.docs_ws)
+        changes = doc_changes(ws)
+        head = (f"watching {ws.name} — changed: "
+                f"{', '.join(changes[:8])}{' …' if len(changes) > 8 else ''}"
+                if changes else f"watching {ws.name} — changed: (nothing yet)")
+        diff = doc_diff(ws)
         return f"{head}\n{diff}" if diff else head
+
+    def _active_ws(self) -> Path | None:
+        if not (self.session_id and self.base):
+            return self.docs_ws
+        rows = self.store.jobs(self.session_id)
+        if rows:
+            j = rows[-1]                          # jobs() is oldest-first
+            cand = Path(self.base) / self.session_id / f"{j['agent']}-stage-{j['stage']}"
+            if cand.is_dir():
+                return cand
+        return self.docs_ws
 
     def _tick(self) -> None:
         """The poll: meter, status bar, view pane (jobs + agents), doc, corpus and
