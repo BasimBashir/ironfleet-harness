@@ -102,6 +102,10 @@ def test_run_turn_abandons_a_wedged_spawn_instead_of_freezing(tmp_path):
     async def never(*a, **kw):
         await asyncio.sleep(30)
 
+    # patch asyncio.to_thread (the REAL seam run_turn calls) — a patch of
+    # spawn_session alone would miss a broken to_thread reference, which is
+    # exactly how the 2026-10-21 NameError slipped past this test once.
+    orig_tt, drv_mod.asyncio.to_thread = drv_mod.asyncio.to_thread, never
     orig, drv_mod.spawn_session = drv_mod.spawn_session, never
     orig_ids, drv_mod._trace_ids = drv_mod._trace_ids, lambda p: set()
     orig_ws, drv.workspace_for = drv.workspace_for, lambda *a, **k: tmp_path / "ws"
@@ -112,6 +116,7 @@ def test_run_turn_abandons_a_wedged_spawn_instead_of_freezing(tmp_path):
         turns = store.turns(sid)
         assert len(turns) == 1                   # the row LANDED either way
     finally:
+        drv_mod.asyncio.to_thread = orig_tt      # global module: MUST restore
         drv_mod.spawn_session = orig
         drv_mod._trace_ids = orig_ids
         drv.workspace_for = orig_ws

@@ -138,7 +138,7 @@ class SessionDriver:
             # deadlock-fixed spawn fails to return (a wedged grandchild, a locked
             # store), the turn FAILS RECORDED and the shell carries on. The thread
             # itself is a detached daemon — nothing joins it, so it cannot leak.
-            code, events, sid = await asyncio.wait_for(to_thread(
+            code, events, sid = await asyncio.wait_for(asyncio.to_thread(
                 spawn_session, ws, agent, prompt, env=env, model=model,
                 continue_session=continue_session), timeout=self.TURN_TIMEOUT_S)
         except Exception as exc:                                  # noqa: BLE001
