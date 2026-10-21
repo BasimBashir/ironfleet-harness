@@ -123,8 +123,12 @@ def stage_agent_md(stage: str, instruction: str, tools: dict[str, bool] | None =
             f"Stage {stage}: {instruction}\n"
             "\n"
             "Follow the user's instructions exactly. Write the requested files into "
-            "the current workspace and reply with exactly the requested text. Never "
-            "editorialise; the harness checks verbatim text.\n")
+            "the current workspace with the write tool — a reply that CONTAINS the "
+            "document instead of writing the file is a failed stage (six stages of "
+            "the 2026-10-21 live crew echoed their deliverables and wrote nothing). "
+            "After writing, reply with only: the file path and a two-line summary. "
+            "Ground every legal statement in ironfleet_corpus_search results; an "
+            "authority not found in the corpus must be flagged [NOT IN CORPUS].\n")
 
 
 def _stage_prompt(*, stage: str, instruction: str, agent: str, index: int, total: int,
