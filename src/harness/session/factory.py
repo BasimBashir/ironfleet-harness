@@ -22,6 +22,7 @@ Design rules the research gate bought:
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -252,6 +253,18 @@ class FactoryRunner:
         (ws / ".opencode" / "agent").mkdir(parents=True, exist_ok=True)
         (ws / ".opencode" / "agent" / f"{fname}.md").write_text(
             stage_agent_md(stage["stage"], instruction), encoding="utf-8")
+        # Hand the WORK forward, not just the summary: prior stages' deliverables
+        # are copied into this stage's workspace under visible names. A stage's
+        # cwd is its own directory, and reads across sibling workspaces hit
+        # opencode's permission wall (the phase-2/3 crews' "source files aren't
+        # at that path" + denied reads) — in-cwd reads are the path that works.
+        if self.store:
+            for src in (Path(self.store.root) / "workspaces" / session_id).glob("*/*.md"):
+                if ".opencode" in src.parts or src.parent == ws:
+                    continue
+                dest = ws / f"from-{src.parent.name}--{src.name}"
+                if not dest.exists():
+                    shutil.copy2(src, dest)
         prompt = _stage_prompt(stage=stage["stage"], instruction=instruction, agent=agent,
                                index=1, total=1, task=task, previous_stage=prev_stage,
                                previous_summary=prev_summary)

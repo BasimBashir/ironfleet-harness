@@ -165,3 +165,32 @@ def test_runner_writes_stage_agent_file_after_the_sync(tmp_path):
     # left --agent pointing at a persona opencode could not see, and every stage
     # silently fell back to the default agent on the extraction class.
     assert driver.workspaces == ["hunter-stage-g"]
+
+
+def test_runner_hands_prior_deliverables_forward(tmp_path):
+    """The crew's hand-off is FILES, not just summaries: prior stages' md
+    deliverables are copied into the next stage's workspace (a stage's cwd is
+    its own directory, and cross-workspace reads hit opencode's permission
+    wall — the phase-2/3 crews could not read sibling stage output)."""
+    import asyncio
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    driver = _FakeDriver()
+
+    class _LocalFake(_FakeDriver):
+        def workspace_for(self, session_id, agent, matter_ref,
+                          classification="LOCAL_PREFERRED"):
+            self.workspaces.append(agent)
+            ws = tmp_path / "workspaces" / session_id / agent
+            ws.mkdir(parents=True, exist_ok=True)
+            return ws
+
+    runner = FactoryRunner(_LocalFake(), store=store)
+    prior = tmp_path / "workspaces" / sid / "hunter-stage-x"
+    prior.mkdir(parents=True)
+    (prior / "precedent-map.md").write_text("the map", encoding="utf-8")
+    asyncio.run(runner.run_task(sid, "m1", "t",
+                                plan_text="```plan\nd|clerk|write it\n```"))
+    copied = tmp_path / "workspaces" / sid / "clerk-stage-d" / \
+        "from-hunter-stage-x--precedent-map.md"
+    assert copied.read_text(encoding="utf-8") == "the map"
