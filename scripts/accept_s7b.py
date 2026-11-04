@@ -70,7 +70,8 @@ def main() -> int:
     # serve_forever thread and cannot raise OSError. The guard must wrap construction or the
     # bind failure escapes uncaught. Same placement as the driver's port-collision guard.
     try:
-        proxy = EgressProxy(HOST, PORT, gate, rt, aliases, ws / "matter.json")
+        # M1/S3: serve the registry run_case's sync_mount writes its token into.
+        proxy = EgressProxy(HOST, PORT, gate, rt, aliases, ws.parent / "matters")
     except OSError as ex:
         print(f"port {PORT} busy — close whatever holds it and retry: {ex}", file=sys.stderr)
         return 2

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -87,33 +88,40 @@ def _read_matter(path) -> dict:
     return doc
 
 
-def _read_matter_registry(matter_file) -> tuple[dict[str, dict], dict | None]:
-    """A matter_file may be a single record (the S7b legacy form) or a directory of
-    per-matter records (<root>/matters/<ref>/matter.json). Both resolve to the same
+def _read_matter_registry(matter_file) -> dict[str, dict]:
+    """The served directory of per-matter records (<root>/<ref>/matter.json) as a
     {matter_ref: record} map; an unreadable or empty registry is UnknownMatter.
-
-    The second return value is the DEFAULT record, and only the legacy single-record form
-    yields one — a request carrying no identity falls back to the one matter.json on disk.
-    A directory never yields a default, even a directory holding exactly one record: there
-    is no default matter in the directory form (spec §4). Keeping that asymmetry here,
-    rather than testing a record count in do_POST, makes "no default matter" a property of
-    the form instead of an accident of how many records happen to be on disk.
 
     Read on every request, not cached at construction: adding a window is dropping a
     record into the directory, and the proxy must see it without a restart."""
     p = Path(matter_file)
-    if p.is_dir():
-        out: dict[str, dict] = {}
-        for child in sorted(p.iterdir()):
-            rec = child / "matter.json"
-            if rec.is_file():
-                doc = _read_matter(rec)
-                out[doc["matter_ref"]] = doc
-        if not out:
-            raise UnknownMatter(str(p))
-        return out, None
-    doc = _read_matter(p)
-    return {doc["matter_ref"]: doc}, doc
+    if not p.is_dir():
+        raise UnknownMatter(str(p))
+    out: dict[str, dict] = {}
+    for child in sorted(p.iterdir()):
+        rec = child / "matter.json"
+        if rec.is_file():
+            doc = _read_matter(rec)
+            out[doc["matter_ref"]] = doc
+    if not out:
+        raise UnknownMatter(str(p))
+    return out
+
+
+# M1/S3: the ONLY accepted dispatch path. The token is checked against this shape before it
+# is joined onto a filesystem path, so "..", "/" or "%" can never reach the lookup.
+_TOKEN_PATH = re.compile(r"/v1/t/([A-Za-z0-9_-]{16,})/chat/completions")
+
+
+def _token_matter(matter_file, token: str) -> str | None:
+    """The matter_ref sync_mount minted `token` for, or None if it is unknown or rotated.
+    A single-record matter_file (the dead S7b form) has no _tokens directory: always None."""
+    try:
+        with open(Path(matter_file) / "_tokens" / f"{token}.json", "r", encoding="utf-8") as f:
+            ref = json.load(f).get("matter_ref")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return ref if isinstance(ref, str) and ref else None
 
 
 def _sse_chunks(resp) -> bytes:
@@ -164,21 +172,27 @@ class _Handler(BaseHTTPRequestHandler):
                                             "type": "not_found"}})
 
     def do_POST(self):
-        # A-5 (spec §4): two shapes are accepted — the legacy /v1/chat/completions and the
-        # per-matter /v1/m/<ref>/chat/completions. The ref captured here is the path-form
-        # identity; a header, if present, takes precedence over it below.
-        path_matter = None
-        parts = self.path.split("/")
-        if parts[:2] == ["", "v1"] and len(parts) > 4 and parts[2] == "m" \
-                and parts[4:] == ["chat", "completions"]:
-            path_matter = parts[3]
-        elif self.path != "/v1/chat/completions":
-            self._send_json(404, {"error": {"message": f"no such path {self.path}",
-                                            "type": "not_found"}})
+        # M1/S3 (audit 01 S3): matter identity comes ONLY from the per-sync token in the path.
+        # The A-5 header, the /v1/m/<ref> path and the legacy token-less form let any local
+        # process dispatch as any registered matter, so none of them is read any more.
+        # Drain the body before any early reply: on Windows, closing a socket with unread
+        # bytes aborts the connection and the client never sees the status.
+        try:
+            body = self.rfile.read(int(self.headers["Content-Length"] or 0))
+        except ValueError:
+            body = b""
+        m = _TOKEN_PATH.fullmatch(self.path)
+        if m is None or (token_ref := _token_matter(self.proxy.matter_file, m[1])) is None:
+            if m is None and not self.path.endswith("/chat/completions"):
+                self._send_json(404, {"error": {"message": f"no such path {self.path}",
+                                                "type": "not_found"}})
+            else:
+                self._send_json(401, {"error": {"message":
+                    "no live matter token — re-sync the mount", "type": "unauthorized"}})
             return
         try:
-            raw = json.loads(self.rfile.read(int(self.headers["Content-Length"] or 0)))
-        except (ValueError, KeyError):
+            raw = json.loads(body)
+        except ValueError:
             self._send_json(400, {"error": {"message": "malformed JSON body",
                                             "type": "bad_request"}})
             return
@@ -189,24 +203,18 @@ class _Handler(BaseHTTPRequestHandler):
                 "message": f"unknown model '{raw.get('model')}': not a gate alias",
                 "type": "bad_request"}})
             return
-        # A-5 (spec §4): matter identity in fixed precedence — header, then path, then the
-        # legacy single record. An unregistered or unreadable matter is 500
-        # matter_unavailable: no passthrough, no default matter, no routing by alias.
+        # The token names the matter; its record still supplies the classification. An
+        # unregistered or unreadable matter is 500 matter_unavailable: no passthrough, no
+        # default matter, no routing by alias.
         try:
-            registry, legacy_default = _read_matter_registry(self.proxy.matter_file)
+            matter = _read_matter_registry(self.proxy.matter_file).get(token_ref)
         except UnknownMatter as ex:
             self._send_json(500, {"error": {"message": f"matter record unavailable: {ex}",
                                             "type": "matter_unavailable"}})
             return
-        ref = self.headers.get("X-IronFleet-Matter") or path_matter
-        matter = registry.get(ref) if ref else None
-        if matter is None and ref is None and legacy_default is not None:
-            # The S7b form: one matter.json on disk, no identity on the request. The single
-            # record IS the matter. A directory never takes this branch — it has no default.
-            matter = legacy_default
         if matter is None:
             self._send_json(500, {"error": {"message":
-                f"matter {ref!r} is not registered — nothing dispatches without a record",
+                f"matter {token_ref!r} is not registered — nothing dispatches without a record",
                 "type": "matter_unavailable"}})
             return
         request = LLMRequest(matter_ref=matter["matter_ref"], task_class=task_class,

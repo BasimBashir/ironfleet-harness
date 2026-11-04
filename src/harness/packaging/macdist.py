@@ -65,11 +65,11 @@ MOUNT_README = """\
 # Per-matter mounts (S7f wiring, reused)
 
 Each matter gets a directory under here holding its `matter.json`. The opencode mount's
-provider `baseURL` points at `http://127.0.0.1:7373/v1/m/<matter_ref>`, so opencode's own
-provider wiring carries matter identity to the gate — the identity form proven live by
-S7f's C7. Precedence in the proxy: `X-IronFleet-Matter` header, then the `/v1/m/<ref>`
-path, then this `matter.json`. An unregistered matter is refused (`500
-matter_unavailable`): no passthrough, no default matter.
+provider `baseURL` points at `http://127.0.0.1:7373/v1/t/<token>`, where the token is
+minted per sync and recorded under `_tokens/` (M1/S3). The proxy resolves the matter from
+that token alone; a missing, unknown or rotated token is refused (`401 unauthorized`), and a
+token whose matter is unregistered is refused (`500 matter_unavailable`): no passthrough,
+no default matter.
 """
 
 

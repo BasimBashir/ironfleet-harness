@@ -13,9 +13,8 @@ def test_sync_mount_copies_and_substitutes(tmp_path):
     # passes, so only a different port proves the key is actually rewritten.
     sync_mount(ws, data / "opencode-a1", matter_ref="m-test",
                classification="LOCAL_PREFERRED", port=8123)
-    cfg = json.loads((ws / "opencode.json").read_text())
-    assert cfg["provider"]["gate-local"]["options"]["baseURL"] == "http://127.0.0.1:8123/v1/m/m-test"
-    matter = json.loads((ws / "matter.json").read_text())
+    assert _base_url(ws).startswith("http://127.0.0.1:8123/v1/t/")
+    matter = json.loads((ws / "matter.json").read_text(encoding="utf-8"))
     assert matter["matter_ref"] == "m-test"
 
 def test_sync_mount_refuses_port_collision_substitution(tmp_path):
@@ -26,9 +25,11 @@ def test_sync_mount_refuses_port_collision_substitution(tmp_path):
     data = Path(__file__).resolve().parent.parent / "data"
     sync_mount(ws, data / "opencode-a1", matter_ref="m-test",
                classification="LOCAL_PREFERRED", port=8123)
-    cfg = json.loads((ws / "opencode.json").read_text())
-    assert cfg["provider"]["gate-local"]["options"]["baseURL"] == \
-        "http://127.0.0.1:8123/v1/m/m-test"
+    assert _base_url(ws).startswith("http://127.0.0.1:8123/v1/t/")
+
+def _base_url(ws):
+    cfg = json.loads((ws / "opencode.json").read_text(encoding="utf-8"))
+    return cfg["provider"]["gate-local"]["options"]["baseURL"]
 
 def test_driver_help_runs(tmp_path):
     # Smoke: the CLI imports cleanly and its --help exits 0.
@@ -307,21 +308,45 @@ def test_build_gate_wraps_the_embedding_transport_too(tmp_path, monkeypatch):
     assert out["data"][0]["embedding"] == [0.1, 0.2]
 
 
-def test_sync_mount_names_the_matter_in_the_baseURL_path(tmp_path):
-    # A-5 (spec §4): the mount's ONLY provisionable identity channel is the baseURL path —
-    # opencode's ProviderConfig options object has no `headers` key (additionalProperties is
-    # false on a fixed list), so a matter header cannot be provisioned at all. This is the
-    # single test that pins the mount's side of the seam; C7 then proves the binary forwards
-    # it. `@ai-sdk/openai-compatible` joins withoutTrailingSlash(baseURL) + "/chat/completions",
-    # so /v1/m/m-path arrives intact as /v1/m/m-path/chat/completions.
+def test_sync_mount_names_the_matter_by_a_minted_token(tmp_path):
+    # M1/S3: the baseURL path is still the mount's ONLY provisionable identity channel
+    # (opencode's ProviderConfig options has no `headers` key), but it now carries an
+    # unguessable per-sync token, not the matter_ref — the proxy resolves the matter from
+    # <matters_root>/_tokens/<token>.json. `@ai-sdk/openai-compatible` joins
+    # withoutTrailingSlash(baseURL) + "/chat/completions", so /v1/t/<token> arrives intact.
     from scripts.stand_up_opencode import sync_mount
     ws = tmp_path / "ws"; ws.mkdir()
     data = Path(__file__).resolve().parent.parent / "data"
     sync_mount(ws, data / "opencode-a1", matter_ref="m-path",
                classification="LOCAL_PREFERRED", port=8123)
-    cfg = json.loads((ws / "opencode.json").read_text())
-    assert cfg["provider"]["gate-local"]["options"]["baseURL"] == \
-        "http://127.0.0.1:8123/v1/m/m-path"
+    url = _base_url(ws)
+    prefix = "http://127.0.0.1:8123/v1/t/"
+    assert url.startswith(prefix) and "m-path" not in url
+    tok = url[len(prefix):]
+    assert len(tok) >= 32
+    rec = json.loads((ws.parent / "matters" / "_tokens" / f"{tok}.json")
+                     .read_text(encoding="utf-8"))
+    assert rec == {"matter_ref": "m-path"}
+
+def test_a_resync_rotates_only_this_workspaces_token(tmp_path):
+    # Rotation per sync: the token this workspace minted last time is deleted; another
+    # workspace mounted on the SAME matter keeps its own.
+    from scripts.stand_up_opencode import sync_mount
+    data = Path(__file__).resolve().parent.parent / "data"
+    root = tmp_path / "matters"
+    a, b = tmp_path / "a" / "ws", tmp_path / "b" / "ws"
+    for ws in (a, b):
+        sync_mount(ws, data / "opencode-a1", matter_ref="m-rot",
+                   classification="LOCAL_PREFERRED", port=8123, matters_root=root)
+    tok = lambda ws: _base_url(ws).rsplit("/", 1)[1]
+    old_a, tok_b = tok(a), tok(b)
+    sync_mount(a, data / "opencode-a1", matter_ref="m-rot",
+               classification="LOCAL_PREFERRED", port=8123, matters_root=root)
+    new_a = tok(a)
+    assert new_a != old_a
+    assert not (root / "_tokens" / f"{old_a}.json").exists()
+    assert (root / "_tokens" / f"{new_a}.json").exists()
+    assert (root / "_tokens" / f"{tok_b}.json").exists()
 
 def test_sync_mount_writes_the_per_matter_record(tmp_path):
     # A-5: the proxy serves a matters DIRECTORY — adding a window is dropping a record,

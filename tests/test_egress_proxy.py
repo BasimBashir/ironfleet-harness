@@ -1,5 +1,5 @@
 # tests/test_egress_proxy.py
-import json, urllib.request, urllib.error
+import json, secrets, urllib.request, urllib.error
 import pytest
 from harness.gate import EgressGate, LLMRequest, GateRefusal
 from harness.policy import RoutingTable
@@ -25,19 +25,43 @@ def gate_stack(tmp_path, fake_transport):
     gate = EgressGate(reg, rt, trace, transport=fake_transport)
     return gate, rt, aliases, trace, tmp_path
 
-def _post(url, body):
+def _post(url, body, headers=None):
     req = urllib.request.Request(url, data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json", **(headers or {})})
     return urllib.request.urlopen(req, timeout=10)
+
+def _mint(root, ref):
+    """M1/S3: what sync_mount does — a token record naming the matter; returns the token."""
+    tok = secrets.token_urlsafe(16)
+    (root / "_tokens").mkdir(parents=True, exist_ok=True)
+    (root / "_tokens" / f"{tok}.json").write_text(json.dumps({"matter_ref": ref}),
+                                                  encoding="utf-8")
+    return tok
+
+def _write_matters(root, refs, classification="LOCAL_PREFERRED"):
+    """A served matters directory holding `refs`, each with a token; returns (root, {ref: tok})."""
+    root.mkdir(parents=True, exist_ok=True)
+    for ref in refs:
+        d = root / ref
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "matter.json").write_text(json.dumps(
+            {"matter_ref": ref, "classification": classification}), encoding="utf-8")
+    return root, {ref: _mint(root, ref) for ref in refs}
+
+def _serve(tmp_path, ref):
+    """One-matter fixture: (matters root, the chat-completions path for its token)."""
+    root, toks = _write_matters(tmp_path / "matters", [ref])
+    return root, f"/v1/t/{toks[ref]}/chat/completions"
+
+EXTRACT = {"model": "gate/extraction", "messages": [{"role": "user", "content": "Extract"}]}
 
 def test_chat_completion_happy_path(gate_stack):
     gate, rt, aliases, trace, tmp_path = gate_stack
-    matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-001", "classification": "LOCAL_PREFERRED"}))
+    matter, path = _serve(tmp_path, "m-001")
     proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
     proxy.start(); host, port = proxy.server_address
     try:
-        r = _post(f"http://{host}:{port}/v1/chat/completions",
+        r = _post(f"http://{host}:{port}{path}",
                   {"model": "gate/extraction",
                    "messages": [{"role": "user", "content": "Extract the parties"}],
                    "max_tokens": 100})
@@ -53,8 +77,7 @@ def test_chat_completion_happy_path(gate_stack):
 
 def test_models_endpoint_lists_aliases(gate_stack):
     gate, rt, aliases, trace, tmp_path = gate_stack
-    matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-001", "classification": "LOCAL_PREFERRED"}))
+    matter, _path = _serve(tmp_path, "m-001")
     proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
     proxy.start(); host, port = proxy.server_address
     try:
@@ -66,8 +89,7 @@ def test_models_endpoint_lists_aliases(gate_stack):
 
 def test_refusal_returns_403_and_traces(gate_stack):
     gate, rt, aliases, trace, tmp_path = gate_stack
-    matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-draft", "classification": "LOCAL_PREFERRED"}))
+    matter, path = _serve(tmp_path, "m-draft")
     # Add a drafting alias whose rule lists only unregistered providers → refuses.
     aliases["gate/drafting"] = {"task_class": "drafting"}
     rt._rules.append({"task_class": "drafting", "local_only": ["mini1-mlx"],
@@ -76,7 +98,7 @@ def test_refusal_returns_403_and_traces(gate_stack):
     proxy.start(); host, port = proxy.server_address
     try:
         with pytest.raises(urllib.error.HTTPError) as ex:
-            _post(f"http://{host}:{port}/v1/chat/completions",
+            _post(f"http://{host}:{port}{path}",
                   {"model": "gate/drafting",
                    "messages": [{"role": "user", "content": "Draft a claim"}]})
         assert ex.value.code == 403
@@ -88,8 +110,7 @@ def test_refusal_returns_403_and_traces(gate_stack):
 
 def test_transport_error_returns_502_and_traces(gate_stack):
     gate, rt, aliases, trace, tmp_path = gate_stack
-    matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-broken", "classification": "LOCAL_PREFERRED"}))
+    matter, path = _serve(tmp_path, "m-broken")
 
     async def dead(provider, payload):
         raise RuntimeError("ollama down")
@@ -98,24 +119,23 @@ def test_transport_error_returns_502_and_traces(gate_stack):
     proxy.start(); host, port = proxy.server_address
     try:
         with pytest.raises(urllib.error.HTTPError) as ex:
-            _post(f"http://{host}:{port}/v1/chat/completions",
-                  {"model": "gate/extraction",
-                   "messages": [{"role": "user", "content": "Extract"}]})
+            _post(f"http://{host}:{port}{path}", EXTRACT)
         assert ex.value.code == 502
         rows = trace.by_matter("m-broken")
         assert len(rows) == 1 and rows[0].status == "error"
     finally:
         proxy.stop()
 
-def test_missing_matter_returns_500_and_never_dispatches(gate_stack):
+def test_a_token_naming_an_unregistered_matter_is_500_and_never_dispatches(gate_stack):
+    # A valid token whose matter record is gone: no passthrough, no default matter.
     gate, rt, aliases, trace, tmp_path = gate_stack
-    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, tmp_path / "nope.json")
+    root, _toks = _write_matters(tmp_path / "matters", ["m-known"])
+    tok = _mint(root, "m-gone")
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, root)
     proxy.start(); host, port = proxy.server_address
     try:
         with pytest.raises(urllib.error.HTTPError) as ex:
-            _post(f"http://{host}:{port}/v1/chat/completions",
-                  {"model": "gate/extraction",
-                   "messages": [{"role": "user", "content": "Extract"}]})
+            _post(f"http://{host}:{port}/v1/t/{tok}/chat/completions", EXTRACT)
         assert ex.value.code == 500
         assert trace.summary()["dispatches"] == 0        # nothing reached the gate
     finally:
@@ -123,12 +143,11 @@ def test_missing_matter_returns_500_and_never_dispatches(gate_stack):
 
 def test_stream_true_returns_sse_with_one_delta(gate_stack):
     gate, rt, aliases, trace, tmp_path = gate_stack
-    matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-stream", "classification": "LOCAL_PREFERRED"}))
+    matter, path = _serve(tmp_path, "m-stream")
     proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
     proxy.start(); host, port = proxy.server_address
     try:
-        req = urllib.request.Request(f"http://{host}:{port}/v1/chat/completions",
+        req = urllib.request.Request(f"http://{host}:{port}{path}",
             data=json.dumps({"model": "gate/extraction", "stream": True,
                              "messages": [{"role": "user", "content": "Extract"}]}).encode(),
             headers={"Content-Type": "application/json"})
@@ -165,8 +184,7 @@ def test_concurrent_same_matter_keeps_each_request_own_code(gate_stack):
     # handler reads the trace, by_matter()[-1] is B's row and A misreports 403 where the
     # spec requires 502. The pre-dispatch snapshot must point A at its own row.
     gate, rt, aliases, trace, tmp_path = gate_stack
-    matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-race", "classification": "LOCAL_PREFERRED"}))
+    matter, path = _serve(tmp_path, "m-race")
 
     async def dead(provider, payload):
         raise RuntimeError("ollama down")
@@ -191,16 +209,17 @@ def test_concurrent_same_matter_keeps_each_request_own_code(gate_stack):
     proxy.start(); host, port = proxy.server_address
     try:
         with pytest.raises(urllib.error.HTTPError) as ex:
-            _post(f"http://{host}:{port}/v1/chat/completions",
-                  {"model": "gate/extraction",
-                   "messages": [{"role": "user", "content": "Extract"}]})
+            _post(f"http://{host}:{port}{path}", EXTRACT)
         assert ex.value.code == 502            # not 403 — this request's own row was an error
         rows = trace.by_matter("m-race")
         assert [r.status for r in rows] == ["error", "refused"]
     finally:
         proxy.stop()
 
-# --- A-5: the proxy is multi-matter, identity from header / path / legacy (spec §4) -----
+# --- M1/S3: matter identity comes ONLY from a per-sync token (audit 01 S3) ---------------
+# The A-5 header, /v1/m/<ref> path and legacy single-record forms let any local process
+# dispatch as any registered matter. sync_mount now mints a token per sync and the proxy
+# resolves the matter from <matters_root>/_tokens/<token>.json — nothing else is read.
 
 def _proxy_with_scheduler(gate_stack, matters_dir):
     """A proxy whose dispatch goes through a scheduler, serving a matters DIRECTORY."""
@@ -210,125 +229,92 @@ def _proxy_with_scheduler(gate_stack, matters_dir):
     proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matters_dir, scheduler=sched)
     return proxy, trace, tmp_path
 
-def _write_matters(root, refs):
-    root.mkdir(parents=True, exist_ok=True)
-    for ref in refs:
-        d = root / ref
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "matter.json").write_text(json.dumps(
-            {"matter_ref": ref, "classification": "LOCAL_PREFERRED"}))
-    return root
-
-def _queue_ms(host, port, ref, stream=False):
+def _queue_ms(host, port, tok, stream=False):
     """POST a dispatch and read back the scheduler's queue-wait header."""
     req = urllib.request.Request(
-        f"http://{host}:{port}/v1/m/{ref}/chat/completions",
-        data=json.dumps({"model": "gate/extraction", "stream": stream,
-                         "messages": [{"role": "user", "content": "Extract"}]}).encode(),
+        f"http://{host}:{port}/v1/t/{tok}/chat/completions",
+        data=json.dumps({**EXTRACT, "stream": stream}).encode(),
         headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=30) as r:
         r.read()
         return float(r.headers.get("X-IronFleet-Queue-Ms", "0"))
 
-def test_header_identifies_the_matter(gate_stack):
+def test_the_token_identifies_the_matter(gate_stack):
     gate, rt, aliases, trace, tmp_path = gate_stack
-    root = _write_matters(tmp_path / "matters", ["m-hdr", "m-other"])
+    root, toks = _write_matters(tmp_path / "matters", ["m-tok", "m-other"])
     proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
     proxy.start(); host, port = proxy.server_address
     try:
-        req = urllib.request.Request(f"http://{host}:{port}/v1/chat/completions",
-            data=json.dumps({"model": "gate/extraction",
-                             "messages": [{"role": "user", "content": "Extract"}]}).encode(),
-            headers={"Content-Type": "application/json", "X-IronFleet-Matter": "m-hdr"})
-        r = urllib.request.urlopen(req, timeout=10)
-        assert json.loads(r.read())["choices"][0]["message"]["content"]
-        rows = trace.by_matter("m-hdr")
-        assert len(rows) == 1                      # dispatched under the HEADER's matter
-        assert trace.by_matter("m-other") == []    # and no other matter's record was touched
-    finally:
-        proxy.stop()
-
-def test_path_identifies_the_matter(gate_stack):
-    gate, rt, aliases, trace, tmp_path = gate_stack
-    root = _write_matters(tmp_path / "matters", ["m-path", "m-other"])
-    proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
-    proxy.start(); host, port = proxy.server_address
-    try:
-        r = _post(f"http://{host}:{port}/v1/m/m-path/chat/completions",
-                  {"model": "gate/extraction",
-                   "messages": [{"role": "user", "content": "Extract"}]})
-        rows = trace.by_matter("m-path")
-        assert len(rows) == 1
+        _post(f"http://{host}:{port}/v1/t/{toks['m-tok']}/chat/completions", EXTRACT).read()
+        assert len(trace.by_matter("m-tok")) == 1
         assert trace.by_matter("m-other") == []
     finally:
         proxy.stop()
 
-def test_header_wins_over_path_when_both_are_present(gate_stack):
-    # Precedence is fixed and deterministic (spec §4): header first, then path, then the
-    # legacy record — so an operator can always tell which form identified the turn.
+def test_a_header_naming_another_matter_is_ignored(gate_stack):
+    # The header is never read: a valid token is served as the token's matter, whatever the
+    # request claims.
     gate, rt, aliases, trace, tmp_path = gate_stack
-    root = _write_matters(tmp_path / "matters", ["m-hdr", "m-path"])
+    root, toks = _write_matters(tmp_path / "matters", ["m-tok", "m-victim"])
     proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
     proxy.start(); host, port = proxy.server_address
     try:
-        req = urllib.request.Request(f"http://{host}:{port}/v1/m/m-path/chat/completions",
-            data=json.dumps({"model": "gate/extraction",
-                             "messages": [{"role": "user", "content": "Extract"}]}).encode(),
-            headers={"Content-Type": "application/json", "X-IronFleet-Matter": "m-hdr"})
-        urllib.request.urlopen(req, timeout=10).read()
-        assert len(trace.by_matter("m-hdr")) == 1
-        assert trace.by_matter("m-path") == []
+        _post(f"http://{host}:{port}/v1/t/{toks['m-tok']}/chat/completions", EXTRACT,
+              headers={"X-IronFleet-Matter": "m-victim"}).read()
+        assert len(trace.by_matter("m-tok")) == 1
+        assert trace.by_matter("m-victim") == []
     finally:
         proxy.stop()
 
-def test_unknown_matter_is_500_and_never_dispatches(gate_stack):
+@pytest.mark.parametrize("path,headers", [
+    ("/v1/chat/completions", {}),                                   # token-less legacy form
+    ("/v1/chat/completions", {"X-IronFleet-Matter": "m-one"}),      # header identity, removed
+    ("/v1/m/m-one/chat/completions", {}),                           # path identity, removed
+    ("/v1/t/not-a-minted-token/chat/completions", {}),              # unknown token
+    ("/v1/t/../chat/completions", {}),                              # not a token shape
+])
+def test_a_request_without_a_live_token_is_401_and_never_dispatches(gate_stack, path, headers):
     gate, rt, aliases, trace, tmp_path = gate_stack
-    root = _write_matters(tmp_path / "matters", ["m-known"])
+    root, _toks = _write_matters(tmp_path / "matters", ["m-one", "m-two"])
     proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
     proxy.start(); host, port = proxy.server_address
     try:
         with pytest.raises(urllib.error.HTTPError) as ex:
-            _post(f"http://{host}:{port}/v1/m/m-unknown/chat/completions",
-                  {"model": "gate/extraction",
-                   "messages": [{"role": "user", "content": "Extract"}]})
-        assert ex.value.code == 500
-        assert trace.summary()["dispatches"] == 0   # no passthrough, no default matter
+            _post(f"http://{host}:{port}{path}", EXTRACT, headers=headers)
+        assert ex.value.code == 401
+        assert trace.summary()["dispatches"] == 0
     finally:
         proxy.stop()
 
-def test_legacy_single_matter_file_still_works(gate_stack):
-    # The S7b form — one matter.json, no matters directory — must keep working so no
-    # existing mount breaks (spec §4).
+def test_a_rotated_token_is_401(gate_stack):
+    # sync_mount deletes the token it minted last sync; a client still holding it is out.
+    gate, rt, aliases, trace, tmp_path = gate_stack
+    root, toks = _write_matters(tmp_path / "matters", ["m-rot"])
+    (root / "_tokens" / f"{toks['m-rot']}.json").unlink()
+    proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
+    proxy.start(); host, port = proxy.server_address
+    try:
+        with pytest.raises(urllib.error.HTTPError) as ex:
+            _post(f"http://{host}:{port}/v1/t/{toks['m-rot']}/chat/completions", EXTRACT)
+        assert ex.value.code == 401
+        assert trace.summary()["dispatches"] == 0
+    finally:
+        proxy.stop()
+
+def test_the_legacy_single_record_file_form_is_dead(gate_stack):
+    # The S7b form — one matter.json served directly — has no _tokens directory, so no
+    # request can authenticate against it. Every mount re-syncs to the directory form.
     gate, rt, aliases, trace, tmp_path = gate_stack
     matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-legacy", "classification": "LOCAL_PREFERRED"}))
-    sched = TurnScheduler(Capacity(perf_cores=99, avail_mb=999_999, source_cores="t",
-                                   source_memory="t"), max_concurrent=1)
-    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter, scheduler=sched)
-    proxy.start(); host, port = proxy.server_address
-    try:
-        _post(f"http://{host}:{port}/v1/chat/completions",
-              {"model": "gate/extraction",
-               "messages": [{"role": "user", "content": "Extract"}]})
-        assert len(trace.by_matter("m-legacy")) == 1
-    finally:
-        proxy.stop()
-
-def test_no_identity_in_a_matters_directory_is_refused(gate_stack):
-    # A matters DIRECTORY holding two records, with no identity on the request, must NOT
-    # fall back to either record — there is no default matter (spec §4). The legacy
-    # single-record fallback is a property of the ONE-record form, not of the directory.
-    gate, rt, aliases, trace, tmp_path = gate_stack
-    root = _write_matters(tmp_path / "matters", ["m-one", "m-two"])
-    proxy, _trace, _tp = _proxy_with_scheduler(gate_stack, root)
+    matter.write_text(json.dumps({"matter_ref": "m-legacy", "classification": "LOCAL_PREFERRED"}),
+                      encoding="utf-8")
+    proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
     proxy.start(); host, port = proxy.server_address
     try:
         with pytest.raises(urllib.error.HTTPError) as ex:
-            _post(f"http://{host}:{port}/v1/chat/completions",
-                  {"model": "gate/extraction",
-                   "messages": [{"role": "user", "content": "Extract"}]})
-        assert ex.value.code == 500
-        assert trace.summary()["dispatches"] == 0
+            _post(f"http://{host}:{port}/v1/chat/completions", EXTRACT)
+        assert ex.value.code == 401
+        assert trace.by_matter("m-legacy") == []
     finally:
         proxy.stop()
 
@@ -337,7 +323,7 @@ def test_queue_timeout_returns_503_with_retry_after(gate_stack):
     # piling its own retries onto the queue (spec §3.4).
     import asyncio, threading, time
     gate, rt, aliases, trace, tmp_path = gate_stack
-    root = _write_matters(tmp_path / "matters", ["m-q"])
+    root, toks = _write_matters(tmp_path / "matters", ["m-q"])
     sched = TurnScheduler(Capacity(perf_cores=99, avail_mb=999_999, source_cores="t",
                                    source_memory="t"), max_concurrent=1, queue_timeout=0.05)
 
@@ -347,18 +333,14 @@ def test_queue_timeout_returns_503_with_retry_after(gate_stack):
     gate._transport = slow
     proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, root, scheduler=sched)
     proxy.start(); host, port = proxy.server_address
+    url = f"http://{host}:{port}/v1/t/{toks['m-q']}/chat/completions"
     try:
         # First turn holds the only slot; the second queues and times out.
-        t = threading.Thread(target=lambda: _post(
-            f"http://{host}:{port}/v1/m/m-q/chat/completions",
-            {"model": "gate/extraction",
-             "messages": [{"role": "user", "content": "Extract"}]}), daemon=True)
+        t = threading.Thread(target=lambda: _post(url, EXTRACT), daemon=True)
         t.start()
         time.sleep(0.05)          # let the first dispatch acquire the single slot
         with pytest.raises(urllib.error.HTTPError) as ex:
-            _post(f"http://{host}:{port}/v1/m/m-q/chat/completions",
-                  {"model": "gate/extraction",
-                   "messages": [{"role": "user", "content": "Extract"}]})
+            _post(url, EXTRACT)
         assert ex.value.code == 503
         assert ex.value.headers.get("Retry-After") is not None
         t.join(timeout=10)
@@ -372,7 +354,7 @@ def test_queue_wait_is_reported_in_a_header(gate_stack):
     # consumer; a header touches no schema.
     import asyncio, threading, time
     gate, rt, aliases, trace, tmp_path = gate_stack
-    root = _write_matters(tmp_path / "matters", ["m-hdr", "m-queued"])
+    root, toks = _write_matters(tmp_path / "matters", ["m-hdr", "m-queued"])
     sched = TurnScheduler(Capacity(perf_cores=99, avail_mb=999_999, source_cores="t",
                                    source_memory="t"), max_concurrent=1)
 
@@ -385,15 +367,15 @@ def test_queue_wait_is_reported_in_a_header(gate_stack):
     waited = {}
     try:
         t = threading.Thread(target=lambda: waited.update(
-            {"a": _queue_ms(host, port, "m-hdr")}), daemon=True)
+            {"a": _queue_ms(host, port, toks["m-hdr"])}), daemon=True)
         t.start()
         time.sleep(0.05)          # let the first dispatch take the only slot
-        waited["b"] = _queue_ms(host, port, "m-queued")
+        waited["b"] = _queue_ms(host, port, toks["m-queued"])
         t.join(timeout=10)
         # And the header is present on the streaming path too — same uncontended ~0 as A.
         # Read it HERE, inside the try: the finally below stops the server, so a header
         # read after it is a connection refused, not a measurement.
-        waited["stream"] = _queue_ms(host, port, "m-hdr", stream=True)
+        waited["stream"] = _queue_ms(host, port, toks["m-hdr"], stream=True)
     finally:
         proxy.stop()
     # The turn that had to wait reports a real queue wait; the one that went first reports
@@ -445,12 +427,11 @@ def _tool_stack(tmp_path, transport=None):
 
 def _tool_proxy(tmp_path):
     gate, rt, aliases, trace = _tool_stack(tmp_path)
-    matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-001", "classification": "LOCAL_PREFERRED"}))
+    matter, path = _serve(tmp_path, "m-001")
     proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
     proxy.start()
     host, port = proxy.server_address
-    return proxy, f"http://{host}:{port}/v1/chat/completions", trace
+    return proxy, f"http://{host}:{port}{path}", trace
 
 
 def test_the_gate_carries_tool_calls_on_the_response(tmp_path, fake_transport):
@@ -506,12 +487,11 @@ def test_proxy_sse_body_carries_indexed_tool_calls(tmp_path):
 
 def test_plain_content_keeps_stop_finish(tmp_path, gate_stack):
     gate, rt, aliases, trace, tmp_path = gate_stack
-    matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-001", "classification": "LOCAL_PREFERRED"}))
+    matter, path = _serve(tmp_path, "m-001")
     proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
     proxy.start(); host, port = proxy.server_address
     try:
-        body = json.loads(_post(f"http://{host}:{port}/v1/chat/completions",
+        body = json.loads(_post(f"http://{host}:{port}{path}",
                                 {"model": "gate/extraction", "max_tokens": 100,
                                  "messages": [{"role": "user", "content": "x"}]}).read())
         assert body["choices"][0]["finish_reason"] == "stop"
@@ -567,12 +547,11 @@ def test_the_proxy_forwards_the_client_tools_array(tmp_path):
         return await _tool_call_transport()(provider, payload)
 
     gate, rt, aliases, trace = _tool_stack(tmp_path, transport=spy)
-    matter = tmp_path / "matter.json"
-    matter.write_text(json.dumps({"matter_ref": "m-001", "classification": "LOCAL_PREFERRED"}))
+    matter, path = _serve(tmp_path, "m-001")
     proxy = EgressProxy("127.0.0.1", 0, gate, rt, aliases, matter)
     proxy.start(); host, port = proxy.server_address
     try:
-        _post(f"http://{host}:{port}/v1/chat/completions",
+        _post(f"http://{host}:{port}{path}",
               {"model": "gate/extraction", "max_tokens": 100,
                "messages": [{"role": "user", "content": "call"}],
                "tools": [{"type": "function", "function": {"name": "ironfleet_without_prejudice",

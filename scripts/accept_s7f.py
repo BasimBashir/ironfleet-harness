@@ -25,7 +25,7 @@ Usage: .venv/Scripts/python.exe scripts/accept_s7f.py [--keep-ws]
 """
 from __future__ import annotations
 
-import argparse, asyncio, json, shutil, subprocess, sys, threading
+import argparse, asyncio, json, secrets, shutil, subprocess, sys, threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -245,11 +245,16 @@ async def check_c6(ws: Path, scheduler: TurnScheduler) -> list[str]:
     # lesson, in the one place S7f's async checks need it.
     gate2, _rt, _al = await asyncio.get_running_loop().run_in_executor(
         None, build_gate, ws / "trace-c6.db")
+    tokens: dict[str, str] = {}               # M1/S3: the proxy names matters only by token
+    (MATTERS_ROOT / "_tokens").mkdir(parents=True, exist_ok=True)
     for ref in (MATTER_A, MATTER_B):
         d = MATTERS_ROOT / ref
         d.mkdir(parents=True, exist_ok=True)
         (d / "matter.json").write_text(json.dumps(
-            {"matter_ref": ref, "classification": "LOCAL_PREFERRED"}))
+            {"matter_ref": ref, "classification": "LOCAL_PREFERRED"}), encoding="utf-8")
+        tokens[ref] = secrets.token_urlsafe(32)
+        (MATTERS_ROOT / "_tokens" / f"{tokens[ref]}.json").write_text(
+            json.dumps({"matter_ref": ref}), encoding="utf-8")
     proxy = EgressProxy("127.0.0.1", 7374, gate2, _rt, _al, MATTERS_ROOT, scheduler=scheduler)
     proxy.start()
     try:
@@ -257,13 +262,12 @@ async def check_c6(ws: Path, scheduler: TurnScheduler) -> list[str]:
         queued_ms: dict[str, float] = {}
         def post(ref):
             req = urllib.request.Request(
-                f"http://127.0.0.1:7374/v1/m/{ref}/chat/completions",
+                f"http://127.0.0.1:7374/v1/t/{tokens[ref]}/chat/completions",
                 data=json.dumps({"model": "gate/extraction", "max_tokens": 64,
                                  "messages": [{"role": "user", "content":
                                      "Extract the party names from: ACME Ltd and Beta Corp."}]}
                                 ).encode(),
-                headers={"Content-Type": "application/json",
-                         "X-IronFleet-Matter": ref})
+                headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=300) as r:
                 # The only per-request evidence of the queue wait; 0.0 means it never queued.
                 queued_ms[ref] = float(r.headers.get("X-IronFleet-Queue-Ms", "0"))
@@ -389,7 +393,7 @@ async def check_c7(ws: Path, scheduler: TurnScheduler) -> list[str]:
         # accepts — and a row under EACH ref proves it survived the binary. Printed, never
         # asserted as a version pin (S7d precedent: the pin is S7c's pending user one).
         if not any(p.startswith("C7:") for p in problems):
-            print(f"[C7] identity form: baseURL path (/v1/m/<ref>/) — turns landed under "
+            print(f"[C7] identity form: baseURL path (/v1/t/<token>/) — turns landed under "
                   f"both {MATTER_A} and {MATTER_B} on the installed binary",
                   file=sys.stderr)
     finally:

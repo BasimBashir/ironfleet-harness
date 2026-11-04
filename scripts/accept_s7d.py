@@ -88,7 +88,10 @@ def check_mount_statics(cfg: dict, port: int) -> list[str]:
     if list(providers) != ["gate-local"]:
         problems.append(f"C1: expected exactly one provider gate-local, found {list(providers)}")
     p = providers.get("gate-local", {})
-    if p.get("options", {}).get("baseURL") != f"http://127.0.0.1:{port}/v1":
+    # The template carries bare /v1; a synced workspace carries its M1/S3 matter token.
+    base = p.get("options", {}).get("baseURL") or ""
+    if base != f"http://127.0.0.1:{port}/v1" and not base.startswith(
+            f"http://127.0.0.1:{port}/v1/t/"):
         problems.append("C1: gate-local options.baseURL is not the loopback proxy")
     if "baseURL" in p:
         problems.append("C1: top-level baseURL is silently ignored at runtime")
@@ -166,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     # Mirrors the proven guard in stand_up_opencode.main.
     try:
         proxy = EgressProxy(HOST, PORT, gate, gate.routing, load_aliases(routing_s7d),
-                            ws / "matter.json")
+                            ws.parent / "matters")   # sync_mount's default registry
     except OSError as ex:
         print(f"[accept-s7d] C0: cannot bind {HOST}:{PORT} — a collision would point the "
               f"mount elsewhere: {ex}", file=sys.stderr)
@@ -207,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
                 problems.append("C3: empty assistant text")
 
         req = urllib.request.Request(                          # C4 — proxy-direct
-            f"http://{HOST}:{PORT}/v1/chat/completions",
+            cfg["provider"]["gate-local"]["options"]["baseURL"] + "/chat/completions",
             data=json.dumps({"model": REFUSAL_ALIAS,
                              "messages": [{"role": "user",
                                            "content": "must never dispatch"}]}).encode(),

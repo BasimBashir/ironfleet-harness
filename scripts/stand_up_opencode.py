@@ -12,7 +12,7 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse, asyncio, json, os, shutil, subprocess, sys, time
+import argparse, asyncio, json, os, secrets, shutil, subprocess, sys, time
 from pathlib import Path
 
 from harness.alias import load_aliases
@@ -226,12 +226,23 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
     # additionalProperties:false, so a top-level baseURL is silently ignored at runtime and
     # the SDK builds "undefined/chat/completions". The spike's proven mount puts it here
     # (src/harness/spike/candidates/opencode/opencode.json).
-    cfg = json.loads((mount / "opencode.json").read_text())
+    # M1/S3: the matter is named by a token minted per sync, never by its ref — the proxy
+    # serves only /v1/t/<token>. The token this workspace minted LAST time is retired below.
+    old_url = ""
+    if (ws / "opencode.json").is_file():
+        try:
+            old_url = json.loads((ws / "opencode.json").read_text(encoding="utf-8"))[
+                "provider"]["gate-local"]["options"]["baseURL"]
+        except (ValueError, KeyError, TypeError):
+            pass
+    token = secrets.token_urlsafe(32)
+    cfg = json.loads((mount / "opencode.json").read_text(encoding="utf-8"))
     cfg["provider"]["gate-local"].setdefault("options", {})["baseURL"] = \
-        f"http://{HOST}:{port}/v1/m/{matter_ref}"
-    (ws / "opencode.json").write_text(json.dumps(cfg, indent=2))
+        f"http://{HOST}:{port}/v1/t/{token}"
+    (ws / "opencode.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     (ws / "matter.json").write_text(json.dumps(
-        {"matter_ref": matter_ref, "classification": classification}, indent=2))
+        {"matter_ref": matter_ref, "classification": classification}, indent=2),
+        encoding="utf-8")
     # A-5 (spec §4): the multi-matter proxy reads a per-matter record directory. Defaults to
     # ws.parent / "matters" rather than MATTERS_ROOT: in the live driver that root IS the
     # constant, and a unit test's workspace under tmp_path writes only inside its own tmp
@@ -247,6 +258,13 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
     (matter_dir / "matter.json").write_text(json.dumps(
         {"matter_ref": matter_ref, "classification": classification}, indent=2),
         encoding="utf-8")
+    tokens = root / "_tokens"
+    tokens.mkdir(exist_ok=True)
+    (tokens / f"{token}.json").write_text(json.dumps({"matter_ref": matter_ref}),
+                                          encoding="utf-8")
+    old_token = old_url.rsplit("/v1/t/", 1)[-1] if "/v1/t/" in old_url else ""
+    if old_token and old_token != token:
+        (tokens / f"{old_token}.json").unlink(missing_ok=True)
 
     # --- S7c Module E (Task 10). The manifest is loaded ONCE and drives everything below, so
     # the personas' enablement, the guard's annotation whitelist and the tools shim's tool list

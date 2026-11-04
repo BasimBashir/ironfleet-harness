@@ -168,10 +168,11 @@ a matter holds its own lock only while *running*, so its queued turns wait on th
 and each matter contributes at most one turn to the global queue. No matter's backlog can
 starve another beyond a single turn.
 
-The egress proxy is **multi-matter**: a request identifies its matter by an
-`X-IronFleet-Matter` header, a `/v1/m/<ref>/chat/completions` path, or the legacy single
-`matter.json` (in that precedence), and an unregistered matter is refused with
-`500 matter_unavailable` — no passthrough, no default matter. Every dispatch is submitted to
+The egress proxy is **multi-matter**: a request identifies its matter only by the
+per-sync token in its path, `/v1/t/<token>/chat/completions` (M1/S3). `sync_mount` mints the
+token, records it under `<matters_root>/_tokens/`, and retires the workspace's previous one.
+A missing, unknown or rotated token is refused with `401 unauthorized`, and a token whose
+matter is unregistered with `500 matter_unavailable` — no passthrough, no default matter. Every dispatch is submitted to
 the scheduler as a turn. A turn that waits beyond the queue timeout returns `503` with
 `Retry-After`, so a saturated queue makes the client back off rather than fan retries into
 identical trace rows.
