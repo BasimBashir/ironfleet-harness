@@ -75,7 +75,7 @@ def test_spliced_quotes_pass_the_verbatim_check_by_construction():
 # ------------------------------------------------------- guard integration (D6 composes)
 
 def test_guard_blocks_fabricated_quotes_and_passes_spliced_ones():
-    from harness.spike.guard_port import OpenCodeHookAdapter
+    from harness.module_e.guard_port import OpenCodeHookAdapter
     passages = ["The Personal Property Securities Act governs priority disputes fully."]
     adapter = OpenCodeHookAdapter()
     ok = adapter.handle({"output": 'The Act "governs priority disputes fully" per s 16.',
@@ -96,7 +96,7 @@ def test_guard_blocks_fabricated_quotes_and_passes_spliced_ones():
 
 
 def test_guard_needle_check_unchanged_and_composes():
-    from harness.spike.guard_port import portable_grounding_guard
+    from harness.module_e.guard_port import portable_grounding_guard
     res = portable_grounding_guard("per [Imaginary Act 2026, s 9]", allowed_authorities=["Real Act"])
     assert res.ungrounded == ["[Imaginary Act 2026, s 9]"]
     res = portable_grounding_guard("plain prose, no quotes", allowed_authorities=[],

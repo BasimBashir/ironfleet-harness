@@ -1,4 +1,4 @@
-# src/harness/spike/guard_cli.py
+# src/harness/module_e/guard_cli.py
 """CLI shim so non-Python spike mounts (OpenCode plugins run under Bun/JS) can call the
 REAL guard — `portable_grounding_guard` via `OpenCodeHookAdapter` — instead of a JS
 re-implementation. A JS re-implementation would not be a port of the guard and would
@@ -21,7 +21,7 @@ import sys
 
 
 def handle(payload: dict) -> dict:
-    from harness.spike.guard_port import OpenCodeHookAdapter
+    from harness.module_e.guard_port import OpenCodeHookAdapter
     return OpenCodeHookAdapter().handle(payload)
 
 

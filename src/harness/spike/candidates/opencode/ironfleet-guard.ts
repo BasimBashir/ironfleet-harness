@@ -1,7 +1,7 @@
 // IronFleet grounding-guard port — S4 adopt-spike mount for OpenCode (SPIKE_PROTOCOL P0-5).
 //
 // This file contains NO guard logic: every check goes through guard_cli.py to the real
-// portable guard (src/harness/spike/guard_port.py, OpenCodeHookAdapter). A JS
+// portable guard (src/harness/module_e/guard_port.py, OpenCodeHookAdapter). A JS
 // re-implementation would not be a port of the guard and would break spike parity.
 //
 // Mount points (criterion (a) — guard fires on every tool-execution and model-output path):
@@ -11,9 +11,10 @@
 //                                   opencode 1.18.25 — a stability seam, recorded in SEAM_COUNT)
 //
 // Template note: the driver (scripts/run_spike_opencode.py) syncs this file into the spike
-// workspace, substituting __SPIKE_WS__ / __PYTHON__ / __GUARD_CLI__ with real paths.
-// Per-case authorities: <ws>/allowed.json  {"allowed": [..], "block": bool} (annotate-only
-// for parity runs; block=true demonstrates the deny decision on the tool path).
+// workspace, substituting __SPIKE_WS__ / __PYTHON__ / __GUARD_CLI__ / __GUARD_DIR__ with
+// real paths. Per-case authorities: GUARD_DIR/allowed.json  {"allowed": [..], "block": bool}
+// — the harness-owned dir beside the workspace (annotate-only for parity runs; block=true
+// demonstrates the deny decision on the tool path).
 import { spawnSync } from "node:child_process"
 import { readFileSync, writeFileSync, appendFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
@@ -21,12 +22,15 @@ import { join } from "node:path"
 const WS = "__SPIKE_WS__"
 const PYTHON = "__PYTHON__"
 const GUARD_CLI = "__GUARD_CLI__"
+// Harness-owned authority dir (M1/S4): allowed.json and the guard log live OUTSIDE the
+// workspace — the agent under guard cannot edit the rules that judge it.
+const GUARD_DIR = "__GUARD_DIR__"
 
 type GuardDecision = { decision: string; reason: string; output: string }
 
 function authorities(): { allowed: string[]; block: boolean } {
   try {
-    const raw = JSON.parse(readFileSync(join(WS, "allowed.json"), "utf8"))
+    const raw = JSON.parse(readFileSync(join(GUARD_DIR, "allowed.json"), "utf8"))
     return { allowed: raw.allowed ?? [], block: !!raw.block }
   } catch {
     // Fail CLOSED: no readable authority list means nothing may pass unexamined.
@@ -69,7 +73,7 @@ function guard(text: unknown, tag: string): GuardDecision {
     } catch (first) {
       // One logged retry: transient spawn contention (observed on the subagent path).
       await new Promise((r) => setTimeout(r, 250))
-      appendFileSync(join(WS, "guard-log.jsonl"),
+      appendFileSync(join(GUARD_DIR, "guard-log.jsonl"),
         JSON.stringify({ tag, retry: true, first_error: String(first).slice(0, 300) }) + "\n")
       return guardOnce(text, allowed, tag)
     }
@@ -106,7 +110,7 @@ export const IronFleetGuard = async (_ctx: unknown) => {
       eventCounts.set(event.type, (eventCounts.get(event.type) ?? 0) + 1)
       if (event.type === "session.idle" || event.type === "session.error") {
         appendFileSync(
-          join(WS, "guard-log.jsonl"),
+          join(GUARD_DIR, "guard-log.jsonl"),
           JSON.stringify({ tag: "event-summary", on: event.type,
                            events: Object.fromEntries(eventCounts) }) + "\n",
         )

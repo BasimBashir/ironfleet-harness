@@ -40,7 +40,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from harness.eval.golden_case import GoldenCase, load_cases            # noqa: E402
 from harness.eval.scorers import score_case, write_report             # noqa: E402
-from harness.spike.persona_port import PERSONA_PORT                   # noqa: E402
+from harness.module_e.guard import guard_dir                           # noqa: E402
+from harness.spike.persona_port import PERSONA_PORT                    # noqa: E402
 
 # Baseline-runner helpers (sidecar/report plumbing) — imported, not duplicated.
 _SPEC = importlib.util.spec_from_file_location(
@@ -72,21 +73,22 @@ DEVIATION = ("DEVIATION (spike parity run, agent-recorded 2026-09-01): parity su
 
 
 def write_allowed(ws: Path, allowed: list[str], block: bool = False) -> None:
-    ws.mkdir(parents=True, exist_ok=True)
-    (ws / "allowed.json").write_text(json.dumps({"allowed": allowed, "block": block}),
-                                     encoding="utf-8")
+    g = guard_dir(ws)
+    g.mkdir(parents=True, exist_ok=True)
+    (g / "allowed.json").write_text(json.dumps({"allowed": allowed, "block": block}),
+                                    encoding="utf-8")
 
 
 def guard_annotate(event: dict) -> dict:
     """The adapter contract verbatim: OpenHandsHandlerAdapter.on_action_execution_end.
     Pure (no openhands imports) so its behaviour is unit-testable in harness-core's venv."""
-    from harness.spike.guard_port import OpenHandsHandlerAdapter
+    from harness.module_e.guard_port import OpenHandsHandlerAdapter
     return OpenHandsHandlerAdapter().on_action_execution_end(event)
 
 
 def read_allowed() -> dict:
     try:
-        return json.loads((WS / "allowed.json").read_text(encoding="utf-8"))
+        return json.loads((guard_dir(WS) / "allowed.json").read_text(encoding="utf-8"))
     except Exception:                                   # fail closed, like the opencode mount
         return {"allowed": [], "block": False}
 
@@ -100,8 +102,8 @@ class GuardLog:
 
     def __init__(self) -> None:
         global _GUARD_LOG
-        WS.mkdir(parents=True, exist_ok=True)
-        self.path = WS / "guard-log.jsonl"
+        guard_dir(WS).mkdir(parents=True, exist_ok=True)
+        self.path = guard_dir(WS) / "guard-log.jsonl"
         if _GUARD_LOG is None:
             self.path.write_text("", encoding="utf-8")
             _GUARD_LOG = self
@@ -477,7 +479,7 @@ def smoke() -> int:
                              dump_path=WS / "smoke-events.json")
     print(f"[smoke] final={final!r} latency_ms={int((time.monotonic()-t0)*1000)}")
     print(f"[smoke] event dump -> {WS/'smoke-events.json'}")
-    print(f"[smoke] guard log:\n{(WS / 'guard-log.jsonl').read_text(encoding='utf-8') or '(empty)'}")
+    print(f"[smoke] guard log:\n{(guard_dir(WS) / 'guard-log.jsonl').read_text(encoding='utf-8') or '(empty)'}")
     return 0 if final else 1
 
 
@@ -513,7 +515,7 @@ def inject_run() -> int:
                 tool_texts.append(t)
     marker = "[UNGROUNDED — not confirmed]"
     guard_log = [json.loads(l) for l in
-                 (WS / "guard-log.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+                 (guard_dir(WS) / "guard-log.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
     verdict = {
         "exit_code": 0, "latency_ms": latency,
         "tool_path_annotated": any(marker in t for t in tool_texts) or any(

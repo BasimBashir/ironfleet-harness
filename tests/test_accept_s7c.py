@@ -17,7 +17,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "accept_s7c.py"
-TEMPLATE = ROOT / "src" / "harness" / "spike" / "candidates" / "opencode" / "ironfleet-guard-s7c.ts"
+TEMPLATE = ROOT / "src" / "harness" / "module_e" / "ironfleet-guard-s7c.ts"
 
 
 def _load():
@@ -114,7 +114,7 @@ def test_the_opencode_primitives_are_the_spikes_too():
 
 def test_authorities_carry_expected_citations_and_their_bracket_envelopes():
     mod = _load()
-    from harness.spike.guard_port import _citations
+    from harness.module_e.guard_port import _citations
     cases = {c.id: c for c in mod.load_golden_cases()}
     case = cases["gc-ppsa-001-goldcorp"]
     out = mod.allowed_for(case)
@@ -131,7 +131,7 @@ def test_authorities_cover_every_case_and_the_guard_cannot_split_a_needle():
     annotated after ']', which breaks the scorer's exact-substring needle and fabricates a
     citation failure the unguarded house side cannot show."""
     mod = _load()
-    from harness.spike.guard_port import portable_grounding_guard
+    from harness.module_e.guard_port import portable_grounding_guard
     for case in mod.load_golden_cases():
         allowed = mod.allowed_for(case)
         for cite in case.expected_citations:

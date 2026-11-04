@@ -50,7 +50,7 @@ tools:
 ---
 <!-- body: PERSONA_PORT["system_prompt"] verbatim -->
 <!-- guard mount: opencode.json hooks -> tool.execute.after / chat.message ->
-     OpenCodeHookAdapter (src/harness/spike/guard_port.py); stdin JSON, decision JSON out -->
+     OpenCodeHookAdapter (src/harness/module_e/guard_port.py); stdin JSON, decision JSON out -->
 """,
         # Synthetic fragment — shows the mount point, not a real install.
         "openhands": """\
@@ -60,7 +60,7 @@ description: NZ legal research specialist (spike port of @HUNTER)
 system_prompt: |
   # body: PERSONA_PORT["system_prompt"] verbatim (block-scalar indented)
 # guard mount: event handler on on_action_execution_end ->
-# OpenHandsHandlerAdapter (src/harness/spike/guard_port.py);
+# OpenHandsHandlerAdapter (src/harness/module_e/guard_port.py);
 # annotates event["observation"], sets event["_spike"]["guard_blocked"]
 """,
         # Synthetic fragment — shows the mount point, not a real install.
@@ -70,7 +70,7 @@ Plugin dir: plugins/ironfleet-hunter/
 - plugins/ironfleet-hunter/manifest.json  -> registers the "hunter" subagent,
   systemPrompt = PERSONA_PORT["system_prompt"] verbatim
 - plugins/ironfleet-hunter/guard.ts       -> dsh_plugin_skeleton() output from
-  src/harness/spike/guard_port.py, mounted on tools/post-execute
+  src/harness/module_e/guard_port.py, mounted on tools/post-execute
 NOTE: dsh runs ONLY after its P0-6 dependency-provenance pre-check clears.
 """,
     },

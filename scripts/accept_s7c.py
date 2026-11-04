@@ -66,6 +66,7 @@ from harness.egress_proxy import EgressProxy                           # noqa: E
 from harness.eval.golden_case import GoldenCase, load_cases            # noqa: E402
 from harness.eval.scorers import CaseScore, score_case                 # noqa: E402
 from harness.gate import EgressGate, GateRefusal, LLMRequest           # noqa: E402
+from harness.module_e.guard import guard_dir                           # noqa: E402
 from harness.policy import RoutingTable                                # noqa: E402
 
 # Reuse, never reimplement: the spike driver owns the authority construction (expected citations
@@ -187,7 +188,7 @@ def write_matter(ws: Path, matter_ref: str, classification: str = "LOCAL_PREFERR
 
 
 def guard_log(ws: Path) -> list[dict]:
-    path = ws / "guard-log.jsonl"
+    path = guard_dir(ws) / "guard-log.jsonl"
     if not path.exists():
         return []
     out = []

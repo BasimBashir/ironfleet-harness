@@ -32,7 +32,8 @@ def agent_status(trace, session_id: str, base: Path | None = None,
     and the agent's guard-log line count (every line is a guard event; block
     decisions throw into the event stream, not this log — a recorded substrate
     fact, so the count is activity, not blocks). `base` is the session's
-    workspace root (`<base>/<session>/<agent>/guard-log.jsonl`); None -> 0.
+    workspace root; each agent's log sits in its guard_dir beside the
+    workspace (M1/S4), so a stray log never counts. None -> 0.
     `refs` switches the join to the shell's recorded trace ids (live path)."""
     per: dict[str, dict] = {}
     for r in _session_rows(trace, session_id, refs):
@@ -95,8 +96,10 @@ def doc_changes(ws: Path) -> list[str]:
 
 
 def _guard_lines(ws: Path) -> int:
-    """Lines in this workspace's guard-log — JSONL, one guard event per line."""
-    f = ws / "guard-log.jsonl"
+    """Lines in this workspace's guard-log — JSONL, one guard event per line.
+    M1/S4: the log lives in the harness-owned guard_dir, outside the workspace."""
+    from harness.module_e.guard import guard_dir
+    f = guard_dir(ws) / "guard-log.jsonl"
     if not f.is_file():
         return 0
     return sum(1 for line in f.read_text(encoding="utf-8").splitlines()

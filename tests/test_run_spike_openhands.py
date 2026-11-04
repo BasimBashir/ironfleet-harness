@@ -15,9 +15,10 @@ def _load():
 def test_allowed_file_roundtrip(tmp_path):
     mod = _load()
     import json
+    from harness.module_e.guard import guard_dir
     mod.write_allowed(tmp_path, ["Companies Act 1993, s 135"], block=True)
-    assert json.loads((tmp_path / "allowed.json").read_text(encoding="utf-8")) == {
-        "allowed": ["Companies Act 1993, s 135"], "block": True}
+    assert json.loads((guard_dir(tmp_path) / "allowed.json").read_text(
+        encoding="utf-8")) == {"allowed": ["Companies Act 1993, s 135"], "block": True}
 
 
 def test_guard_annotate_uses_handler_adapter_shape():

@@ -2,7 +2,7 @@
 // S4 adopt-spike mount (SPIKE_PROTOCOL P0-5).
 //
 // This file contains NO guard logic: every check goes through guard_cli.py to the real
-// portable guard (src/harness/spike/guard_port.py, OpenCodeHookAdapter). A JS
+// portable guard (src/harness/module_e/guard_port.py, OpenCodeHookAdapter). A JS
 // re-implementation would not be a port of the guard and would break spike parity.
 //
 // Mount points (criterion (a) — guard fires on every tool-execution and model-output path):
@@ -23,9 +23,10 @@
 // Template note: this is a TEMPLATE (never executed directly). The driver is Module E Task 9's
 // sync_mount — not the spike's run_spike_opencode.py — which renders it into
 // <ws>/.opencode/plugins/ironfleet-guard.ts, substituting __SPIKE_WS__ / __PYTHON__ /
-// __GUARD_CLI__ / __ANNOTATE__ with real paths and the whitelisted tool names.
-// Per-case authorities: <ws>/allowed.json  {"allowed": [..], "block": bool} (annotate-only
-// for parity runs; block=true demonstrates the deny decision on the tool path).
+// __GUARD_CLI__ / __GUARD_DIR__ / __ANNOTATE__ with real paths and the whitelisted tool names.
+// Per-case authorities: GUARD_DIR/allowed.json  {"allowed": [..], "block": bool} — the
+// harness-owned dir beside the workspace (annotate-only for parity runs; block=true
+// demonstrates the deny decision on the tool path).
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFileSync, writeFileSync, appendFileSync, rmSync } from "node:fs"
@@ -34,13 +35,16 @@ import { join } from "node:path"
 const WS = "__SPIKE_WS__"
 const PYTHON = "__PYTHON__"
 const GUARD_CLI = "__GUARD_CLI__"
+// Harness-owned authority dir (M1/S4): allowed.json, passages.json and the guard log
+// live OUTSIDE the workspace — the agent cannot edit the rules that judge it.
+const GUARD_DIR = "__GUARD_DIR__"
 const ANNOTATE = new Set<string>(__ANNOTATE__)
 
 type GuardDecision = { decision: string; reason: string; output: string }
 
 function authorities(): { allowed: string[]; block: boolean } {
   try {
-    const raw = JSON.parse(readFileSync(join(WS, "allowed.json"), "utf8"))
+    const raw = JSON.parse(readFileSync(join(GUARD_DIR, "allowed.json"), "utf8"))
     return { allowed: raw.allowed ?? [], block: !!raw.block }
   } catch {
     // Fail CLOSED: no readable authority list means nothing may pass unexamined.
@@ -50,12 +54,12 @@ function authorities(): { allowed: string[]; block: boolean } {
 
 // R1 D6 transport (2026-10-14): the verbatim-quote referee needs the turn's corpus
 // authorities. tool.execute.after captures a corpus tool's JSON envelope "authorities"
-// into <ws>/passages.json; every guard payload then carries them as allowed_passages.
+// into GUARD_DIR/passages.json; every guard payload then carries them as allowed_passages.
 // MISSING file = no corpus this session (referee skipped — the pre-R1 behaviour every
 // existing driver is pinned to); PRESENT file = the referee's allowance (an EMPTY file
 // plus any quotation = block, the D6 contract). This file still holds NO guard logic:
 // capture and transport only — guard_cli decides.
-function passagesPath(): string { return join(WS, "passages.json") }
+function passagesPath(): string { return join(GUARD_DIR, "passages.json") }
 
 function loadPassages(): string[] | null {
   try {
@@ -115,7 +119,7 @@ function guardOnce(text: string, allowed: string[], tag: string): GuardDecision 
 // retries and event summaries, and check 2 has nothing to assert. Text itself is NOT logged:
 // it already lives in the transcript, and the log stays small enough to read whole.
 function logDecision(d: GuardDecision, tag: string, text: string, authorities: number): GuardDecision {
-  appendFileSync(join(WS, "guard-log.jsonl"), JSON.stringify({
+  appendFileSync(join(GUARD_DIR, "guard-log.jsonl"), JSON.stringify({
     tag, decision: d.decision, reason: d.reason.slice(0, 200), chars: text.length,
     sha256_16: createHash("sha256").update(text).digest("hex").slice(0, 16),
     // The ANNOTATED text is what actually leaves the hook into the session, and the transcript
@@ -138,7 +142,7 @@ function guard(text: unknown, tag: string): GuardDecision {
     } catch (first) {
       // One logged retry: transient spawn contention (observed on the subagent path).
       await new Promise((r) => setTimeout(r, 250))
-      appendFileSync(join(WS, "guard-log.jsonl"),
+      appendFileSync(join(GUARD_DIR, "guard-log.jsonl"),
         JSON.stringify({ tag, retry: true, first_error: String(first).slice(0, 300) }) + "\n")
       return logDecision(guardOnce(text, allowed, tag), tag, text, allowed.length)
     }
@@ -184,7 +188,7 @@ export const IronFleetGuard = async (_ctx: unknown) => {
       eventCounts.set(event.type, (eventCounts.get(event.type) ?? 0) + 1)
       if (event.type === "session.idle" || event.type === "session.error") {
         appendFileSync(
-          join(WS, "guard-log.jsonl"),
+          join(GUARD_DIR, "guard-log.jsonl"),
           JSON.stringify({ tag: "event-summary", on: event.type,
                            events: Object.fromEntries(eventCounts) }) + "\n",
         )

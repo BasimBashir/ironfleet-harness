@@ -1,4 +1,4 @@
-# src/harness/spike/guard_port.py
+# src/harness/module_e/guard_port.py
 from __future__ import annotations
 from pydantic import BaseModel
 

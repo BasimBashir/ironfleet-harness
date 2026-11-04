@@ -3,6 +3,8 @@ stage handoff. Pure parts only here — the live multi-stage run is the acceptan
 driver's job, never the suite's (house rule)."""
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -105,15 +107,19 @@ class _FakeDriver:
     by call index, not by agent name — the spawn uses a generated stage-file
     stem the test must not need to know."""
 
-    def __init__(self, summaries: list[str] | None = None):
+    def __init__(self, summaries: list[str] | None = None, root: Path | None = None):
         self.calls: list[tuple[str, str, str]] = []
         self.summaries = list(summaries) if summaries else []
         self.workspaces: list[str] = []
         self.jobs: list[tuple[str, str, str]] = []
+        # The factory writes the guard's authority file NEXT to the workspace
+        # (guard_dir); the fake's workspaces must sit inside tmp_path so a test
+        # never writes outside its own tree.
+        self.root = root
 
     def workspace_for(self, session_id, agent, matter_ref, classification="LOCAL_PREFERRED"):
         self.workspaces.append(agent)
-        return Path("/tmp") / session_id / agent
+        return (self.root or Path("/tmp")) / "workspaces" / session_id / agent
 
     async def run_turn(self, session_id, matter_ref, agent, prompt, **kw):
         self.calls.append((agent, agent, prompt))
@@ -128,7 +134,7 @@ class _FakeDriver:
 def test_runner_runs_stages_in_order_and_hands_forward(tmp_path):
     store = SessionStore(tmp_path)
     sid = store.new_session("m1")
-    driver = _FakeDriver(["found A and B", "drafted it"])
+    driver = _FakeDriver(["found A and B", "drafted it"], root=tmp_path)
     runner = FactoryRunner(driver, store=store)
     import asyncio
     rows = asyncio.run(runner.run_task(sid, "m1", "who are the parties",
@@ -147,7 +153,7 @@ def test_runner_runs_stages_in_order_and_hands_forward(tmp_path):
 def test_runner_falls_back_to_routes_when_plan_is_garbage(tmp_path):
     store = SessionStore(tmp_path)
     sid = store.new_session("m1")
-    driver = _FakeDriver()
+    driver = _FakeDriver(root=tmp_path)
     runner = FactoryRunner(driver, store=store)
     import asyncio
     # no plan text -> the legal pipeline for a typed goal; every stage lands a row
@@ -161,7 +167,7 @@ def test_runner_writes_stage_agent_file_after_the_sync(tmp_path):
     clobber it. The fake records the order the runner used."""
     store = SessionStore(tmp_path)
     sid = store.new_session("m1")
-    driver = _FakeDriver()
+    driver = _FakeDriver(root=tmp_path)
     runner = FactoryRunner(driver, store=store)
     import asyncio
     asyncio.run(runner.run_task(sid, "m1", "t", plan_text="```plan\ng|hunter|find it\n```"))
@@ -180,7 +186,7 @@ def test_runner_hands_prior_deliverables_forward(tmp_path):
     import asyncio
     store = SessionStore(tmp_path)
     sid = store.new_session("m1")
-    driver = _FakeDriver()
+    driver = _FakeDriver(root=tmp_path)
 
     class _LocalFake(_FakeDriver):
         def workspace_for(self, session_id, agent, matter_ref,
@@ -235,10 +241,55 @@ def test_run_task_seeds_the_session_digest_into_stage_one(tmp_path):
     import asyncio
     store = SessionStore(tmp_path)
     sid = store.new_session("m1")
-    driver = _FakeDriver()
+    driver = _FakeDriver(root=tmp_path)
     runner = FactoryRunner(driver, store=store)
     asyncio.run(runner.run_task(sid, "m1", "assess my case",
                                 session_digest="Last checkpoint: map written"))
     first_prompt = driver.calls[0][2]
     assert "prior session" in first_prompt
     assert "Last checkpoint: map written" in first_prompt
+
+
+# -- the guard's block flag (M1/S4): the stage run owns the authority file -------
+
+def _guard_allowed(tmp_path: Path, sid: str, ws_name: str) -> dict:
+    g = tmp_path / "workspaces" / sid / ".ironfleet-guard" / ws_name
+    return json.loads((g / "allowed.json").read_text(encoding="utf-8"))
+
+
+def test_factory_blocks_the_guard_on_verify_stages(tmp_path):
+    """M1/S4: verify and filings stage runs write block:true — the guard ENFORCES
+    there, not merely annotates. verify is a legal-pipeline stage name."""
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    runner = FactoryRunner(_FakeDriver(root=tmp_path), store=store)
+    asyncio.run(runner.run_task(sid, "m1", "t",
+                                plan_text="```plan\nverify|citation|check it\n```"))
+    assert _guard_allowed(tmp_path, sid, "citation-stage-verify")["block"] is True
+
+
+def test_factory_leaves_research_stages_annotate_only(tmp_path):
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    runner = FactoryRunner(_FakeDriver(root=tmp_path), store=store)
+    asyncio.run(runner.run_task(sid, "m1", "t",
+                                plan_text="```plan\nresearch|hunter|find it\n```"))
+    assert _guard_allowed(tmp_path, sid, "hunter-stage-research")["block"] is False
+
+
+def test_matter_guard_block_stages_override_wins(tmp_path):
+    """The matter record's guard_block_stages REPLACES the default list — an
+    operator blocking on research (or unblocking filings) needs one edit, in the
+    served record the proxy already reads."""
+    rec = tmp_path / "matters" / "m1"
+    rec.mkdir(parents=True)
+    (rec / "matter.json").write_text(json.dumps(
+        {"matter_ref": "m1", "classification": "LOCAL_PREFERRED",
+         "guard_block_stages": ["research"]}), encoding="utf-8")
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    runner = FactoryRunner(_FakeDriver(root=tmp_path), store=store)
+    asyncio.run(runner.run_task(sid, "m1", "t",
+        plan_text="```plan\nresearch|hunter|find it\nverify|citation|check it\n```"))
+    assert _guard_allowed(tmp_path, sid, "hunter-stage-research")["block"] is True
+    assert _guard_allowed(tmp_path, sid, "citation-stage-verify")["block"] is False

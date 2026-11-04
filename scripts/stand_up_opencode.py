@@ -46,9 +46,9 @@ DATA = ROOT / "data"
 MOUNT = DATA / "opencode-a1"
 MODULE_E = DATA / "module-e"
 PLUGIN_SRC = ROOT / "src" / "harness" / "spike" / "candidates" / "opencode"
-GUARD_TEMPLATE = PLUGIN_SRC / "ironfleet-guard-s7c.ts"
+GUARD_TEMPLATE = ROOT / "src" / "harness" / "module_e" / "ironfleet-guard-s7c.ts"
 TOOLS_TEMPLATE = PLUGIN_SRC / "ironfleet-tools.ts"
-GUARD_CLI = ROOT / "src" / "harness" / "spike" / "guard_cli.py"
+GUARD_CLI = ROOT / "src" / "harness" / "module_e" / "guard_cli.py"
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 ROUTING = DATA / "routing-a1.yaml"
 # A-5: the proxy serves a directory of per-matter records. Adding a window is dropping a
@@ -255,9 +255,16 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
     root = matters_root if matters_root is not None else ws.parent / "matters"
     matter_dir = root / matter_ref
     matter_dir.mkdir(parents=True, exist_ok=True)
-    (matter_dir / "matter.json").write_text(json.dumps(
-        {"matter_ref": matter_ref, "classification": classification}, indent=2),
-        encoding="utf-8")
+    # Read-modify-write (M1/S4): an operator's extra keys (guard_block_stages) survive a re-sync.
+    rec_path = matter_dir / "matter.json"
+    rec = {"matter_ref": matter_ref, "classification": classification}
+    if rec_path.exists():
+        try:
+            rec.update(json.loads(rec_path.read_text(encoding="utf-8")))
+        except (ValueError, OSError):
+            pass
+    rec.update({"matter_ref": matter_ref, "classification": classification})
+    rec_path.write_text(json.dumps(rec, indent=2), encoding="utf-8")
     tokens = root / "_tokens"
     tokens.mkdir(exist_ok=True)
     (tokens / f"{token}.json").write_text(json.dumps({"matter_ref": matter_ref}),
@@ -292,12 +299,14 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
     }
     for name, body in plugins.items():
         (ws / ".opencode" / "plugins" / name).write_text(body, encoding="utf-8")
-    # Guard authorities: annotate-only and empty until a driver run writes real ones — the same
-    # starting state the spike's sync_workspace ships (fail-closed in the plugin if unreadable).
-    (ws / "allowed.json").write_text(json.dumps({"allowed": [], "block": False}),
-                                     encoding="utf-8")
-    # fresh guard log per sync (evidence lives in the transcripts and the sidecar too)
-    (ws / "guard-log.jsonl").write_text("", encoding="utf-8")
+    # Guard authorities (M1/S4): seeded in the harness-owned guard dir — annotate-only and
+    # empty until a driver run writes real ones (fail-closed in the plugin if unreadable).
+    # The log is append-only across syncs (the run's evidence), never truncated per sync.
+    from harness.module_e.guard import guard_dir
+    g = guard_dir(ws)
+    g.mkdir(parents=True, exist_ok=True)
+    (g / "allowed.json").write_text(json.dumps({"allowed": [], "block": False}),
+                                    encoding="utf-8")
 
 
 def build_gate(trace_path: Path, routing: Path | None = None):

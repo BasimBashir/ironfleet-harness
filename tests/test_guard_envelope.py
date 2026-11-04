@@ -7,6 +7,7 @@ TEMPLATE = """\
 const WS = "__SPIKE_WS__"
 const PYTHON = "__PYTHON__"
 const GUARD_CLI = "__GUARD_CLI__"
+const GUARD_DIR = "__GUARD_DIR__"
 const ANNOTATE = new Set<string>(__ANNOTATE__)
 """
 
@@ -32,10 +33,12 @@ def test_render_substitutes_every_placeholder():
                               guard_cli="C:/guard_cli.py",
                               whitelist={"route", "refine_output"})
     assert '"C:/ws"' in out
+    assert '"C:/.ironfleet-guard/ws"' in out   # guard_dir(ws): outside the agent's cwd
     assert '"C:/py/python.exe"' in out
     assert '"C:/guard_cli.py"' in out
     assert '"route"' in out and '"refine_output"' in out
-    assert "__ANNOTATE__" not in out and "__SPIKE_WS__" not in out
+    assert ("__ANNOTATE__" not in out and "__SPIKE_WS__" not in out
+            and "__GUARD_DIR__" not in out)
 
 def test_rendered_annotate_set_is_a_bracketed_array_literal():
     # SEMANTIC, not substring-incidental: JS's Set constructor takes ONE iterable —

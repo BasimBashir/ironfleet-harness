@@ -51,17 +51,19 @@ def test_agent_status_one_row_per_agent_aggregated(tmp_path):
 
 
 def test_agent_status_counts_guard_log_lines_per_agent(tmp_path):
-    """Each agent's workspace keeps its own guard-log; the view counts its lines
-    (every line is a guard event). Another session's workspace must not bleed in."""
+    """Each agent's guard-log lives in the shared guard_dir (M1/S4); the view
+    counts its lines (every line is a guard event). Another session's workspace
+    — or a stray log in the shared parent — must not bleed in."""
+    from harness.module_e.guard import guard_dir
     base = tmp_path / "base"
     for agent, n in (("hunter", 3), ("clerk", 1)):
         ws = base / "ses-1" / agent
         ws.mkdir(parents=True)
-        lines = [{"tag": f"tool.execute.before:{agent}", "retry": True}] * n
-        (ws / "guard-log.jsonl").write_text(
+        guard_dir(ws).mkdir(parents=True, exist_ok=True)
+        lines = [{"tag": f"tool.execute.before:{agent}", "retry": 3}] * n
+        (guard_dir(ws) / "guard-log.jsonl").write_text(
             "".join(json.dumps(l) + "\n" for l in lines), encoding="utf-8")
-    stray = base / "ses-1" / "hunter" / "other"          # a different session's log
-    stray.mkdir(parents=True)
+    stray = guard_dir(base / "ses-1" / "hunter").parent   # the shared parent dir
     (stray / "guard-log.jsonl").write_text(json.dumps({"tag": "x"}) + "\n",
                                            encoding="utf-8")
     rows = {r["agent"]: r for r in agent_status(_trace(tmp_path), "ses-1", base)}

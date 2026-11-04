@@ -12,6 +12,12 @@ def annotate_eligible(tool: str, whitelist: set[str]) -> bool:
     envelopes (M0 hazard 2). Fail-safe: an unknown tool is never rewritten."""
     return tool in _ALWAYS_ANNOTATE or tool in whitelist
 
+def guard_dir(ws: Path) -> Path:
+    """The harness-owned authority directory for a workspace (M1/S4): allowed.json,
+    guard-log.jsonl and passages.json live OUTSIDE the workspace — the agent under
+    guard cannot edit the rules that judge it, or its own event log."""
+    return ws.parent / ".ironfleet-guard" / ws.name
+
 def render_guard_plugin(template: str, ws: Path, python: str, guard_cli: str,
                         whitelist: set[str]) -> str:
     # BRACKETED array literal — load-bearing. JS's Set constructor takes ONE iterable:
@@ -19,7 +25,9 @@ def render_guard_plugin(template: str, ws: Path, python: str, guard_cli: str,
     # unbracketed comma list renders a set that matches NOTHING and annotation is inert
     # (Task 5 review C1, found under Node). The brackets make the payload a real array.
     wl = "[" + ", ".join(f'"{t}"' for t in sorted(whitelist | _ALWAYS_ANNOTATE)) + "]"
+    gd = str(guard_dir(ws)).replace("\\", "/")
     return (template.replace("__SPIKE_WS__", str(ws).replace("\\", "/"))
                     .replace("__PYTHON__", str(python).replace("\\", "/"))
                     .replace("__GUARD_CLI__", str(guard_cli).replace("\\", "/"))
+                    .replace("__GUARD_DIR__", gd)
                     .replace("__ANNOTATE__", wl))

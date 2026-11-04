@@ -5,7 +5,8 @@ Proves, on the real pinned binary + the real proxy + the real corpus store:
         S7j-W-ruled tool-calling leg; thomson1 makes no in-session tool call)
   C5-2  the model's ironfleet_corpus_search call EXECUTES through the mount's tools
         shim (module_e.dispatch) and the guard captures the authorities envelope
-        (<ws>/passages.json — the D6 transport landed 2026-10-14)
+        (<guard_dir>/passages.json — the D6 transport landed 2026-10-14; M1/S4 moved it
+        into the harness-owned dir beside the workspace)
   C5-3  the captured passages are VERBATIM store passages (provenance survives to the
         referee's allowance)
   C5-4  the agent answers from the session (final text present, names the section)
@@ -45,6 +46,7 @@ from scripts import verify_opencode_mount as rig                       # noqa: E
 from scripts.stand_up_opencode import (                                # noqa: E402
     HOST, MOUNT, PORT, child_env, sync_mount)
 from harness.egress_proxy import EgressProxy                           # noqa: E402
+from harness.module_e.guard import guard_dir                           # noqa: E402
 
 MATTER = "m-r1-accept"          # the session binds THE corpus matter (per-matter
 # confidentiality means an un-ingested matter returns an empty envelope BY DESIGN —
@@ -94,7 +96,7 @@ def _passages_are_store_verbatim(ws: Path) -> tuple[bool, int, str]:
         rows = c.execute("SELECT body FROM fts_m_r1_accept").fetchall()
     bodies = {r[0] for r in rows}
     try:
-        captured = json.loads((ws / "passages.json").read_text(encoding="utf-8"))
+        captured = json.loads((guard_dir(ws) / "passages.json").read_text(encoding="utf-8"))
     except Exception as ex:                                        # noqa: BLE001
         return False, 0, f"passages.json unreadable: {ex}"
     if not captured:

@@ -21,11 +21,13 @@ Design rules the research gate bought:
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from harness.module_e.guard import guard_dir
 from harness.module_e.supervisor import load_routes
 from harness.session.driver import SessionDriver
 from harness.session.errors import record_error
@@ -281,6 +283,30 @@ class FactoryRunner:
         # not see, and every stage silently fell back to the default agent on
         # the extraction class (thomson1) — since Task 7 (2026-10-20 live crew).
         ws = self.driver.workspace_for(session_id, fname, matter_ref, classification)
+        # M1/S4: the stage run owns the guard's authority file — block on the enforcement
+        # stages (verify, filings) unless the served matter record's guard_block_stages
+        # replaces the list. The `allowed` list itself is preserved; only `block` moves.
+        record: dict = {}
+        for anc in ws.parents[:4]:
+            rec_p = anc / "matters" / matter_ref / "matter.json"
+            if rec_p.exists():
+                try:
+                    record = json.loads(rec_p.read_text(encoding="utf-8"))
+                except (ValueError, OSError):
+                    record = {}
+                break
+        block_stages = record.get("guard_block_stages") or ("verify", "filings")
+        g = guard_dir(ws)
+        g.mkdir(parents=True, exist_ok=True)
+        allowed_p = g / "allowed.json"
+        prev: dict = {}
+        if allowed_p.exists():
+            try:
+                prev = json.loads(allowed_p.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                prev = {}
+        prev.update({"block": stage["stage"] in block_stages})
+        allowed_p.write_text(json.dumps(prev), encoding="utf-8")
         (ws / ".opencode" / "agent").mkdir(parents=True, exist_ok=True)
         (ws / ".opencode" / "agent" / f"{fname}.md").write_text(
             stage_agent_md(stage["stage"], instruction), encoding="utf-8")

@@ -1,5 +1,5 @@
 # tests/test_guard_port.py
-from harness.spike.guard_port import portable_grounding_guard
+from harness.module_e.guard_port import portable_grounding_guard
 
 def test_guard_annotates_ungrounded_citations():
     draft = "The threshold is $3,000 [Imaginary Act 2026, s 9] and it is met [Insolvency Act 2006, s 214]."
@@ -16,7 +16,7 @@ def test_guard_passes_when_all_grounded():
 def test_guard_cli_payload_carries_allowed_passages():
     """R1 D6 transport contract: the adapter must PASS allowed_passages through to the
     referee — the live C5 gap was the TS template never sending it (2026-10-14)."""
-    from harness.spike.guard_port import OpenCodeHookAdapter
+    from harness.module_e.guard_port import OpenCodeHookAdapter
     res = OpenCodeHookAdapter().handle({
         "output": 'The court held "a wholly imaginary phrase never retrieved".',
         "allowed": ["Companies Act 1993"],

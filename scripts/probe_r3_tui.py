@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.run_spike_opencode import (  # noqa: E402,F401 — Task 2's run helper consumes these
     extract_final_text, flatten_prompt, opencode_cmd, parse_events, run_opencode)
+from harness.module_e.guard import guard_dir  # noqa: E402
 
 DEFAULT_TIMEOUT_S = 480  # the S7j-W watchdog budget; startup hang ~2 in 7
 
@@ -485,7 +486,7 @@ def probe_p5(ev: Path) -> dict:
         proxy.stop()
     s = summarize_events(r.raw)
     guard_lines = 0
-    gl = ws / "guard-log.jsonl"
+    gl = guard_dir(ws) / "guard-log.jsonl"
     if gl.is_file():
         guard_lines = sum(1 for ln in gl.read_text(encoding="utf-8").splitlines() if ln.strip())
     import sqlite3

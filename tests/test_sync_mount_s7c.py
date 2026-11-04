@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 import pytest
+from harness.module_e.guard import guard_dir
 from harness.module_e.tools import load_manifest, ported_tools
 
 DATA = Path(__file__).resolve().parent.parent / "data"
@@ -24,7 +25,7 @@ def test_sync_mount_writes_the_full_s7c_mount(tmp_path):
     assert (ws / "matter.json").is_file()
     assert (ws / ".opencode" / "plugins" / "ironfleet-guard.ts").is_file()
     assert (ws / ".opencode" / "plugins" / "ironfleet-tools.ts").is_file()
-    assert (ws / "allowed.json").is_file()
+    assert (guard_dir(ws) / "allowed.json").is_file()
     assert (ws / ".opencode" / "agent" / "hunter.md").is_file()
     assert (ws / ".opencode" / "agent" / "hunter-drive.md").is_file()
     assert (ws / ".opencode" / "skills" / "nz-court-calendar" / "SKILL.md").is_file()
@@ -59,7 +60,7 @@ def test_guard_plugin_substitutes_no_placeholders(tmp_path):
     ws = tmp_path / "ws"
     sync_mount(ws, DATA / "opencode-a1", "m-test", "LOCAL_PREFERRED", 7373)
     body = (ws / ".opencode" / "plugins" / "ironfleet-guard.ts").read_text()
-    for ph in ("__SPIKE_WS__", "__PYTHON__", "__GUARD_CLI__", "__ANNOTATE__"):
+    for ph in ("__SPIKE_WS__", "__PYTHON__", "__GUARD_CLI__", "__ANNOTATE__", "__GUARD_DIR__"):
         assert ph not in body
 
 
@@ -83,12 +84,36 @@ def test_tools_plugin_declares_exactly_the_ported_tools(tmp_path):
         assert ph not in body
 
 
-def test_mount_authorities_are_annotate_only_and_the_guard_log_is_fresh(tmp_path):
+def test_mount_authorities_are_annotate_only_and_seeded_in_the_guard_dir(tmp_path):
     from scripts.stand_up_opencode import sync_mount
     ws = tmp_path / "ws"
     sync_mount(ws, DATA / "opencode-a1", "m-test", "LOCAL_PREFERRED", 7373)
-    assert json.loads((ws / "allowed.json").read_text()) == {"allowed": [], "block": False}
-    assert (ws / "guard-log.jsonl").read_text() == ""
+    assert json.loads((guard_dir(ws) / "allowed.json").read_text(encoding="utf-8")) == {
+        "allowed": [], "block": False}
+
+
+def test_nothing_guard_owned_lands_under_the_workspace(tmp_path):
+    """M1/S4: allowed.json, guard-log.jsonl and passages.json are authorities or
+    evidence the MODEL must not reach — none of them may live in the agent's cwd."""
+    from scripts.stand_up_opencode import sync_mount
+    ws = tmp_path / "ws"
+    sync_mount(ws, DATA / "opencode-a1", "m-test", "LOCAL_PREFERRED", 7373)
+    for name in ("allowed.json", "guard-log.jsonl", "passages.json"):
+        assert not (ws / name).exists(), name
+
+
+def test_guard_log_survives_a_second_sync(tmp_path):
+    """Append-only (M1/S4): the log is evidence the harness never rewrites — a
+    re-sync must not truncate it (the audit's named defect)."""
+    from scripts.stand_up_opencode import sync_mount
+    ws = tmp_path / "ws"
+    sync_mount(ws, DATA / "opencode-a1", "m-test", "LOCAL_PREFERRED", 7373)
+    log = guard_dir(ws) / "guard-log.jsonl"
+    log.write_text(json.dumps({"tag": "text.complete", "decision": "approve"}) + "\n",
+                   encoding="utf-8")
+    sync_mount(ws, DATA / "opencode-a1", "m-test", "LOCAL_PREFERRED", 7373)
+    lines = [l for l in log.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(lines) == 1 and json.loads(lines[0])["tag"] == "text.complete"
 
 
 def test_all_twenty_six_skill_docs_ship_in_the_mount(tmp_path):

@@ -15,11 +15,14 @@ def _load():
 
 def test_render_guard_plugin_substitutes_paths():
     mod = _load()
-    template = 'const WS = "__SPIKE_WS__"\nconst PYTHON = "__PYTHON__"\nconst GUARD = "__GUARD_CLI__"\n'
+    template = ('const WS = "__SPIKE_WS__"\nconst PYTHON = "__PYTHON__"\n'
+                'const GUARD = "__GUARD_CLI__"\nconst GUARD_DIR = "__GUARD_DIR__"\n')
     out = mod.render_guard_plugin(template, ws="C:/ws x", python="C:/py/python.exe",
                                   guard_cli="C:/hc/src/guard_cli.py")
     assert '"C:/ws x"' in out and '"C:/py/python.exe"' in out and '"C:/hc/src/guard_cli.py"' in out
-    assert "__SPIKE_WS__" not in out and "__PYTHON__" not in out and "__GUARD_CLI__" not in out
+    assert '"C:/.ironfleet-guard/ws x"' in out   # guard_dir(ws): outside the agent cwd
+    assert ("__SPIKE_WS__" not in out and "__PYTHON__" not in out
+            and "__GUARD_CLI__" not in out and "__GUARD_DIR__" not in out)
 
 
 def test_hunter_agent_md_body_is_persona_verbatim():
@@ -86,7 +89,7 @@ def test_guard_cli_file_transport(tmp_path):
     import json
     import subprocess
     root = Path(__file__).resolve().parents[1]
-    cli = root / "src" / "harness" / "spike" / "guard_cli.py"
+    cli = root / "src" / "harness" / "module_e" / "guard_cli.py"
     py = root / ".venv" / "Scripts" / "python.exe"
     payload = {"output": "Per [Imaginary Act 2026, s 9] it applies.", "allowed": []}
     infile, outfile = tmp_path / "in.json", tmp_path / "out.json"

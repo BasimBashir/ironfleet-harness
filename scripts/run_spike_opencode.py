@@ -4,7 +4,7 @@ Mounts (source of truth committed in src/harness/spike/candidates/opencode/, syn
 this driver into an ISOLATED workspace outside the repo so OpenCode's project detection
 cannot see harness-core):
   1. GUARD  — .opencode/plugins/ironfleet-guard.ts calling the REAL guard through
-     src/harness/spike/guard_cli.py (OpenCodeHookAdapter; annotate mode for parity runs,
+     src/harness/module_e/guard_cli.py (OpenCodeHookAdapter; annotate mode for parity runs,
      block demonstrable on the tool path). Zero commits to opencode's own repo.
   2. PERSONA — .opencode/agent/hunter.md, body = PERSONA_PORT["system_prompt"] VERBATIM
      (generated from the module, never hand-copied), mode: subagent per the port fragment.
@@ -40,7 +40,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from harness.eval.golden_case import GoldenCase, load_cases            # noqa: E402
 from harness.eval.scorers import score_case, write_report             # noqa: E402
-from harness.spike.persona_port import PERSONA_PORT                   # noqa: E402
+from harness.module_e.guard import guard_dir                           # noqa: E402
+from harness.spike.persona_port import PERSONA_PORT                    # noqa: E402
 
 # Baseline-runner helpers (sidecar/report plumbing) — imported, not duplicated.
 _SPEC = importlib.util.spec_from_file_location(
@@ -75,9 +76,11 @@ DEVIATION = ("DEVIATION (spike parity run, agent-recorded 2026-09-01): parity su
 
 
 def render_guard_plugin(template: str, ws: str, python: str, guard_cli: str) -> str:
+    gd = str(guard_dir(Path(ws))).replace("\\", "/")
     return (template.replace("__SPIKE_WS__", ws.replace("\\", "/"))
                     .replace("__PYTHON__", python.replace("\\", "/"))
-                    .replace("__GUARD_CLI__", guard_cli.replace("\\", "/")))
+                    .replace("__GUARD_CLI__", guard_cli.replace("\\", "/"))
+                    .replace("__GUARD_DIR__", gd))
 
 
 def hunter_agent_md(persona: str, model: str, mode: str = "subagent") -> str:
@@ -116,7 +119,7 @@ def hunter_agent_md(persona: str, model: str, mode: str = "subagent") -> str:
 def sync_workspace(ws: Path) -> list[Path]:
     """(Re)build the isolated workspace from the committed mounts. Returns synced files."""
     python = str(ROOT / ".venv" / "Scripts" / "python.exe")
-    guard_cli = str(ROOT / "src" / "harness" / "spike" / "guard_cli.py")
+    guard_cli = str(ROOT / "src" / "harness" / "module_e" / "guard_cli.py")
     (ws / ".opencode" / "plugins").mkdir(parents=True, exist_ok=True)
     (ws / ".opencode" / "agent").mkdir(parents=True, exist_ok=True)
     (ws / "transcripts").mkdir(parents=True, exist_ok=True)
@@ -129,7 +132,6 @@ def sync_workspace(ws: Path) -> list[Path]:
             PERSONA_PORT["system_prompt"], model=MODEL),
         ws / ".opencode" / "agent" / "hunter-drive.md": hunter_agent_md(
             PERSONA_PORT["system_prompt"], model=MODEL, mode="primary"),
-        ws / "allowed.json": json.dumps({"allowed": [], "block": False}),
     }
     for path, content in files.items():
         path.write_text(content, encoding="utf-8")
@@ -138,8 +140,12 @@ def sync_workspace(ws: Path) -> list[Path]:
     # Isolation seam: the workspace must be its own git repo. No commits — init only.
     if not (ws / ".git").exists():
         subprocess.run(["git", "init", "-q"], cwd=str(ws), check=True, capture_output=True)
-    # fresh guard log per driver invocation (evidence lives in transcripts + sidecar too)
-    (ws / "guard-log.jsonl").write_text("", encoding="utf-8")
+    # Guard authorities (M1/S4): seeded in the harness-owned guard dir; the log is
+    # append-only across runs (the run's evidence), never truncated per invocation.
+    g = guard_dir(ws)
+    g.mkdir(parents=True, exist_ok=True)
+    (g / "allowed.json").write_text(json.dumps({"allowed": [], "block": False}),
+                                    encoding="utf-8")
     return list(files)
 
 
@@ -297,7 +303,7 @@ def allowed_for(case: GoldenCase) -> list[str]:
     after "[2006]" breaks the scorer's exact-substring needle and fabricates a citation
     failure that the in-house reference (which runs unguarded) cannot show. The adapter
     itself (guard_port.py) is untouched — only this list construction."""
-    from harness.spike.guard_port import _citations
+    from harness.module_e.guard_port import _citations
     out = list(case.expected_citations)
     for cite in case.expected_citations:
         out.extend(_citations(cite))
@@ -305,8 +311,10 @@ def allowed_for(case: GoldenCase) -> list[str]:
 
 
 def write_allowed(ws: Path, allowed: list[str], block: bool = False) -> None:
-    (ws / "allowed.json").write_text(json.dumps({"allowed": allowed, "block": block}),
-                                     encoding="utf-8")
+    g = guard_dir(ws)
+    g.mkdir(parents=True, exist_ok=True)
+    (g / "allowed.json").write_text(json.dumps({"allowed": allowed, "block": block}),
+                                    encoding="utf-8")
 
 
 INJECT_PROMPT = (
@@ -339,7 +347,8 @@ def inject_run(ws: Path) -> int:
         "tool_path_annotated": any(marker in t for t in tool_outputs),
         "model_path_annotated": marker in final,
         "guard_log": [json.loads(l) for l in
-                      (ws / "guard-log.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()],
+                      (guard_dir(ws) / "guard-log.jsonl").read_text(
+                          encoding="utf-8").splitlines() if l.strip()],
         "final_text_head": final[:400],
         "tool_output_count": len(tool_outputs),
     }
@@ -478,7 +487,7 @@ def main() -> None:
         print(f"[smoke] exit={code}")
         print(raw[:6000])
         (ws / "transcripts" / "smoke.jsonl").write_text(raw, encoding="utf-8")
-        print(f"[smoke] guard-log: {(ws / 'guard-log.jsonl').read_text(encoding='utf-8') or '(empty)'}")
+        print(f"[smoke] guard-log: {(guard_dir(ws) / 'guard-log.jsonl').read_text(encoding='utf-8') or '(empty)'}")
         return
     if args.inject:
         sys.exit(inject_run(ws))
