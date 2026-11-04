@@ -49,12 +49,28 @@ def test_dt3_context_fields_env_overridable(monkeypatch):
 
 def test_env_override_swaps_model_and_url_without_a_file_edit(monkeypatch):
     """The quick-swap surface: IRONFLEET_<NAME>_MODEL / _URL override the row — a user
-    swapping provider AND model AND target url in one shot, no code touched."""
+    swapping provider AND model AND target url in one shot, no code touched. M1/S9:
+    the URL override must land inside the allow-list, so the swap targets the loopback
+    (the one host an override may name over http)."""
     monkeypatch.setenv("IRONFLEET_NVIDIA_NIM_MODEL", "moonshotai/kimi-k2-thinking")
-    monkeypatch.setenv("IRONFLEET_NVIDIA_NIM_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("IRONFLEET_NVIDIA_NIM_URL", "http://127.0.0.1:8080/v1")
     nim = next(s for s in _provider_specs(REGISTRY) if s["name"] == "nvidia-nim")
     assert nim["model"] == "moonshotai/kimi-k2-thinking"
-    assert nim["base_url"] == "https://example.invalid/v1"
+    assert nim["base_url"] == "http://127.0.0.1:8080/v1"
+
+
+def test_env_url_override_refused_outside_allow_list(monkeypatch):
+    """M1/S9: the _URL override is an untrusted seam — a hostile endpoint would
+    receive matter documents and the bearer key. Anything but http/https to the
+    loopback, or https to a host declared in providers.yaml, raises naming the env
+    var. Userinfo is refused even to a declared host; an unknown https host too."""
+    for bad in ("file:///etc/passwd",                                # bad scheme
+                "http://evil.example/v1",                            # http off-loopback
+                "https://unknown.example/v1",                        # undeclared host
+                "https://user:pw@integrate.api.nvidia.com/v1"):      # userinfo
+        monkeypatch.setenv("IRONFLEET_NVIDIA_NIM_URL", bad)
+        with pytest.raises(ValueError, match="IRONFLEET_NVIDIA_NIM_URL"):
+            _provider_specs(REGISTRY)
 
 
 def test_missing_registry_file_fails_loud(tmp_path):

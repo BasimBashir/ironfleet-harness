@@ -100,6 +100,27 @@ def build_scheduler(capacity: "Capacity | None" = None) -> "TurnScheduler":
     return TurnScheduler(capacity if capacity is not None else machine_capacity())
 
 
+def _validate_url_override(env_var: str, url: str, declared_hosts: set[str]) -> str:
+    """M1/S9: IRONFLEET_<NAME>_URL is an untrusted seam — whoever sets it points a
+    'provider' at an endpoint that would receive matter documents and the bearer key.
+    Allowed: http/https to the loopback (the local gate/proxy/ollama), or https to a
+    host the operator already declared in providers.yaml. Everything else (bad scheme,
+    userinfo, undeclared host, unparsable) raises naming the env var; valid, the url
+    comes back unchanged."""
+    from urllib.parse import urlparse
+    try:
+        u = urlparse(url)
+    except ValueError as ex:
+        raise ValueError(f"{env_var}: unparsable URL {url!r} ({ex})") from ex
+    host = u.hostname or ""
+    if (u.scheme in ("http", "https") and not u.username and not u.password
+            and (host in ("127.0.0.1", "localhost", "::1")
+                 or (u.scheme == "https" and host in declared_hosts))):
+        return url
+    raise ValueError(f"{env_var}: URL override {url!r} is outside the allow-list "
+                     f"(http/https loopback or https to a declared provider host)")
+
+
 def _provider_specs(path: Path | None = None) -> list[dict]:
     """The provider registry AS DATA (data/providers.yaml) — one row = url + model +
     engine + kind, so a user swapping provider/model/url edits data, never code.
@@ -107,8 +128,10 @@ def _provider_specs(path: Path | None = None) -> list[dict]:
     Required by R3 (2026-10-19, user directive): when the provider and model change,
     the target URL changes WITH them — that coupling is the row. Env override per row:
     IRONFLEET_<NAME>_URL / _MODEL / _REVISION (name upper-cased, '-' kept), for quick
-    swaps with no file edit. A missing file raises (never silently probes nothing):
-    the same fail-loud shape as cli.default_routing's stranded-data check."""
+    swaps with no file edit. M1/S9: a _URL override is validated against the allow-list
+    (_validate_url_override) — it is env-settable, unlike the file itself. A missing
+    file raises (never silently probes nothing): the same fail-loud shape as
+    cli.default_routing's stranded-data check."""
     import yaml
     p = path or (Path(__file__).resolve().parents[2] / "data" / "providers.yaml")
     if not p.is_file():
@@ -118,15 +141,20 @@ def _provider_specs(path: Path | None = None) -> list[dict]:
     rows = doc.get("providers") if isinstance(doc, dict) else None
     if not isinstance(rows, list) or not rows:
         raise ValueError(f"provider registry {p}: no 'providers' rows — refusing to probe")
+    from urllib.parse import urlparse
+    declared = {urlparse(r["base_url"]).hostname for r in rows}
     out = []
     for row in rows:
         env = "IRONFLEET_" + row["name"].upper().replace("-", "_")
+        url_env = f"{env}_URL"
+        override = os.environ.get(url_env)
         # D-T3: the user-declared context window + reliability-derived safe fill ride
         # the row too — the R3 shell's used-vs-remaining meter and auto-/compact read
         # these, so swapping models keeps the meter honest. Env-overridable like the rest.
         out.append({
             "name": row["name"],
-            "base_url": os.environ.get(f"{env}_URL", row["base_url"]),
+            "base_url": (_validate_url_override(url_env, override, declared)
+                         if override is not None else row["base_url"]),
             "model": os.environ.get(f"{env}_MODEL", row["model"]),
             "engine": row["engine"],
             "kind": row.get("kind", "chat"),
