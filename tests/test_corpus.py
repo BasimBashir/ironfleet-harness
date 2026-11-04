@@ -350,6 +350,22 @@ def test_corpus_search_accepts_dispatch_dict_convention(tmp_path, monkeypatch):
     assert res["authorities"] == [p["text"] for p in res["passages"]]
 
 
+def test_tool_args_cannot_override_the_matter_binding(tmp_path, monkeypatch):
+    """M1/S1: the model writes the args dict, so a `matter` key there must never bind —
+    neither over the workspace's binding nor in its absence."""
+    from harness.corpus import ironfleet_corpus_search
+    store = _two_topic_store(tmp_path)
+    embed = lambda texts: [[1.0, 0.0]] * len(texts)
+    monkeypatch.delenv("IRONFLEET_MATTER", raising=False)
+    res = ironfleet_corpus_search({"query": "PPSA priority secured", "matter": "m-a",
+                                   "rerank": False}, store=store, embed_fn=embed)
+    assert res["error"] == "no matter bound" and res["passages"] == []
+    monkeypatch.setenv("IRONFLEET_MATTER", "m-other")
+    res = ironfleet_corpus_search({"query": "PPSA priority secured", "matter": "m-a",
+                                   "rerank": False}, store=store, embed_fn=embed)
+    assert res["passages"] == []      # searched the bound matter, not the requested one
+
+
 def test_act_abbreviation_keys_join_the_full_name():
     """The measured PPSA finding (failure report run 2): expansion emits the
     ABBREVIATION ('PPSA 1999 s 6') and the join missed the DLM provision

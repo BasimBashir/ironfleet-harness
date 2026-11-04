@@ -549,7 +549,7 @@ def ironfleet_corpus_search(query, k: int = 5, rerank: bool = True,
         k = int(args.get("k", k))
         rerank = bool(args.get("rerank", rerank))
         expand = bool(args.get("expand", expand))
-        matter = args.get("matter", matter) or matter
+        # M1/S1: never args["matter"] — the model writes the args, the harness the binding
     matter = matter or os.environ.get("IRONFLEET_MATTER", "")
     if not matter:
         return {"passages": [], "authorities": [], "error": "no matter bound"}
