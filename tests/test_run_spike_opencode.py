@@ -101,3 +101,17 @@ def test_guard_cli_file_transport(tmp_path):
     assert res["decision"] == "block"
     assert "[UNGROUNDED — not confirmed]" in res["output"]
     assert "[Imaginary Act 2026, s 9]" in res["reason"]     # adapter carries ungrounded in reason
+
+
+def test_run_opencode_captures_child_output(tmp_path, monkeypatch):
+    """fa6988a's deadlock fix reads the pipes on threads — but created them without
+    their args, so every reader died with TypeError at start and the child's output
+    came back EMPTY (suite-visible only as a thread-teardown warning; fatal to any
+    live run — the 2026-11-04 golden parity launch died on case one, pre-sync)."""
+    import sys
+    mod = _load()
+    monkeypatch.setattr(mod, "opencode_cmd",
+                        lambda: [sys.executable, "-c", "print('capture-me')"])
+    rc, out = mod.run_opencode(tmp_path, ["ignored"], timeout=60)
+    assert rc == 0, out
+    assert "capture-me" in out

@@ -195,7 +195,7 @@ def run_opencode(ws: Path, args: list[str], timeout: int = RUN_TIMEOUT_S,
                             text=True, encoding="utf-8", errors="replace", env=env)
     chunks: dict[str, list[str]] = {"out": [], "err": []}
     readers = [threading.Thread(target=lambda k, p=p: chunks[k].append(
-                                   p.read() or ""), daemon=True)
+                                   p.read() or ""), args=(k,), daemon=True)
                for k, p in (("out", proc.stdout), ("err", proc.stderr))]
     for th in readers:
         th.start()
