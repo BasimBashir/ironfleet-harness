@@ -5,7 +5,10 @@ from pathlib import Path
 import yaml
 
 BUILTIN_TOOLS = ["read", "glob", "grep", "task", "todowrite", "skill", "bash",
-                 "edit", "write", "webfetch"]
+                 "edit", "write", "webfetch", "websearch"]
+# M1/S2: builtins every subagent persona is denied unless its `allowed_builtins` grants one.
+# `write` is not here: factory stages write their artifacts with it.
+DEFAULT_DENY = ("bash", "edit", "webfetch", "websearch")
 # Old-tree denial names -> the OpenCode builtin that would satisfy them. A denied name with no
 # entry here names a tool this mount does not have, so there is nothing to deny (reconciled and
 # recorded in Task 9, never silently).
@@ -21,6 +24,7 @@ class Persona:
     variants: dict[str, str] = field(default_factory=dict)
     allowed_tools: list[str] = field(default_factory=list)
     denied_tools: list[str] = field(default_factory=list)
+    allowed_builtins: list[str] = field(default_factory=list)
 
 class UnknownTool(ValueError):
     """A persona references a tool the manifest does not declare. Fail loud — a silent drop
@@ -55,14 +59,15 @@ def _frontmatter(p: Persona, model: str, mode: str,
         if rows:
             lines.append("tools:")
             lines += rows
-        deny = sorted({DENY_MAP.get(d) for d in p.denied_tools if d in DENY_MAP})
+        deny = sorted(({DENY_MAP[d] for d in p.denied_tools if d in DENY_MAP}
+                       | set(DEFAULT_DENY)) - set(p.allowed_builtins))
         if deny:
             lines.append("permission:")
             for d in deny:
                 lines.append(f"  {d}: deny")
     else:  # drive twin: the parity comparator is a plain chat call — any tool makes the model
            # act agentively instead of answering (spike, observed 2026-09-01). Zero-tool means
-           # zero-tool: `tools:` is an override, so EVERY tool the mount can offer — the ten
+           # zero-tool: `tools:` is an override, so EVERY tool the mount can offer — all the
            # builtins AND every ported custom tool — must be written `false` explicitly.
            # An unlisted name would keep its default (enabled) state at runtime.
         lines.append("tools:")

@@ -13,6 +13,12 @@
 # (`ironfleet_limitation_act`, the deferred form of the `limitation_checker` they allowed in the
 # old configs); every other persona carries no tool reference at all. Exactly one persona gains an
 # ENABLED tool — a measured fact, not a failure.
+#
+# M1/S2 (2026-11-04): the generator denies bash, edit, webfetch and websearch to every persona
+# by default; a persona regains one only by naming it in `allowed_builtins:`. All 13 bodies
+# were audited and none needs any of the four (architect and ingestor answer in text; `write`
+# stays available), so no persona carries a grant. That also closes citation's
+# `denied_tools: []` hole.
 personas:
   - name: adversary
     description: "Red team critique — finds weaknesses, recommends KILL if unwinnable"

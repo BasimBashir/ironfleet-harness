@@ -63,6 +63,29 @@ def test_denied_tools_become_permission_denies(src):
     assert "edit: deny" in fm        # file_write
     assert "bash: deny" in fm        # shell_exec
     assert "webfetch: deny" in fm    # web_scrape
+    assert "websearch: deny" in fm   # M1/S2 default, no old-tree name needed
+
+def _fm_of(src, **overrides):
+    doc = yaml.safe_load((src / "personas.yaml").read_text(encoding="utf-8"))["personas"]
+    doc[0].update(overrides)
+    _write(src, doc)
+    p = load_index(src / "personas.yaml")[0]
+    return render_agent_md(p, model="gate/research", mode="subagent",
+                           declared=DECLARED, ported=PORTED).split("---\n", 2)[1]
+
+def test_a_persona_denying_nothing_still_gets_the_four_risky_builtins_denied(src):
+    """M1/S2: `citation` shipped with `denied_tools: []` and so ran with bash and webfetch
+    live. The deny is now the default, not something each persona must remember to ask for."""
+    fm = _fm_of(src, denied_tools=[])
+    for t in ("bash", "edit", "webfetch", "websearch"):
+        assert f"  {t}: deny" in fm, t
+    assert "write: deny" not in fm   # factory stages write their artifacts
+
+def test_allowed_builtins_lifts_only_the_named_deny(src):
+    fm = _fm_of(src, denied_tools=[], allowed_builtins=["edit"])
+    assert "edit: deny" not in fm
+    for t in ("bash", "webfetch", "websearch"):
+        assert f"  {t}: deny" in fm, t
 
 def test_only_ported_tools_are_enabled(src):
     p = load_index(src / "personas.yaml")[0]
