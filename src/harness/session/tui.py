@@ -27,6 +27,11 @@ from textual.css.query import NoMatches
 # verified by pilot against the installed 8.2.8).
 from textual.widgets import Footer, Input, Static, TabbedContent, TabPane
 
+from harness.service import split_plan
+from harness.service.ingest import ingest_source
+from harness.service.personas import add_persona
+from harness.service.sessions import deliverables, dispatch_task, session_digest
+from harness.service.system import doctor_report, provider_lines
 from harness.session.store import SessionStore
 
 # -- error policy ---------------------------------------------------------------
@@ -117,17 +122,9 @@ def render_jobs(rows: list[dict], spin: int = 0) -> str:
     return "\n".join(lines)
 
 
-def split_plan(text: str) -> tuple[str, str]:
-    """A typed task may carry a ```plan fenced block — the factory's stage script
-    (stage|agent|prompt per line), the same shape the acceptance driver feeds
-    run_task. The block moves to plan_text verbatim; the rest stays the task.
-    Pure so tests and the dispatch worker share one rule."""
-    import re
-    m = re.search(r"```plan\s*\n.*?```", text, re.S)
-    if not m:
-        return text, ""
-    prose = (text[:m.start()] + text[m.end():]).strip()
-    return (prose or "(run the plan)"), m.group(0)
+# split_plan moved to harness.service.sessions (M3); re-exported here so
+# `from harness.session.tui import split_plan` keeps working (tests + dispatch).
+assert callable(split_plan)
 
 
 def render_agents(rows: list[dict], jobs: list[dict] | None = None,
@@ -296,8 +293,8 @@ class IronFleetApp(App):
         """Announce every doc an agent wrote as a clickable line (once per file)."""
         if not (self.session_id and self.base):
             return
-        for f in sorted((Path(self.base) / self.session_id).glob("*/*.md")):
-            if ".opencode" in f.parts or str(f) in self._echoed_docs:
+        for f in deliverables(self.base, self.session_id):
+            if str(f) in self._echoed_docs:
                 continue
             self._echoed_docs.add(str(f))
             self._echo(f"deliverable: {self._link(f)}")
@@ -546,43 +543,15 @@ class IronFleetApp(App):
         return body
 
     async def _doctor(self) -> None:
-        """/doctor: the honest state, one screen. The provider rows show what the
-        REGISTRY declares (tier, window) — the probe verdict lands at registration
-        (harness providers / stack start); re-probing every provider on a slash
-        command would re-key the world for a view."""
-        import json as _json
-        from pathlib import Path as _Path
-        from harness.bootstrap import _provider_specs
-        from harness.packaging.macdist import PINS
-        from harness.session.commands import doctor_lines
-        try:
-            from scripts.verify_opencode_mount import installed_version
-            installed = installed_version()
-        except Exception as exc:                              # noqa: BLE001
-            _tui_error("doctor_version", exc)
-            installed = None
-        cfg = _Path.home() / ".config" / "opencode" / "opencode.jsonc"
-        autoupdate = None
-        if cfg.is_file():
-            try:
-                body = cfg.read_text(encoding="utf-8")
-                autoupdate = '"autoupdate": false' in body or '"autoupdate":false' in body
-            except Exception as exc:                          # noqa: BLE001
-                _tui_error("doctor_cfg", exc)
-        provs = [(s["name"], f"declared {s.get('tier', '?')},"
-                 f" window {s.get('context_window') or '—'}")
-                 for s in _provider_specs()]
-        self._echo("\n".join(doctor_lines(
-            installed=installed, pin=str(PINS["opencode"]),
-            autoupdate=autoupdate, providers=provs)))
+        """/doctor: the honest state, one screen — the body is the service's
+        doctor_report; the TUI only records the soft failures under its tags."""
+        self._echo(doctor_report(on_error=_tui_error))
 
     async def _ingest(self, source: str) -> None:
-        """/ingest <path>: corpus_ingest into THIS session's matter, in a thread
-        (sha256 resume, batches of 64, LOCAL_ONLY embeddings — the substrate), each
-        doc's verdict echoed as it lands."""
+        """/ingest <path>: ingest into THIS session's matter, in a thread (the
+        service does the substrate work; the TUI echoes the report lines)."""
         import asyncio
         import json as _json
-        from pathlib import Path as _Path
         driver = getattr(self.runner, "driver", None)
         if driver is None or not self.session_id:
             self._echo("(no session — /new --matter <ref> first)")
@@ -590,16 +559,8 @@ class IronFleetApp(App):
         matter_ref = driver.resume(self.session_id)["matter_ref"]
         self._echo(f"ingesting {source} into {matter_ref}…")
 
-        def _run() -> dict:
-            from scripts.corpus_ingest import (build_live_stack, ingest_dir,
-                                               make_embed_fn)
-            gate, store = build_live_stack("corpus_ingest_trace.sqlite3",
-                                           matter_ref)
-            return ingest_dir(matter_ref, [_Path(source)], store,
-                              make_embed_fn(gate, matter_ref))
-
         try:
-            report = await asyncio.to_thread(_run)
+            report = await asyncio.to_thread(ingest_source, matter_ref, source)
         except Exception as exc:                              # noqa: BLE001
             _tui_error("ingest", exc, root=self.store.root)
             self._echo(f"/ingest failed: {exc}")
@@ -617,86 +578,42 @@ class IronFleetApp(App):
                    f" (report {report_path})")
 
     def _persona_new(self, args: str) -> None:
-        """/persona new name|description|tools|prompt — the old agent-authoring
-        CLI, folded in. Appends the validated row to personas.yaml; the mount
-        regen rides the next sync_mount."""
-        import yaml as _yaml
-        from harness.session.commands import build_persona_row, parse_persona_new
+        """/persona new name|description|tools|prompt — appends the validated row
+        to personas.yaml (the service does it; the TUI echoes). The mount regen
+        rides the next sync_mount."""
         try:
-            name, desc, allowed, prompt = parse_persona_new(args)
-            row = build_persona_row(name, desc, allowed, prompt)
+            name = add_persona(args)
         except ValueError as exc:
             _tui_error("persona_new", exc)
             self._echo(f"/persona new: {exc}")
             return
-        target = Path(__file__).resolve().parents[3] / "data" / "module-e" / "personas.yaml"
-        doc = _yaml.safe_load(target.read_text(encoding="utf-8"))
-        doc["personas"].append(row)
-        target.write_text(_yaml.safe_dump(doc, allow_unicode=True, sort_keys=False),
-                          encoding="utf-8")
         self._echo(f"persona {name} added to personas.yaml — mounts pick it up at"
                    " the next sync (the S7i canon then improves it).")
 
     def _providers(self) -> None:
-        """/provider: the registry as data — rows, tiers, windows. Switching a
-        class's provider is a routing-table edit (data/, by ruling); the shell
-        shows, it does not secretly rewire."""
-        from harness.bootstrap import _provider_specs
-        lines = [f"{s['name']}: {s['model']} @ {s['base_url']}"
-                 f" (tier {s.get('tier', '?')}, window {s.get('context_window') or '—'})"
-                 for s in _provider_specs()]
-        self._echo("\n".join(lines) +
-                   "\n(route edits are data edits in data/routing-a1.yaml)")
+        """/provider: the registry as data — the service's provider_lines."""
+        self._echo(provider_lines())
 
     def _session_digest(self) -> str:
-        """Run-2+'s memory: the last checkpoint's summary (or the last two turn
-        summaries) plus the deliverables already produced — seeded into stage 1
-        so a follow-up prompt continues from the last checkpoint."""
-        rows = self.store.turns(self.session_id) if self.session_id else []
-        if not rows:
-            return ""
-        parts: list[str] = []
-        checkpoints = [r for r in rows if (r.display or "").startswith("/compact")]
-        if checkpoints:
-            parts.append("Last checkpoint: " + (checkpoints[-1].output_summary or "")[:600])
-        else:
-            for r in rows[-2:]:
-                if r.output_summary:
-                    parts.append(f"{r.agent} reported: {r.output_summary[:300]}")
-        if self.base and self.session_id:
-            names = [f"{f.parent.name}/{f.name}"
-                     for f in (Path(self.base) / self.session_id).glob("*/*.md")
-                     if ".opencode" not in f.parts]
-            if names:
-                parts.append("Files already produced: " + ", ".join(names[-12:]))
-        return " | ".join(parts)[:2000]
+        """Run-2+'s memory — the service's session_digest."""
+        return session_digest(self.store, self.base, self.session_id)
 
     async def _dispatch_task(self, text: str) -> None:
-        from harness.session.tokens import maybe_compact, window_for
-        driver = getattr(self.runner, "driver", None)
-        if driver is None or not self.session_id:
+        if getattr(self.runner, "driver", None) is None or not self.session_id:
             self._echo("(no session to run this in — /new --matter <ref> first)")
             return
         try:
-            cp = await maybe_compact(driver, self.session_id,
-                                     used=self.tokens_used,
-                                     window=self.context_window,
-                                     safe_fill=window_for(self.provider_name)[1])
-            if cp is not None:
-                self._echo("auto-compacting…")
-            matter_ref = driver.resume(self.session_id)["matter_ref"]
             # The chaired shell runs the FULL crew at the corpus's best serving
             # tier: a typed ```plan block scripts the stages exactly; a plain
             # goal gets the legal pipeline (data/module-e/legal_pipeline.yaml)
             # with the session digest seeded, so follow-ups continue from the
             # last checkpoint; CLOUD_PERMITTED lets the routing table send
             # analysis classes to the full-tier provider.
-            task, plan_text = split_plan(text)
-            rows = await self.runner.run_task(self.session_id, matter_ref, task,
-                                              plan_text=plan_text,
-                                              complexity="HIGH",
-                                              classification="CLOUD_PERMITTED",
-                                              session_digest=self._session_digest())
+            rows = await dispatch_task(self.runner, self.session_id, text,
+                                       used=self.tokens_used,
+                                       window=self.context_window,
+                                       provider_name=self.provider_name,
+                                       notify=self._echo)
             self._echo(f"factory: {len(rows)} stage(s) done")
             self._echo_deliverables()
             self._echo("continue: type a follow-up (explain, change, refine — the "
