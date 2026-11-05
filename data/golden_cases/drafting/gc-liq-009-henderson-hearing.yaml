@@ -1,0 +1,27 @@
+# source: Henderson v Walker — [2019] NZHC 2184.pdf
+# citation: Henderson v Walker [2019] NZHC 2184
+# pins: counsel's submission that the Act "sets out positive powers and duties … does not
+#       impose negative duties" ([302]); "The notion of breach of statutory duty is that a
+#       positive obligation has not been complied with" and exceeding powers is not a breach
+#       ([303]); "Part 16 of the Companies Act provides for alternative modes of enforcement,
+#       in particular s 286" - so no private damages action was intended ([304]); cause of
+#       action fails ([305])
+# cluster: liquidators-duties  status: draft
+id: gc-liq-009-henderson-hearing
+matter_type: liquidators-duties
+task_class: hearing-question
+prompt: |
+  You act for a liquidator sued by a former director who pleads, among other causes of
+  action, breach of statutory duty under Part 16 of the Companies Act 1993 for the
+  liquidator's handling of the director's documents. At the hearing the judge is expected
+  to test this cause of action. Prepare the questions you expect from the bench on it, each
+  with a short model answer for counsel, citing the enforcement provision in Part 16 and the
+  leading High Court decision on whether a liquidator's statutory duties sound in damages.
+expected_citations:
+  - "Companies Act 1993, s 286"
+  - "Henderson v Walker [2019] NZHC 2184"
+required_grounding:
+  - "positive obligation"
+  - "alternative modes of enforcement"
+persona_checks:
+  bench question form: "Q1"

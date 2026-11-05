@@ -74,6 +74,21 @@ def test_matter_ref_sanitised_into_table_names(tmp_path):
     assert store.doc_count("m:bad/ref") == 1  # worked, colon-free tables under the hood
 
 
+def test_ingest_into_plugin_migrated_docs_table(tmp_path):
+    # track-b 2026-11-05: the shared live store carries the plugin's G3 trust_tier column
+    import sqlite3
+    from harness.corpus import CorpusStore, DocRecord
+    db = tmp_path / "corpus.sqlite3"
+    with sqlite3.connect(db) as c:
+        c.execute("CREATE TABLE docs_m_a(doc_id TEXT PRIMARY KEY, source_name TEXT,"
+                  " sha256 TEXT, words INTEGER, chunk_count INTEGER, ts TEXT,"
+                  " trust_tier TEXT DEFAULT 'T1')")
+    store = CorpusStore(db)
+    store.ingest("m-a", DocRecord("real-A", "INTRO\n\nBody.", "a.pdf"), [[0.0]], "m", "p")
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT trust_tier FROM docs_m_a").fetchone() == ("T1",)
+
+
 # ---------------------------------------------------------------- R1 Task 3: hybrid search
 
 def test_hybrid_search_fuses_and_never_crosses_matters(tmp_path):
@@ -269,11 +284,11 @@ def test_expand_query_strict_schema_and_bounds():
     from harness.corpus import expand_query
     ok = '["s 135 Companies Act 1993 director duty", "voidable transactions preference", "statutory demand"]'
     assert len(expand_query("p", lambda p: ok)) == 3
-    assert len(expand_query("p", lambda p: '["a","b","c","d"]')) == 3   # capped, never passed through
+    assert len(expand_query("p", lambda p: '["a","b","c","d","e"]')) == 4   # capped, never passed through
     assert expand_query("p", lambda p: 'not json') == []
     assert expand_query("p", lambda p: '{"q": 1}') == []
     assert expand_query("p", lambda p: '["ok", 42]') == []              # a non-string rejects the WHOLE output
-    assert expand_query("p", lambda p: f'["{"x" * 201}"]') == []        # over-length rejects the whole output
+    assert expand_query("p", lambda p: f'["{"x" * 301}"]') == []        # over-length rejects the whole output
     assert expand_query("p", lambda p: '[]') == []
 
     def boom(prompt):

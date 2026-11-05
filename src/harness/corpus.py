@@ -244,7 +244,10 @@ class CorpusStore:
                       " USING fts5(doc_id, heading, body)")
             c.execute(f"CREATE TABLE IF NOT EXISTS {_mtable(matter_ref, 'cites')}"
                       "(key TEXT, fts_rowid INTEGER, PRIMARY KEY(key, fts_rowid))")
+            # named columns: the plugin's G3 migration adds trust_tier (DEFAULT 'T1')
+            # to this shared store; a positional insert breaks on the 7-column table
             c.execute(f"INSERT OR REPLACE INTO {_mtable(matter_ref, 'docs')}"
+                      "(doc_id, source_name, sha256, words, chunk_count, ts)"
                       " VALUES(?,?,?,?,?,?)",
                       (doc.doc_id, doc.source_name, sha, len(doc.text.split()),
                        len(chunks), datetime.now(timezone.utc).isoformat()))
@@ -472,17 +475,19 @@ def _hit_key(hit: CorpusHit) -> str:
 # ------------------------------------------- multi-query expansion (2026-10-14)
 
 _EXPAND_TMPL = """You are a legal retrieval expert. Given this New Zealand legal problem, output \
-ONLY a JSON array of exactly 3 short search query strings (no commentary, no markdown) that a \
-hybrid lexical+semantic search engine should run to retrieve (a) the governing statutory \
-provisions, (b) the leading cases on the point, and (c) the procedural rule. Each query under 20 \
-words, dense with the salient legal terms — not the facts of the parties.
+ONLY a JSON array of exactly 4 strings and nothing else — no commentary before or after it, no \
+markdown. Strings 1-3 are short search queries a hybrid lexical+semantic search engine should run \
+to retrieve (1) the governing statutory provisions, (2) the leading cases on the point, and \
+(3) the procedural rule. String 4, INSIDE the array, is one sentence stating the legal \
+proposition that decides the problem, naming the section number or doctrine it rests on. Each \
+string under 30 words, dense with the salient legal terms — not the facts of the parties.
 
 PROBLEM:
 {prompt}"""
 
 
-def expand_query(prompt: str, dispatch_fn, max_queries: int = 3,
-                 max_len: int = 200) -> list[str]:
+def expand_query(prompt: str, dispatch_fn, max_queries: int = 4,
+                 max_len: int = 300) -> list[str]:
     """Bounded multi-query expansion: the ORIGINAL query stays primary; these are
     alternate issue-form retrieval queries (the saved probe measured them correct).
 
@@ -577,7 +582,7 @@ def ironfleet_corpus_search(query, k: int = 5, rerank: bool = True,
                 import asyncio
                 res = asyncio.run(gate.dispatch(LLMRequest(
                     matter_ref=matter, task_class="extraction", model="qwen3.8:27b",
-                    messages=[{"role": "user", "content": prompt}], max_tokens=2048)))
+                    messages=[{"role": "user", "content": prompt}], max_tokens=8192)))  # qwen thinks ~2.4k before answering
                 return res.content or ""
         queries = [query] + expand_query(query, expand_fn)
         qvecs = embed_fn([q[:1200] for q in queries])
@@ -615,6 +620,7 @@ def ironfleet_corpus_search(query, k: int = 5, rerank: bool = True,
 
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z“(\[])")
 _REF_TOKEN = re.compile(r"\[E\d+\.S\d+\]")
+_MODEL_QUOTES = re.compile(r'["“”]')
 
 
 def evidence_window(passages: list[dict], min_words: int = 6, cap: int = 500
@@ -664,5 +670,7 @@ def splice_references(draft: str, table: dict[str, str]) -> tuple[str, int, int]
         invalid += 1
         return ref
 
-    spliced = _REF_TOKEN.sub(rep, draft)
+    # B4 quote ban, post-strip fallback: the prompt forbids model-written quotation marks;
+    # any the model smuggles in are removed so quotes exist only where spliced.
+    spliced = _REF_TOKEN.sub(rep, _MODEL_QUOTES.sub("", draft))
     return spliced, substituted, invalid

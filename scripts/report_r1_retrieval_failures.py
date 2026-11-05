@@ -83,7 +83,7 @@ def main_sync() -> None:
     def dispatch(prompt: str) -> str:
         res = asyncio.run(gate.dispatch(LLMRequest(
             matter_ref=MATTER, task_class="extraction", model="qwen3.8:27b",
-            messages=[{"role": "user", "content": prompt}], max_tokens=2048)))
+            messages=[{"role": "user", "content": prompt}], max_tokens=8192)))
         return res.content or ""
 
     def embed(texts: list[str]) -> list[list[float]]:

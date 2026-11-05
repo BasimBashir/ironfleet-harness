@@ -72,6 +72,20 @@ def test_spliced_quotes_pass_the_verbatim_check_by_construction():
     assert grounded and not ungrounded
 
 
+def test_splice_strips_model_written_quotation_marks():
+    # B4 (track-b 2026-11-05): the quote ban's post-strip fallback — quotes in the final
+    # text exist ONLY where the harness spliced them
+    from harness.corpus import evidence_window, splice_references
+    _, table = evidence_window([{"source": "s",
+                                 "text": "Security interests rank by attachment order."}])
+    draft = 'The court said “ranks by order” and "attachment governs" [E1.S1]. Also "[E1.S1]".'
+    spliced, subbed, _ = splice_references(draft, table)
+    assert subbed == 2
+    assert "ranks by order" in spliced and "“" not in spliced and "”" not in spliced
+    assert spliced.count('"') == 4          # exactly the two spliced sentences' quote pairs
+    assert '""' not in spliced              # a quoted reference does not double-quote
+
+
 # ------------------------------------------------------- guard integration (D6 composes)
 
 def test_guard_blocks_fabricated_quotes_and_passes_spliced_ones():

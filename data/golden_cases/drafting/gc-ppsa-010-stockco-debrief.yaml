@@ -1,0 +1,27 @@
+# source: Stockco Ltd v Gibson — [2012] NZCA 330.pdf
+# citation: Stockco Ltd v Gibson [2012] NZCA 330
+# pins: s 53 buyer protection; two-stage ORIX approach adopted at [51] ("We agree that this
+#       two stage process is appropriate"); sale "fell a long way outside the ordinary course
+#       of Plateau's business. Therefore, the Banks' security interest continued in the 4,000
+#       heifers" ([79]); "The appeal is dismissed", costs reserved ([155])
+# cluster: ppsa-priority  status: draft
+id: gc-ppsa-010-stockco-debrief
+matter_type: ppsa-priority
+task_class: debrief
+prompt: |
+  You acted for a livestock financier that bought a dairy group's core herd at well under
+  market value, leased the animals straight back to the group, and then lost a priority
+  fight with the group's banks after receivership. The Court of Appeal has now ruled.
+  Write the client debrief: what the court decided, the test it applied to the statutory
+  buyer protection and why the sale failed it, and what the client should change in how
+  it structures sale-and-leaseback stock finance in future. Cite the provision and the
+  appellate decision.
+expected_citations:
+  - "Personal Property Securities Act 1999, s 53"
+  - "Stockco Ltd v Gibson [2012] NZCA 330"
+required_grounding:
+  - "ordinary course of"
+  - "security interest continued"
+  - "appeal is dismissed"
+persona_checks:
+  two-stage test: "two stage"

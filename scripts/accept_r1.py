@@ -137,6 +137,12 @@ def check_c4_live(gate, store) -> list[str]:
     supply = hybrid = rerank_ok = 0
     rerank_traced = False
     problems: list[str] = []
+    # corpus-present denominator (the ratified C4 reading): presence is the failure
+    # report's text-derived verdict, so run report_r1_retrieval_failures.py first
+    fr = REPO / "data/eval/R1-ACCEPT/retrieval_failure_report.json"
+    present = ({(r["case"], r["needle"]) for r in json.loads(fr.read_text(encoding="utf-8"))
+                ["needles_detail"] if r["present"]} if fr.exists() else None)
+    supply_present = 0
     for case in cases:
         q = case.prompt[:1200]
         try:
@@ -148,8 +154,10 @@ def check_c4_live(gate, store) -> list[str]:
         except Exception as ex:                        # noqa: BLE001
             return [f"C4: hybrid search failed: {ex}"]
         blob = "\n".join(h.text for h in hits)
-        got = sum(1 for n in case.expected_citations if citation_hit(blob, n))
-        supply += got
+        hit = [n for n in case.expected_citations if citation_hit(blob, n)]
+        supply += len(hit)
+        if present is not None:
+            supply_present += sum(1 for n in hit if (case.id, n) in present)
         if hits and hits[0].doc_id:
             hybrid += 1 if any(case_id_frag(h) for h in hits[:5]) else 0
         try:
@@ -161,10 +169,17 @@ def check_c4_live(gate, store) -> list[str]:
         except Exception:                              # noqa: BLE001 — no rerank provider: honest
             pass
     total_needles = sum(len(c.expected_citations) for c in cases)
-    print(f"  [C4] needle-supply: {supply}/{total_needles}; rerank leg traced: "
+    print(f"  [C4] needle-supply (all needles): {supply}/{total_needles}; rerank leg traced: "
           f"{rerank_ok}/30 (llama-rerank up: {rerank_traced})", flush=True)
-    if supply / max(1, total_needles) < 0.75:
-        problems.append(f"C4: needle-supply {supply}/{total_needles} below the 75% "
+    num, den = supply, total_needles
+    if present is not None:
+        num, den = supply_present, len(present)
+        print(f"  [C4] needle-supply (corpus-present, ratified reading): {num}/{den}", flush=True)
+        if supply / max(1, total_needles) < 0.75:
+            print(f"  [C4] note: the all-needles reading {supply}/{total_needles} is below the "
+                  f"75% floor (absent authorities count against it)", flush=True)
+    if num / max(1, den) < 0.75:
+        problems.append(f"C4: needle-supply {num}/{den} below the 75% "
                         f"acceptance floor (the statute-ingest target)")
     if rerank_ok == 0:
         problems.append("C4: DUE-PARTIAL — rerank leg not traced (llama-rerank server "

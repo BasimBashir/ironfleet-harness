@@ -1,0 +1,26 @@
+# B6 (track-b 2026-11-05) drafting-task golden cases. Kept OUT of the top-level 30-case set
+# (load_cases globs non-recursively; tests/test_accept_s7c.py pins exactly 30 there).
+# Source names climb back to the shared ../../sources/Set_2 so no PDF is duplicated;
+# check with: python scripts/check_golden.py --cases-dir data/golden_cases/drafting
+manifest:
+- id: gc-ppsa-010-stockco-debrief
+  sources:
+  - "../../../sources/Set_2/Stockco Ltd v Gibson — [2012] NZCA 330.pdf"
+  citation: Stockco Ltd v Gibson [2012] NZCA 330
+  sha256_per_source:
+  - ec7e83c38a0d4bbf279c7f1035a4aed57381869d7f492231d6754d2143a5a5b8
+  cluster: ppsa-priority
+- id: gc-ppsa-011-polymers-response
+  sources:
+  - "../../../sources/Set_2/Polymers International Ltd v Toon — [2013] NZHC 1897.pdf"
+  citation: Polymers International Ltd v Toon [2013] NZHC 1897
+  sha256_per_source:
+  - 421d2bbc88c052be4059ec3ce95528cc2b616b1900d3c089a0590d79a3b3a9e2
+  cluster: ppsa-priority
+- id: gc-liq-009-henderson-hearing
+  sources:
+  - "../../../sources/Set_2/Henderson v Walker — [2019] NZHC 2184.pdf"
+  citation: Henderson v Walker [2019] NZHC 2184
+  sha256_per_source:
+  - 34083926839393d0800de851f11152f527a7df81e633f6d94cccd3dc4322dfb2
+  cluster: liquidators-duties

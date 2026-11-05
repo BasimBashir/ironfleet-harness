@@ -346,3 +346,35 @@ sources:
   retrieved: operator-provided local export (Desktop/nz), recorded 2026-10-14
 - path: C:/Users/mianx/OneDrive/Desktop/IronFleet harness/harness-core/data/golden_cases/sources/Set_2
   kind: auto
+- path: C:\Users\mianx\OneDrive\Desktop\nz\missing-authorities-2026-11-05\trustee-act-1956.md
+  kind: statute
+  act: Trustee Act 1956
+  version: ''
+  as_at: 30 January 2021
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/act/public/1956/0061/latest/whole.html
+  retrieved: downloaded 2026-11-05 (PCO website; WAF passed via browser session)
+- path: C:\Users\mianx\OneDrive\Desktop\nz\missing-authorities-2026-11-05\securities-act-1978.md
+  kind: statute
+  act: Securities Act 1978
+  version: '46.0'
+  as_at: 1 May 2011
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/act/public/1978/0103/46.0/whole.html
+  retrieved: downloaded 2026-11-05 (PCO website; WAF passed via browser session)
+- path: C:\Users\mianx\OneDrive\Desktop\nz\missing-authorities-2026-11-05\criminal-proceeds-recovery-act-2009-pre2023.md
+  kind: statute
+  act: Criminal Proceeds (Recovery) Act 2009
+  version: '35.0'
+  as_at: 1 October 2012
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/act/public/2009/0008/35.0/whole.html
+  retrieved: downloaded 2026-11-05 (PCO website; WAF passed via browser session)
+- path: C:\Users\mianx\OneDrive\Desktop\nz\missing-authorities-2026-11-05\customs-excise-act-1996.md
+  kind: statute
+  act: Customs and Excise Act 1996
+  version: ''
+  as_at: 1 October 2018
+  licence: CC BY 4.0 (Crown copyright, legislation.govt.nz)
+  source_url: https://www.legislation.govt.nz/act/public/1996/0027/latest/whole.html
+  retrieved: downloaded 2026-11-05 (PCO website; WAF passed via browser session)

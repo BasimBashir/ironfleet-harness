@@ -164,7 +164,7 @@ def product_retrieve(gate, store: CorpusStore, case) -> dict:
     def dispatch(p: str) -> str:
         res = asyncio.run(gate.dispatch(LLMRequest(
             matter_ref=MATTER_LIVE, task_class="extraction", model=MODEL_EXPAND,
-            messages=[{"role": "user", "content": p}], max_tokens=2048)))
+            messages=[{"role": "user", "content": p}], max_tokens=8192)))
         return res.content or ""
 
     alts = expand_query(prompt, dispatch)
@@ -244,7 +244,8 @@ def compose_arm(gate, case, passages: list[dict]) -> tuple[str, dict, dict]:
     raw = res.content or ""
     spliced, substituted, invalid = splice_references(raw, table)
     stats = {"refs_substituted": substituted, "refs_invalid": invalid,
-             "refs_table": len(table)}
+             "refs_table": len(table),
+             "self_quotes_stripped": len(extract_quotes(raw))}   # B4 fallback firings
     return spliced, res.usage, stats
 
 

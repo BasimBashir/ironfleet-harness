@@ -1,0 +1,29 @@
+# source: Polymers International Ltd v Toon — [2013] NZHC 1897.pdf
+# citation: Polymers International Ltd v Toon [2013] NZHC 1897
+# pins: "The three key provisions in the PPSA that relate to errors in financial statements
+#       are ss 149–151" ([8]); s 172(d) - "a failure to correctly record the incorporation
+#       number … will result in the registration not being retrieved by a search of the
+#       field" ([26]); "Polymers financial statement was not validly registered. I therefore
+#       decline the relief sought" ([29]); costs 2B ([30])
+# cluster: ppsa-priority  status: draft
+id: gc-ppsa-011-polymers-response
+matter_type: ppsa-priority
+task_class: response
+prompt: |
+  You act for the liquidators of a company. A plastics supplier's solicitors have written
+  demanding that the liquidators recognise their client's perfected security interest over
+  stock supplied on credit. The supplier's financing statement recorded the debtor as an
+  "other organisation" rather than a company and left the company number blank. Draft the
+  liquidators' response letter declining the demand, explaining why the registration is
+  not valid and citing the governing provisions of the Personal Property Securities Act 1999
+  and the High Court decision on this very error.
+expected_citations:
+  - "Personal Property Securities Act 1999, s 149"
+  - "Personal Property Securities Act 1999, s 172"
+  - "Polymers International Ltd v Toon [2013] NZHC 1897"
+required_grounding:
+  - "seriously misleading"
+  - "not validly registered"
+  - "incorporation number"
+persona_checks:
+  declines the demand: "do not accept"
