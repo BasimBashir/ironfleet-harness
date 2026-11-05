@@ -220,9 +220,9 @@ def test_static_tier_reaches_the_child_env_check(monkeypatch):
     # The first cut returned before verify_child_env unless --live was passed, so the static
     # tier could not reach its own check while the header claimed it did (fix-round finding).
     # A dirty child env must be reported on the static path, with no binary involved.
-    import scripts.stand_up_opencode as driver
+    import harness.substrate.mount as driver
     from scripts import verify_opencode_mount as rig
-    monkeypatch.setattr(rig, "installed_version", lambda: "1.18.25")
+    # verify_mount looks child_env up in the substrate module's globals, so the patch goes there.
     monkeypatch.setattr(driver, "child_env", lambda ws: {
         "PWD": str(ws), "AWS_REGION": "us-east-1", "ANTHROPIC_AUTH_TOKEN": "tok",
         "OPENCODE_DISABLE_MODELS_FETCH": "1", "OPENCODE_DISABLE_TELEMETRY": "1",
@@ -241,7 +241,7 @@ def test_static_tier_records_what_the_machine_carries(monkeypatch):
     # something rather than merely existing. This box carries several ANTHROPIC_* variables that
     # do not activate anything on the pinned binary — the assertion is a subset, because the
     # point is that NONE of them survive into the child.
-    import scripts.stand_up_opencode as driver
+    import harness.substrate.mount as driver
     from scripts import verify_opencode_mount as rig
     monkeypatch.setattr(rig, "installed_version", lambda: "1.18.25")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-attacker")
@@ -257,7 +257,7 @@ def test_a_sync_failure_cannot_leak_the_throwaway_workspace(monkeypatch):
     # throwaway workspace, so a raised sync leaked a verify-opencode-mount-* tempdir per
     # failure. Owned workspaces must be cleaned up on the sync path too, not only on the
     # models path.
-    import scripts.stand_up_opencode as driver
+    import harness.substrate.mount as driver
     from scripts import verify_opencode_mount as rig
     monkeypatch.setattr(rig, "installed_version", lambda: "1.18.25")
 
@@ -277,7 +277,7 @@ def test_mount_aggregation_reports_a_leak_end_to_end(monkeypatch, tmp_path):
     # verify_mount(live=True) is the unit-tested path to the verdict: workspace synced, child
     # env scrubbed, model list asserted. The binary is stubbed; the plumbing is real.
     import json
-    import scripts.stand_up_opencode as driver
+    import harness.substrate.mount as driver
     from scripts import verify_opencode_mount as rig
     monkeypatch.setattr(rig, "installed_version", lambda: "1.18.25")
     monkeypatch.setenv("AWS_REGION", "us-east-1")

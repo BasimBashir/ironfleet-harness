@@ -41,7 +41,8 @@ from __future__ import annotations
 import json, os, shutil, subprocess, sys
 from pathlib import Path
 
-EXPECTED_VERSION = "1.18.25"
+from harness.substrate.mount import EXPECTED_VERSION, installed_version  # noqa: F401 — M3: moved to the substrate
+
 FALLBACK = "pin-hold"          # named fallback per Jonathan's 2026-09-16 requirement
 GUARD_SEAMS = ("tool.execute.before", "tool.execute.after", "experimental.text.complete")
 GATE_PROVIDER = "gate-local"
@@ -51,21 +52,6 @@ MOUNT = ROOT / "data" / "opencode-a1"
 # as evidence, never asserted on: a FRESH cache is not rewritten even with the fetch enabled,
 # so an unchanged mtime does not prove absence of a fetch (verified live 2026-10-01).
 CATALOG_CACHE = Path.home() / ".cache" / "opencode" / "models.json"
-
-
-def installed_version() -> str:
-    # On Windows, subprocess.run with a bare name does not apply PATHEXT, so the npm shim
-    # (opencode.CMD) is never found and the rig reports a false "not found" — fail-closed
-    # against a phantom problem, and the pin is never actually checked. shutil.which resolves
-    # the shim. Deliberately no shell=True: the resolved absolute path runs directly, so no
-    # shell ever interprets it.
-    exe = shutil.which("opencode") or "opencode"
-    try:
-        out = subprocess.run([exe, "--version"], capture_output=True, text=True,
-                             timeout=30)
-        return out.stdout.strip() or out.stderr.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
 
 
 def verify_version() -> list[str]:
@@ -188,19 +174,13 @@ def verify_mount(ws: Path | None = None, live: bool = False) -> tuple[list[str],
     """All checks. The version pin and the child env run on BOTH tiers; the behavioural check
     needs the pinned binary and a synced workspace, so it is behind live=True and its absence is
     REPORTED, never silent. GUARD_SEAMS is probed on no path (see the module docstring)."""
-    # verify_child_env imports the scrub from the driver module, so the import has to resolve on
-    # the STATIC tier too: as a CLI, sys.path[0] is scripts/ itself, not the repo root. Hoisting
-    # this above the static return is what makes the child-env check reachable without --live.
-    for p in (str(ROOT / "src"), str(ROOT)):
-        if p not in sys.path:
-            sys.path.insert(0, p)
-    from scripts.stand_up_opencode import bearer_keys, child_env
+    from harness.substrate.mount import bearer_keys, child_env
     problems = list(verify_version())
 
     workspace = ws
     owned = False
     if live:
-        from scripts.stand_up_opencode import PORT, sync_mount
+        from harness.substrate.mount import PORT, sync_mount
         if workspace is None:
             import tempfile
             workspace = Path(tempfile.mkdtemp(prefix="verify-opencode-mount-"))

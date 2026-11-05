@@ -44,7 +44,7 @@ def test_main_returns_2_when_port_is_taken(tmp_path, monkeypatch):
     # would point at that something else. ThreadingHTTPServer binds in its CONSTRUCTOR, so
     # the guard must wrap construction, not start().
     import socket
-    import scripts.stand_up_opencode as drv
+    import harness.substrate.mount as drv
 
     # build_gate() probes a live Ollama — a unit test must not depend on the network.
     # Stub it with a gate that has no providers; the bind guard runs before any dispatch.
@@ -154,9 +154,10 @@ class _FakeGate:
 
 def _install_fake_gate(monkeypatch, raw=None, seamless=False):
     # build_gate's body lives in harness.bootstrap now (the launcher's scripts-free
-    # import path), with stand_up re-exporting it — so the fake gate must be installed
-    # in BOTH modules' namespaces.
-    import scripts.stand_up_opencode as drv
+    # import path), with the substrate mount re-exporting it — so the fake gate must be
+    # installed in BOTH modules' namespaces (drv is the real module: a patch on the
+    # scripts/ shim would not reach the re-exported build_gate).
+    import harness.substrate.mount as drv
     import harness.bootstrap as boot
     cls = _FakeGate.seamless() if seamless else _FakeGate
     cls._raw = raw or {}
@@ -193,17 +194,16 @@ def test_build_gate_fails_loudly_if_the_seam_attribute_is_gone(tmp_path, monkeyp
     assert "build_gate" in str(ex.value)
 
 
-def test_driver_run_as_a_script_reaches_the_spike_driver(tmp_path):
-    # Running the driver as a CLI puts scripts/ at sys.path[0] and NOT the repo root, and
-    # run_opencode_session resolves the spike driver by package path (scripts/ has no
-    # __init__.py) — so the gate bound, then the session died on ModuleNotFoundError before
-    # opencode ever started (observed live 2026-10-01). `--help` exits at argparse and never
-    # reaches that import, which is why the suite stayed green: this has to exercise it, from
-    # a cwd that is not the repo, with only scripts/ on the path the way a CLI would have it.
+def test_driver_run_as_a_script_reaches_the_run_primitives(tmp_path):
+    # M3: the driver shim no longer inserts the repo root into sys.path — run_opencode_session
+    # imports the run primitives from harness.substrate.run, which resolves via the installed
+    # package, not via a scripts/ package path. Exercise that from a cwd that is not the repo,
+    # with only scripts/ on the path the way a CLI would have it (regression guard for the
+    # 2026-10-01 ModuleNotFoundError class).
     import subprocess, sys
     probe = ("import sys; sys.path.insert(0, sys.argv[1]);"
              "import stand_up_opencode;"
-             "from scripts.run_spike_opencode import run_opencode")
+             "from harness.substrate.run import run_opencode")
     r = subprocess.run([sys.executable, "-c", probe,
                         str(Path(__file__).resolve().parent.parent / "scripts")],
                        capture_output=True, text=True, cwd=str(tmp_path), timeout=120)
@@ -215,7 +215,7 @@ def test_main_hands_the_scrubbed_env_to_the_session(monkeypatch, tmp_path):
     # The env half of S1 at the driver's entry point: main() must pass child_env(ws) down, not
     # mutate os.environ (the pre-Task-12 hardening path) and not let the child inherit the
     # parent env.
-    from scripts import stand_up_opencode as drv
+    import harness.substrate.mount as drv
     seen = {}
 
     def fake_session(ws, model, prompt, timeout, env=None):
@@ -253,7 +253,7 @@ def test_probe_ollama_registers_chat_and_embedding_providers(monkeypatch):
     from harness.providers.config import ProviderConfig
     from harness.providers.probe import ProbeResult
     from harness.providers.provenance import ProvenanceReport
-    import scripts.stand_up_opencode as drv
+    import harness.substrate.mount as drv
     calls = []
 
     async def fake_register(name, base_url, api_key, model="", engine=None, **kw):
@@ -270,7 +270,9 @@ def test_probe_ollama_registers_chat_and_embedding_providers(monkeypatch):
                            admission="mechanical-only")
 
     monkeypatch.setattr(probe, "register_provider", fake_register)
-    monkeypatch.setattr(drv, "get_key", lambda name: "")
+    # _probe_ollama lives in harness.bootstrap; get_key is looked up in ITS globals.
+    import harness.bootstrap as boot
+    monkeypatch.setattr(boot, "get_key", lambda name: "")
     reg = drv._probe_ollama()
     # R3: the spec table moved to data/providers.yaml — nvidia-nim joins the local rows
     # (the cloud tier that clears CR-3 fully and serves the non-mechanical classes).

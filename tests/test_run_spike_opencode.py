@@ -109,8 +109,11 @@ def test_run_opencode_captures_child_output(tmp_path, monkeypatch):
     came back EMPTY (suite-visible only as a thread-teardown warning; fatal to any
     live run — the 2026-11-04 golden parity launch died on case one, pre-sync)."""
     import sys
+    # M3: run_opencode lives in harness.substrate.run; the spike script re-exports it, so the
+    # patch goes on the real module (the script's namespace copy would not be called).
+    import harness.substrate.run as run_mod
     mod = _load()
-    monkeypatch.setattr(mod, "opencode_cmd",
+    monkeypatch.setattr(run_mod, "opencode_cmd",
                         lambda: [sys.executable, "-c", "print('capture-me')"])
     rc, out = mod.run_opencode(tmp_path, ["ignored"], timeout=60)
     assert rc == 0, out

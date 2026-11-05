@@ -155,6 +155,8 @@ def test_run_opencode_honours_a_caller_supplied_env(monkeypatch):
     # The seam: a caller that hands an env gets exactly that env (the scrubbed one), not a
     # rebuild from os.environ. Default behaviour (env=None) is unchanged.
     mod = _load_run_spike()
+    # M3: shutil/subprocess are used inside harness.substrate.run now, so the patches go there.
+    import harness.substrate.run as run_mod
     seen = {}
 
     class _Proc:
@@ -171,8 +173,8 @@ def test_run_opencode_honours_a_caller_supplied_env(monkeypatch):
         def communicate(self, timeout=None):
             return "", ""
 
-    monkeypatch.setattr(mod.shutil, "which", lambda name: "C:/npm/opencode.CMD")
-    monkeypatch.setattr(mod.subprocess, "Popen", _Proc)
+    monkeypatch.setattr(run_mod.shutil, "which", lambda name: "C:/npm/opencode.CMD")
+    monkeypatch.setattr(run_mod.subprocess, "Popen", _Proc)
     ws = Path("C:/real/ws")
     rc, _ = mod.run_opencode(ws, ["run"], env={"PATH": "kept", "PWD": "C:/other"})
     assert rc == 0
@@ -189,6 +191,7 @@ def test_run_opencode_repins_pwd_even_for_a_caller_supplied_env(monkeypatch):
     # or carries a stale one — must not resurrect that failure, so run_opencode always
     # re-pins PWD to the workspace the process actually runs in.
     mod = _load_run_spike()
+    import harness.substrate.run as run_mod
     seen = {}
 
     class _Proc:
@@ -206,8 +209,8 @@ def test_run_opencode_repins_pwd_even_for_a_caller_supplied_env(monkeypatch):
         def communicate(self, timeout=None):
             return "", ""
 
-    monkeypatch.setattr(mod.shutil, "which", lambda name: "C:/npm/opencode.CMD")
-    monkeypatch.setattr(mod.subprocess, "Popen", _Proc)
+    monkeypatch.setattr(run_mod.shutil, "which", lambda name: "C:/npm/opencode.CMD")
+    monkeypatch.setattr(run_mod.subprocess, "Popen", _Proc)
     mod.run_opencode(Path("C:/real/ws"), ["run"], env={"PATH": "kept", "PWD": "C:/stale"})
     assert seen["env"]["PWD"] == str(Path("C:/real/ws"))
     assert seen["cwd"] == str(Path("C:/real/ws"))
@@ -217,6 +220,7 @@ def test_run_opencode_default_still_builds_from_parent_env(monkeypatch):
     # Existing callers (the spike driver's own modes) build no env of their own: keep the
     # historical {**os.environ, "PWD": ws} shape so this change cannot alter their behaviour.
     mod = _load_run_spike()
+    import harness.substrate.run as run_mod
     monkeypatch.setenv("SCRUB_PROBE_VAR", "1")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     seen = {}
@@ -235,8 +239,8 @@ def test_run_opencode_default_still_builds_from_parent_env(monkeypatch):
         def communicate(self, timeout=None):
             return "", ""
 
-    monkeypatch.setattr(mod.shutil, "which", lambda name: "C:/npm/opencode.CMD")
-    monkeypatch.setattr(mod.subprocess, "Popen", _Proc)
+    monkeypatch.setattr(run_mod.shutil, "which", lambda name: "C:/npm/opencode.CMD")
+    monkeypatch.setattr(run_mod.subprocess, "Popen", _Proc)
     ws = Path("C:/real/ws")
     mod.run_opencode(ws, ["run"])
     assert seen["env"]["SCRUB_PROBE_VAR"] == "1"
@@ -248,15 +252,17 @@ def test_run_opencode_session_threads_the_env(monkeypatch):
     # module it is imported from — and the assertion is that the env arrives at all: an env
     # argument that stops at the session wrapper would leave the child running on the full
     # parent env, which is the exact defect this task closes.
-    import scripts.run_spike_opencode as spike
-    import scripts.stand_up_opencode as driver
+    # M3: run_opencode_session imports run_opencode from harness.substrate.run, so the
+    # patch goes on that module (a patch on the spike script's re-export would not reach it).
+    import harness.substrate.run as run_mod
+    import harness.substrate.mount as driver
     calls = {}
 
     def fake_run(ws, argv, timeout, env=None):
         calls["argv"], calls["env"] = argv, env
         return 0, '{"type":"text","part":{"type":"text","messageID":"m","text":"ok"}}'
 
-    monkeypatch.setattr(spike, "run_opencode", fake_run)
+    monkeypatch.setattr(run_mod, "run_opencode", fake_run)
     code, text = driver.run_opencode_session(Path("C:/ws"), "gate/extraction", "p", 10,
                                             env={"OPENCODE_DISABLE_MODELS_FETCH": "1"})
     assert code == 0 and text == "ok"
