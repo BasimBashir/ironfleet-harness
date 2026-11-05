@@ -15,18 +15,21 @@ from __future__ import annotations
 import argparse, asyncio, json, os, secrets, shutil, subprocess, sys, time
 from pathlib import Path
 
-from harness.alias import load_aliases
+# The acceptance drivers patch the gate seam on THIS module, and the shim scripts/
+# re-export these names — so they stay imported here even where the body uses the
+# bootstrap copy (M3: dead-import cleanup kept the names the tests monkeypatch).
+from harness.alias import load_aliases  # noqa: F401
+from harness.gate import EgressGate  # noqa: F401
+from harness.keychain import get_key  # noqa: F401
+from harness.policy import RoutingTable  # noqa: F401
+from harness.providers.http_fetch import openai_fetch  # noqa: F401
+from harness.trace import TraceStore  # noqa: F401
 from harness.agent_memory import MemoryStore, apply_to_agent_md
 from harness.egress_proxy import EgressProxy
-from harness.gate import EgressGate
 from harness.module_e.skills import sync_skills
 from harness.module_e.guard import render_guard_plugin
 from harness.module_e.personas import generate_all
 from harness.module_e.tools import ToolEntry, declared_tools, load_manifest, ported_tools
-from harness.policy import RoutingTable
-from harness.providers.http_fetch import openai_fetch
-from harness.keychain import get_key
-from harness.trace import TraceStore
 # Live-stack construction moved verbatim to harness.bootstrap — the production launcher
 # needs a scripts-free import path (PyInstaller cannot see a namespace `scripts` package).
 # Re-exported under the same names: the acceptance drivers and the tests import them from
@@ -41,9 +44,11 @@ ROOT = Path(__file__).resolve().parents[3]
 DATA = ROOT / "data"
 MOUNT = DATA / "opencode-a1"
 MODULE_E = DATA / "module-e"
-PLUGIN_SRC = ROOT / "src" / "harness" / "spike" / "candidates" / "opencode"
+# M3: the TS templates moved out of spike/ into this package (a wheel must not
+# reach into a spike directory). PLUGIN_SRC kept as an alias for the shim's export.
 GUARD_TEMPLATE = ROOT / "src" / "harness" / "module_e" / "ironfleet-guard-s7c.ts"
-TOOLS_TEMPLATE = PLUGIN_SRC / "ironfleet-tools.ts"
+TOOLS_TEMPLATE = ROOT / "src" / "harness" / "substrate" / "ironfleet-tools.ts"
+PLUGIN_SRC = ROOT / "src" / "harness" / "substrate"
 GUARD_CLI = ROOT / "src" / "harness" / "module_e" / "guard_cli.py"
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 ROUTING = DATA / "routing-a1.yaml"

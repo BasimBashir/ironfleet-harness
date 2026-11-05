@@ -1,7 +1,16 @@
 # tests/test_statute_ingest.py — R1 plan Task 11: provision parser + the licence gate
 from pathlib import Path
 
-from scripts.statute_ingest import ingest_statutes, licence_check, parse_provisions
+from harness.ingest_generic import licence_check, parse_provisions
+from harness.ingest_generic import ingest_any as _ingest_any
+
+
+def ingest_statutes(matter_ref, manifest, store, embed_fn, min_words=200):
+    """The retired scripts/statute_ingest.py wrapper, inlined: statute manifest rows
+    through the general core (M3 commit 4 deletes the script)."""
+    rows = [dict(r, kind="statute", path=r.get("path") or r.get("file"))
+            for r in manifest]
+    return _ingest_any(matter_ref, rows, store, embed_fn, min_words=min_words)
 
 _CA_SAMPLE = """Companies Act 1993
 1993 No 105
@@ -82,7 +91,6 @@ def test_ingest_refuses_unlicensed_and_ingests_licensed(tmp_path):
 
 
 def test_ingested_statute_section_is_retrievable_by_needle(tmp_path):
-    from scripts.statute_ingest import parse_provisions
     # the acceptance-critical property: 'Companies Act 1993, s 297' surfaces the section
     store = _store(tmp_path)
     for prov in parse_provisions("Companies Act 1993", _CA_SAMPLE):

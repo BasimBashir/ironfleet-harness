@@ -22,8 +22,8 @@ from harness.module_e.tools import load_manifest
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 MANIFEST = DATA / "module-e" / "tools.yaml"
-TEMPLATE = (Path(__file__).resolve().parent.parent / "src" / "harness" / "spike"
-            / "candidates" / "opencode" / "ironfleet-tools.ts")
+TEMPLATE = (Path(__file__).resolve().parent.parent / "src" / "harness" / "substrate"
+            / "ironfleet-tools.ts")
 
 
 # -- the manifest row (F3's source of truth) -----------------------------------
