@@ -9,20 +9,15 @@ AND its own opencode data root; when the runtime offers no override, writes
 serialize (see the shortcut below).
 
 Nothing here re-invents the proven primitives: sync_mount, child_env, run_opencode
-and flatten_prompt are imported from scripts/ (the namespace package — the repo
-root goes on sys.path exactly as the other drivers do it).
+and flatten_prompt come from harness.substrate (the installed package — no repo
+root goes on sys.path anymore, M3).
 """
 from __future__ import annotations
 
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]        # harness-core/
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 # The spawn timeout: the S7j-W watchdog budget. opencode hangs after init ~2 in 7
 # on this box (load-sensitive), so every spawn gets one retry, never a loop.
@@ -67,7 +62,7 @@ def spawn_env(ws: Path, extra: dict | None = None) -> dict:
     scrubbed env resolves 9) plus the precheck §5 hardening, with PWD re-pinned
     to the workspace. Copy-on-write: builds a new dict, never assigns into
     os.environ, so scrubbing cannot leak into the parent process."""
-    from scripts.stand_up_opencode import child_env
+    from harness.substrate.mount import child_env
     env = child_env(ws)
     if extra:
         env.update(extra)
@@ -85,8 +80,8 @@ def _parse_session_id(events: list[dict]) -> str:
 
 def sync_agent_workspace(ws: Path, matter_ref: str, classification: str = "LOCAL_PREFERRED") -> None:
     """sync_mount into an already-created workspace. Imported lazily so the module
-    stays importable in a frozen distribution (scripts/ is a namespace package)."""
-    from scripts.stand_up_opencode import MOUNT, PORT, sync_mount
+    stays importable in a frozen distribution."""
+    from harness.substrate.mount import MOUNT, PORT, sync_mount
     # The matter record goes to <store>/matters — the directory the proxy serves
     # (launcher shape, A-5). ws is <store>/workspaces/<sid>/<agent>, so the store
     # root is three levels up; the proxy refuses the dispatch otherwise
@@ -99,7 +94,7 @@ def turn_argv(agent: str, model: str, prompt: str,
               continue_session: str | None = None) -> list[str]:
     """One turn's argv — pure so the F6 consuming end is testable: a resume turn
     drives `--session <id>` (P3: only --session continues on 1.18.25)."""
-    from scripts.run_spike_opencode import flatten_prompt
+    from harness.substrate.run import flatten_prompt
     argv = ["run", "--agent", agent, "--model", model, "--format", "json"]
     if continue_session:
         argv += ["--session", continue_session]
@@ -121,7 +116,7 @@ def spawn_session(ws: Path, agent: str, prompt: str, *, timeout: int = DEFAULT_T
 
     The live spawn path is exercised by the acceptance drivers, never by the
     suite (house rule: live probes never run in tests)."""
-    from scripts.run_spike_opencode import parse_events, run_opencode
+    from harness.substrate.run import parse_events, run_opencode
     argv = turn_argv(agent, model, prompt, continue_session)
     code, raw = run_opencode(ws, argv, timeout=timeout, env=env)
     events = parse_events(raw)

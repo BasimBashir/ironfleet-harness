@@ -93,12 +93,8 @@ def main(argv: list[str] | None = None) -> int:
         routing = args.routing or os.environ.get("IRONFLEET_ROUTING") or str(default_routing())
         return serve_main(["--routing", routing, "--port", str(args.port)])
     if args.cmd == "drive":
-        # scripts/ is a namespace package at the repo root, not installed — the drivers
-        # resolve it the same way (stand_up_opencode inserts ROOT into sys.path).
-        root = Path(__file__).resolve().parents[2]
-        if str(root) not in sys.path:
-            sys.path.insert(0, str(root))
-        from scripts.stand_up_opencode import main as drive_main
+        # the drive driver lives in the installed package now (M3)
+        from harness.substrate.mount import main as drive_main
         argv2 = ["--matter-ref", args.matter_ref, "--task-class", args.task_class,
                  "--timeout", str(args.timeout)]
         if args.workspace:
@@ -159,12 +155,8 @@ def main(argv: list[str] | None = None) -> int:
         prov.print_help()
         return 2
     if args.cmd == "session":
-        # scripts/ is a namespace package at the repo root, not installed — the same
-        # reason `drive` inserts the root (see above).
-        root = Path(__file__).resolve().parents[2]
-        if str(root) not in sys.path:
-            sys.path.insert(0, str(root))
-        from scripts.session_cli import main_with_args
+        # the session CLI lives in the installed package now (M3)
+        from harness.session.cli import main_with_args
         # One parsed namespace, no re-derivation: session_cli's mode flags are the same
         # flags cli.py already validated (argparse enforces the exactly-one rule twice,
         # but the namespace passes through untouched instead of being rebuilt as argv).

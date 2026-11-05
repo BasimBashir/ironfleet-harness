@@ -17,12 +17,7 @@ scrubbed-env primitive the driver uses; nothing here reinvents it.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]        # harness-core/
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 
 def spawn_agent(args: dict) -> dict:
@@ -42,7 +37,7 @@ def spawn_agent(args: dict) -> dict:
     parent = Path.cwd()
     matter_ref, classification = _matter_of(parent)
     child = _child_workspace(parent, agent)
-    from scripts.stand_up_opencode import MOUNT, PORT, child_env, sync_mount
+    from harness.substrate.mount import MOUNT, PORT, child_env, sync_mount
     sync_mount(child, MOUNT, matter_ref, classification, PORT,
                matters_root=child.parent.parent / "matters")
     agent_dir = child / ".opencode" / "agent"
@@ -56,7 +51,7 @@ def spawn_agent(args: dict) -> dict:
                            f" in {child} (looked for {agent}.md, {agent}-memory.md)")
     from harness.session.workspace import spawn_session
     code, events, sid = spawn_session(child, stem, prompt, env=child_env(child))
-    from scripts.run_spike_opencode import extract_final_text
+    from harness.substrate.run import extract_final_text
     return {"agent": agent, "workspace": str(child), "session_id": sid,
             "exit_code": code, "final_text": extract_final_text(events)}
 

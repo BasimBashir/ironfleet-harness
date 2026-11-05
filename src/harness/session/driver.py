@@ -15,12 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]        # harness-core/
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from harness.session.errors import record_error
 from harness.session.store import SessionStore, TurnRow
