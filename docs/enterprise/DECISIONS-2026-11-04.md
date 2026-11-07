@@ -129,7 +129,7 @@ is a named critical risk (00 §D); a halted workflow is resumable once the durab
 lands (D4), so halting costs delay, not work.
 **Blocks:** Phase 3 workflow semantics; the legal pipeline port (Phase 6).
 
-**Ruling: ___________  Date: ___________**
+**Ruling: halt-on-failure  Date: 2026-11-07**
 
 ### D4 · Orchestrator: SQLite-lease vs external engine (02 §16.1)
 
@@ -144,7 +144,7 @@ need yet.
 **Blocks:** Phase 3 (factory → orchestrator, flag-gated), and everything downstream of durable
 execution (API, frontend).
 
-**Ruling: ___________  Date: ___________**
+**Ruling: SQLite-lease in platform.db  Date: 2026-11-07**
 
 ### D5 · Agent-memory scoping (02 §16.6)
 
@@ -156,7 +156,7 @@ the shipped memory design already carries canon in the primary `<name>-memory.md
 ruling); D-P7 set the policy direction. Global writes re-open the leak channel M1 just closed.
 **Blocks:** Phase 1 guard-relocation sign-off; any agent-memory feature work.
 
-**Ruling: ___________  Date: ___________**
+**Ruling: matter-scoped writes + operator-curated canon layer  Date: 2026-11-07**
 
 ### D6 · FastAPI dependency + frontend stack (04 §2 · 02 §13)
 
