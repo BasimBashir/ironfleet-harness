@@ -22,6 +22,7 @@ Design rules the research gate bought:
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -109,6 +110,7 @@ def legal_plan(task: str) -> StagePlan:
         instruction = spec["instruction"].replace("{task}", task)
         stages.append({"stage": spec["stage"], "agent": spec["agent"],
                        "instruction": instruction,
+                       "approval": spec.get("approval"),
                        "prompt": _stage_prompt(stage=spec["stage"], instruction=task,
                                                agent=spec["agent"], index=i, total=total,
                                                task=task)})
@@ -239,6 +241,10 @@ class FactoryRunner:
         prompt continues from where the session left off (files hand forward
         separately, via the from-* copies)."""
         plan = self.plan(task, plan_text, intent=intent, complexity=complexity)
+        if os.environ.get("HARNESS_DURABLE") == "1" and self.store:
+            return await self._run_task_durable(session_id, matter_ref, task, plan,
+                                                classification=classification,
+                                                session_digest=session_digest)
         rows: list[TurnRow] = []
         prev_stage: str = "prior session" if session_digest else ""
         prev_summary: str = session_digest
@@ -340,3 +346,39 @@ class FactoryRunner:
                                              model=STAGE_MODEL)
             row.agent = agent
         return row
+
+    async def _run_task_durable(self, session_id: str, matter_ref: str, task: str,
+                                plan: StagePlan, *, classification: str,
+                                session_digest: str) -> list[TurnRow]:
+        """M4: the same run through the SQLite-lease orchestrator (D4). The
+        stage body is the EXISTING _run_stage, unchanged; the orchestrator owns
+        claiming, leases, crash recovery and approval parking. Returns the same
+        list[TurnRow]; a parked run returns the rows completed so far."""
+        from harness.workflow import orchestrator
+        from harness.workflow.db import connect
+        con = connect(orchestrator.platform_db(self.store.root))
+        try:
+            eid = orchestrator.create_execution(
+                con, matter_id=matter_ref, session_id=session_id, task_text=task,
+                stages=plan.stages)
+            rows: list[TurnRow] = []
+
+            async def body(task_row, prev_summary):
+                stage = next(s for s in plan.stages if s["stage"] == task_row["key"])
+                prev = con.execute(
+                    "SELECT key FROM tasks WHERE execution_id=? AND seq<?"
+                    " ORDER BY seq DESC LIMIT 1", (eid, task_row["seq"])).fetchone()
+                if task_row["seq"] == 1:
+                    prev_stage, prev_summary = "prior session", (session_digest or prev_summary)
+                else:
+                    prev_stage = prev["key"] if prev else ""
+                row = await self._run_stage(session_id, matter_ref, task, stage,
+                                            prev_stage, prev_summary,
+                                            classification=classification)
+                rows.append(row)
+                return row.output_summary
+
+            await orchestrator.run(con, eid, body, owner=orchestrator.new_owner())
+            return rows
+        finally:
+            con.close()

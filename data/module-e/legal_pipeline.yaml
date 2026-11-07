@@ -56,6 +56,7 @@ pipeline:
       steps that reduce liability). Every judgement tied to an authority or [ASSUMPTION].
   - stage: filings
     agent: clerk
+    approval: filing
     instruction: >
       Produce the filings roadmap for this ask: {task}
       Write filings-roadmap.md from the win-assessment's proceed branch (and the
