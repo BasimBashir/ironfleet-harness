@@ -29,6 +29,43 @@ CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit_events
 BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit_events
 BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END;
+-- M5 case-lifecycle tables (docs/enterprise/07): same platform.db, additive only.
+CREATE TABLE IF NOT EXISTS cases(
+  matter_id TEXT PRIMARY KEY, state TEXT, lawyer_now INTEGER DEFAULT 0,
+  lawyer_now_reason TEXT, needs_restrategy INTEGER DEFAULT 0,
+  created_at TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS case_events(
+  event_id TEXT PRIMARY KEY, matter_id TEXT, event_type TEXT, event_date TEXT,
+  payload_json TEXT, actor TEXT, ts TEXT);
+CREATE INDEX IF NOT EXISTS idx_case_events_matter ON case_events(matter_id);
+CREATE TABLE IF NOT EXISTS strategy_versions(
+  matter_id TEXT, version INTEGER, file TEXT, why_changed TEXT,
+  next_actions_json TEXT, actor TEXT, ts TEXT,
+  PRIMARY KEY(matter_id, version));
+CREATE TABLE IF NOT EXISTS proposals(
+  proposal_id TEXT PRIMARY KEY, matter_id TEXT, what TEXT, why TEXT,
+  asked_at_ts TEXT, response TEXT, responded_at_ts TEXT, actor TEXT, ts TEXT);
+CREATE TABLE IF NOT EXISTS predictions(
+  prediction_id TEXT PRIMARY KEY, matter_id TEXT, strategy_version INTEGER,
+  claim TEXT, actor TEXT, ts TEXT);
+CREATE TABLE IF NOT EXISTS outcomes(
+  outcome_id TEXT PRIMARY KEY, prediction_id TEXT UNIQUE, match INTEGER,
+  actual TEXT, court_date TEXT, actor TEXT, ts TEXT);
+CREATE TABLE IF NOT EXISTS deadlines(
+  deadline_id TEXT PRIMARY KEY, matter_id TEXT, what TEXT, due TEXT, rule TEXT,
+  source TEXT, service_date TEXT, kind TEXT, status TEXT,
+  missed_consequence TEXT, actor TEXT, ts TEXT);
+CREATE INDEX IF NOT EXISTS idx_deadlines_matter ON deadlines(matter_id);
+CREATE TABLE IF NOT EXISTS flaws(
+  flaw_id TEXT, matter_id TEXT, class TEXT, severity TEXT, doc TEXT,
+  status TEXT, detector TEXT, detail TEXT, actor TEXT, ts TEXT);
+CREATE INDEX IF NOT EXISTS idx_flaws_matter ON flaws(matter_id, flaw_id);
+CREATE TABLE IF NOT EXISTS facts(
+  matter_id TEXT, field TEXT, op TEXT, value_json TEXT, actor TEXT, ts TEXT);
+CREATE INDEX IF NOT EXISTS idx_facts_matter ON facts(matter_id, field);
+CREATE TABLE IF NOT EXISTS evidence(
+  evidence_id TEXT PRIMARY KEY, matter_id TEXT, op TEXT, label TEXT, file TEXT,
+  sha256 TEXT, actor TEXT, ts TEXT);
 """
 
 
