@@ -1,0 +1,26 @@
+# data/module-e/workflows/mock_hearing.yaml — the /mock-hearing workflow (M6, 2026-11-08)
+#
+# Ported from ironfleet-legal/commands/mock-hearing.md as pipeline DATA (same rule as
+# legal_pipeline.yaml: this file is DATA, never code). A goal starting /mock-hearing
+# runs these stages instead of the case crew (fallback_plan picks this file).
+#
+# Q3 ruling (approved 2026-11-08): no live Q/A loop inside one stage — the
+# hearing-coach critiques across FOLLOW-UP prompts; the session already continues
+# from the last checkpoint, so the user's answers arrive as later turns.
+# A rehearsal measures readiness; it does NOT predict the court.
+
+pipeline:
+  - stage: rehearsal
+    agent: hearing-coach
+    instruction: >
+      Mock-hearing rehearsal for this ask: {task}
+      You play the bench AND opposing counsel, hardest questions first (from
+      the bench Q&A and the latest moot run's opposing-counsel / evidence
+      attack rows in the flaws ledger), one question at a time. Ask the FIRST
+      question in character, then stop — the user answers in a follow-up prompt
+      and you critique each answer (what was good, what was weak, a sharper
+      record-pinned answer) before the next question; the record is the spine,
+      and if the user concedes a point the record actually answers, correct it.
+      Write mock-hearing-transcript.md in the workspace as you go (question /
+      answer / critique per round) and end with the WEAK SPOTS (top 3). State
+      plainly: a rehearsal measures readiness; it does NOT predict the court.

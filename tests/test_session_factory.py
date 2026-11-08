@@ -230,7 +230,10 @@ def test_pipeline_yaml_agents_all_exist_in_the_scaffold():
          "legal_pipeline.yaml").read_text(encoding="utf-8"))
     known = {"ingestor", "hunter", "strategist", "adversary", "evaluator",
              "clerk", "citation", "auditor", "negotiator", "wargamer",
-             "architect", "verifier", "ambiguity"}
+             "architect", "verifier", "ambiguity",
+             # M6 (2026-11-08): the plugin's moot/hearing personas
+             "opposing-counsel", "procedural-examiner", "evidence-examiner",
+             "bench", "hearing-coach"}
     for spec in doc["pipeline"]:
         assert spec["agent"] in known, f"unknown pipeline agent {spec['agent']}"
         assert "{task}" in spec["instruction"]

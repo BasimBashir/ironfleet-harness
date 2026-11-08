@@ -31,14 +31,16 @@ def test_sync_mount_writes_the_full_s7c_mount(tmp_path):
     assert (ws / ".opencode" / "skills" / "nz-court-calendar" / "SKILL.md").is_file()
 
 
-def test_mount_carries_all_thirteen_personas_and_their_drive_twins(tmp_path):
+def test_mount_carries_all_eighteen_personas_and_their_drive_twins(tmp_path):
     from scripts.stand_up_opencode import sync_mount
     ws = tmp_path / "ws"
     sync_mount(ws, DATA / "opencode-a1", "m-test", "LOCAL_PREFERRED", 7373)
     names = sorted(p.stem for p in (ws / ".opencode" / "agent").glob("*.md"))
     for persona in ["adversary", "ambiguity", "architect", "auditor", "citation", "clerk",
                     "evaluator", "hunter", "ingestor", "negotiator", "strategist",
-                    "verifier", "wargamer"]:
+                    "verifier", "wargamer",
+                    "opposing-counsel", "procedural-examiner", "evidence-examiner",
+                    "bench", "hearing-coach"]:       # M6 (2026-11-08) adds the plugin's five
         assert persona in names, persona
         assert f"{persona}-drive" in names, persona
 

@@ -85,13 +85,16 @@ def parse_plan(text: str) -> StagePlan | None:
     return StagePlan(stages=stages, source="model") if stages else None
 
 
-def load_legal_pipeline() -> list[dict]:
-    """The one-prompt crew, as data (data/module-e/legal_pipeline.yaml): the stages
+def load_legal_pipeline(name: str = "legal_pipeline") -> list[dict]:
+    """The one-prompt crew, as data (data/module-e/<name>.yaml): the stages
     a typed case goal runs when the user supplies no ```plan block. Lazy + cached
     by the loader's caller; a missing/broken file is a loud error, not a silent
-    two-stage fallback."""
+    two-stage fallback. M6: `name` picks a workflow file — legal_pipeline is the
+    case crew, workflows/hearing_pack.yaml and workflows/mock_hearing.yaml are
+    the hearing workflows (a `/hearing-pack` | `/mock-hearing` goal picks them)."""
     import yaml
-    data = Path(__file__).resolve().parents[3] / "data" / "module-e" / "legal_pipeline.yaml"
+    data = Path(__file__).resolve().parents[3] / "data" / "module-e"
+    data = data / f"{name}.yaml" if name == "legal_pipeline" else data / "workflows" / f"{name}.yaml"
     doc = yaml.safe_load(data.read_text(encoding="utf-8"))
     stages = doc.get("pipeline")
     if not stages:
@@ -99,22 +102,25 @@ def load_legal_pipeline() -> list[dict]:
     return stages
 
 
-def legal_plan(task: str) -> StagePlan:
+def legal_plan(task: str, name: str = "legal_pipeline") -> StagePlan:
     """The one-prompt plan: every pipeline stage becomes a real stage with the
     user's ask interpolated ({task} — .replace, never .format: instructions carry
     braces of their own)."""
     stages = []
-    specs = load_legal_pipeline()
+    specs = load_legal_pipeline(name)
     total = len(specs)
     for i, spec in enumerate(specs, start=1):
         instruction = spec["instruction"].replace("{task}", task)
         stages.append({"stage": spec["stage"], "agent": spec["agent"],
                        "instruction": instruction,
                        "approval": spec.get("approval"),
+                       "gate": spec.get("gate"),
                        "prompt": _stage_prompt(stage=spec["stage"], instruction=task,
                                                agent=spec["agent"], index=i, total=total,
                                                task=task)})
-    return StagePlan(stages=stages, source="legal-pipeline")
+    return StagePlan(stages=stages,
+                     source="legal-pipeline" if name == "legal_pipeline"
+                     else f"legal-pipeline:{name}")
 
 
 def fallback_plan(intent: str, complexity: str, task: str) -> StagePlan:
@@ -122,7 +128,12 @@ def fallback_plan(intent: str, complexity: str, task: str) -> StagePlan:
     ruling (2026-10-21) is one prompt -> the whole pipeline, so the legal pipeline
     IS the fallback; SupervisorRoutes.resolve() stays available for hybrid intents
     (load_routes is unchanged). Each stage's instruction names the task, so the
-    chain has somewhere to stand even when no model planned it."""
+    chain has somewhere to stand even when no model planned it.
+    M6 (2026-11-08): a goal starting `/hearing-pack` or `/mock-hearing` picks the
+    named workflow file instead (data/module-e/workflows/*.yaml)."""
+    for prefix, name in (("/hearing-pack", "hearing_pack"), ("/mock-hearing", "mock_hearing")):
+        if task.lstrip().lower().startswith(prefix):
+            return legal_plan(task, name)
     return legal_plan(task)
 
 
@@ -185,6 +196,53 @@ def stage_prompt(stage: str, instruction: str, *, task: str = "",
     return _stage_prompt(stage=stage, instruction=instruction, agent="", index=1, total=1,
                          task=task, previous_stage=previous_stage,
                          previous_summary=previous_summary, artifact=artifact)
+
+
+# -- the M6 moot stage helpers --------------------------------------------------
+
+_ATTACK_ROW = re.compile(
+    r"\[(CRITICAL|MAJOR|MINOR)\]\s*([A-Za-z_]+)\s*:\s*(.+)", re.IGNORECASE)
+
+
+def _parse_attack_rows(text: str) -> list[dict]:
+    """Parse the moot attack rows an agent turn writes: `[CRITICAL|MAJOR|MINOR]
+    <class>: <detail>`. MAJOR maps to material (the keep-if-better vocabulary);
+    anything unparseable is dropped — a malformed row is not an attack."""
+    out = []
+    for m in _ATTACK_ROW.finditer(text or ""):
+        sev = m.group(1).upper()
+        out.append({"severity": "material" if sev == "MAJOR" else sev.lower(),
+                    "class": m.group(2).lower(), "detail": m.group(3).strip()[:400]})
+    return out
+
+
+def _sev_counts(result: dict) -> dict:
+    """critical/material/minor counts over one moot_check result (compare()'s legs)."""
+    counts = {s: 0 for s in ("critical", "material", "minor")}
+    for f in result.get("flaws", []):
+        sev = f.get("severity")
+        if sev in counts:
+            counts[sev] += 1
+    return counts
+
+
+def _open_rows(con, matter_ref: str) -> list[dict]:
+    from harness.lifecycle import dossier
+    return dossier.read(con, matter_ref, "flaws")["open"]
+
+
+def _ledger_append(con, matter_ref: str, result: dict, run_id: str, *,
+                   round_no: int) -> None:
+    """Every mechanical flaw row lands in the flaws register (the ledger), with
+    its round and run so the cap report can reconstruct them."""
+    from harness.lifecycle import dossier
+    for i, f in enumerate(result.get("flaws", [])):
+        dossier.append(con, matter_ref, "flaws", {
+            "flaw_id": f"F-{run_id}-r{round_no}-{i}",
+            "class": f.get("class", "other"), "severity": f.get("severity", "minor"),
+            "doc": result.get("path", ""), "status": "open",
+            "detector": f.get("detector", "moot-check"),
+            "detail": (f.get("detail") or "")[:400]})
 
 
 class FactoryRunner:
@@ -278,7 +336,14 @@ class FactoryRunner:
                          prev_stage: str, prev_summary: str,
                          classification: str = "LOCAL_PREFERRED") -> TurnRow:
         """One stage: sync the workspace, write the stage agent file AFTER the
-        sync (F5/P7), then one turn whose prompt carries the previous summary."""
+        sync (F5/P7), then one turn whose prompt carries the previous summary.
+        A stage with `gate: moot` (M6) runs the moot round loop instead of one
+        turn — the gate needs the platform registers, so it opens platform.db
+        in both the durable and the legacy path."""
+        if stage.get("gate") == "moot":
+            return await self._run_moot_stage(session_id, matter_ref, task, stage,
+                                               prev_stage, prev_summary,
+                                               classification=classification)
         agent, instruction = stage["agent"], stage["instruction"]
         # P7's interjection rides an existing opencode session; a stage's first
         # turn opens one. The +1 keeps the two concerns from sharing one name.
@@ -346,6 +411,127 @@ class FactoryRunner:
                                              model=STAGE_MODEL)
             row.agent = agent
         return row
+
+    # -- the M6 moot stage ------------------------------------------------------
+
+    _MOOT_ATTACKERS = ("opposing-counsel", "procedural-examiner", "evidence-examiner")
+    _MOOT_MAX_ROUNDS = 4
+    _MOOT_CLEAN_ROUNDS = 2
+    _MOOT_DOC = "filings-roadmap.md"
+
+    async def _run_moot_stage(self, session_id: str, matter_ref: str, task: str,
+                              stage: dict, prev_stage: str, prev_summary: str,
+                              classification: str = "LOCAL_PREFERRED") -> TurnRow:
+        """M6: the moot gate as a workflow stage (NEXT_STEPS §9 M6). Pre-pass the
+        drafted deliverable with the mechanical moot_check, then run up to 4
+        adversarial rounds — opposing-counsel, then procedural-examiner and
+        evidence-examiner attack turns, the clerk revises against the open rows,
+        re-check, keep-if-better compare. Two consecutive clean rounds -> a PASSED
+        moot.verdict audit record; else CAPPED and the stage raises, so the D3
+        halt fails the execution and no approval is ever requested. Works in
+        both orchestration paths: it opens platform.db itself (the durable path
+        reuses the same file the orchestrator parked against)."""
+        import uuid as _uuid
+        from harness.lifecycle import dossier
+        from harness.moot import gate as moot_gate
+        from harness.workflow import orchestrator
+        from harness.workflow.db import connect
+
+        store_root = Path(self.store.root) if self.store else Path(
+            orchestrator.platform_db(Path(".")).parent)
+        con = connect(orchestrator.platform_db(store_root))
+        eid = None
+        if self.store:
+            row = con.execute(
+                "SELECT execution_id FROM executions WHERE matter_id=? AND session_id=?"
+                " ORDER BY started_at DESC LIMIT 1", (matter_ref, session_id)).fetchone()
+            eid = row["execution_id"] if row else None
+        run_id = f"moot-{matter_ref}-{_uuid.uuid4().hex[:8]}"
+        try:
+            ws = self.driver.workspace_for(
+                session_id, f"{stage['agent']}-stage-{stage['stage']}", matter_ref,
+                classification)
+            doc = ws / self._MOOT_DOC
+            store = None
+            try:
+                from harness.corpus import CorpusStore
+                store = CorpusStore(Path(store_root) / "corpus.sqlite3")
+            except Exception:                                  # noqa: BLE001
+                store = None
+            # pre-pass: the mechanical floor over the drafted document
+            result = moot_gate.moot_check(con, matter_ref, str(doc), store=store)
+            baseline = _sev_counts(result)
+            _ledger_append(con, matter_ref, result, run_id, round_no=0)
+            clean = 0
+            rounds = 0
+            for rounds in range(1, self._MOOT_MAX_ROUNDS + 1):
+                attacks: list[dict] = []
+                for attacker in self._MOOT_ATTACKERS:
+                    prompt = _stage_prompt(
+                        stage=f"moot-{attacker}", agent=attacker,
+                        instruction=(f"Attack {self._MOOT_DOC} for this ask: {task}. "
+                                     f"Open flaw rows from the pre-pass and prior rounds: "
+                                     f"{json.dumps(_open_rows(con, matter_ref))}. Write "
+                                     f"your attacks as rows '[CRITICAL|MAJOR|MINOR] "
+                                     f"<class>: <detail>' and reply with them."),
+                        index=1, total=1, task=task,
+                        previous_stage=prev_stage, previous_summary=prev_summary)
+                    arow = await self.driver.run_turn(session_id, matter_ref,
+                                                      f"{attacker}-stage-moot", prompt,
+                                                      classification=classification,
+                                                      model=STAGE_MODEL)
+                    attacks.extend(_parse_attack_rows(arow.output_summary))
+                for j, a in enumerate(attacks):
+                    dossier.append(con, matter_ref, "flaws", {
+                        "flaw_id": f"F-{run_id}-a{j}", "class": a["class"],
+                        "severity": a["severity"], "doc": self._MOOT_DOC,
+                        "status": "open", "detector": "moot-round",
+                        "detail": a["detail"]}, actor=attacker)
+                # the clerk revises against the open rows
+                revise_prompt = _stage_prompt(
+                    stage="moot-revise", agent=stage["agent"],
+                    instruction=(f"Revise {self._MOOT_DOC} for this ask: {task}, fixing "
+                                 f"or answering every open CRITICAL/MAJOR row: "
+                                 f"{json.dumps(_open_rows(con, matter_ref))}. Write the "
+                                 f"revised file, then reply with its path and a two-line "
+                                 f"summary."),
+                    index=1, total=1, task=task, previous_stage=prev_stage,
+                    previous_summary=prev_summary)
+                rrow = await self.driver.run_turn(
+                    session_id, matter_ref,
+                    f"{stage['agent']}-stage-{stage['stage']}",
+                    revise_prompt, classification=classification, model=STAGE_MODEL)
+                result = moot_gate.moot_check(con, matter_ref, str(doc), store=store)
+                cand = _sev_counts(result)
+                _ledger_append(con, matter_ref, result, run_id, round_no=rounds)
+                cmp = moot_gate.compare(baseline, cand)
+                if cmp["keep"]:
+                    baseline = cand          # keep-if-better: the revision stands
+                # a clean round = mechanical clean AND no open blocking agent row
+                open_blocking = [r for r in _open_rows(con, matter_ref)
+                                 if r["severity"] in ("critical", "material")]
+                if result["ok"] and not open_blocking:
+                    clean += 1
+                else:
+                    clean = 0
+                if clean >= self._MOOT_CLEAN_ROUNDS:
+                    break
+            verdict = "PASSED" if clean >= self._MOOT_CLEAN_ROUNDS else "CAPPED"
+            con.execute("BEGIN IMMEDIATE")
+            moot_gate.record_verdict(con, matter_id=matter_ref,
+                                     execution_id=eid or f"legacy-{session_id}",
+                                     verdict=verdict, rounds=rounds, run_id=run_id,
+                                     docs=[self._MOOT_DOC])
+            con.execute("COMMIT")
+            if verdict != "PASSED":
+                raise RuntimeError(
+                    f"moot gate CAPPED after {rounds} rounds — open blocking flaws "
+                    f"remain ({json.dumps(_open_rows(con, matter_ref))}); a CAPPED "
+                    f"draft never reaches approval")
+            rrow.agent = stage["agent"]
+            return rrow
+        finally:
+            con.close()
 
     async def _run_task_durable(self, session_id: str, matter_ref: str, task: str,
                                 plan: StagePlan, *, classification: str,

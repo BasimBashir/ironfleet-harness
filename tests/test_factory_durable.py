@@ -101,6 +101,11 @@ def test_flag_set_with_approval_stage_parks_then_resume_finishes(tmp_path, monke
     """The yaml's `approval: filing` rides the stage dict; run_task returns at
     the park, decide(approve) + the resume path finishes the execution."""
     from harness.session.factory import StagePlan
+    import harness.moot.gate as moot_gate
+    # M6: this test covers park/resume mechanics, not the moot gate (covered in
+    # test_approvals.py) — stand in a PASSED verdict for the fresh execution
+    monkeypatch.setattr(moot_gate, "last_verdict",
+                        lambda con, matter_id, execution_id: {"verdict": "PASSED"})
     monkeypatch.setenv("HARNESS_DURABLE", "1")
     store = SessionStore(tmp_path)
     sid = store.new_session("m1")

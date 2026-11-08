@@ -210,7 +210,7 @@ def test_cmd_main_init_is_idempotent_and_reports(tmp_path, capsys):
     store = MemoryStore(tmp_path / "db.sqlite")
     assert agent_memory_cli.cmd_main(["init"], store) == 0
     assert agent_memory_cli.cmd_main(["init"], store) == 0
-    assert "13" in capsys.readouterr().out          # 13 personas from the real personas.yaml
+    assert "18" in capsys.readouterr().out          # 18 personas from the real personas.yaml (M6 adds 5)
 
 
 def test_cmd_main_revert_restores_exact_bytes(tmp_path, capsys):

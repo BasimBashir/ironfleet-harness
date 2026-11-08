@@ -25,9 +25,19 @@ def con(tmp_path):
     c.close()
 
 
+def _seed_passed_moot(con, eid, verdict="PASSED"):
+    """M6: seed the moot.verdict audit record a filing approval requires."""
+    from harness.moot.gate import record_verdict
+    con.execute("BEGIN IMMEDIATE")
+    record_verdict(con, matter_id="m1", execution_id=eid, verdict=verdict,
+                   rounds=2, run_id=f"run-{eid}", docs=["filings-roadmap.md"])
+    con.execute("COMMIT")
+
+
 async def test_park_then_approve_resumes_and_finishes(con, tmp_path):
     eid = orchestrator.create_execution(
         con, "m1", "s1", "t", _stages(("draft", "filing"), ("review", None)))
+    _seed_passed_moot(con, eid)
     ran: list[str] = []
 
     async def body(task, prev):
@@ -67,6 +77,7 @@ async def test_park_then_approve_resumes_and_finishes(con, tmp_path):
 async def test_reject_cancels_the_execution(con):
     eid = orchestrator.create_execution(
         con, "m1", "s1", "t", _stages(("draft", "filing"), ("review", None)))
+    _seed_passed_moot(con, eid)
 
     async def body(task, prev):
         return "done"
@@ -82,6 +93,7 @@ async def test_reject_cancels_the_execution(con):
 
 def test_double_decide_raises(con):
     eid = orchestrator.create_execution(con, "m1", "s1", "t", _stages(("a", "filing")))
+    _seed_passed_moot(con, eid)
     # park manually the way run() does after an approval stage
     t = orchestrator.claim(con, "o1", lease_s=60)
     orchestrator.complete(con, t["task_id"], "o1", result_summary="drafted")
@@ -96,9 +108,30 @@ def test_double_decide_raises(con):
         svc_approvals.decide(con, aid, approve=False, decided_by="l", note="")
 
 
+def test_filing_approval_requires_a_passed_moot_record(con):
+    """M6: nothing reaches approval without a moot record — request() refuses a
+    filing approval with no moot.verdict, with CAPPED, and parks with PASSED."""
+    from harness.workflow.approvals import MootRequired
+    eid = orchestrator.create_execution(con, "m1", "s1", "t", _stages(("a", "filing")))
+    t = orchestrator.claim(con, "o1", lease_s=60)
+    with pytest.raises(MootRequired):
+        approvals.request(con, matter_id="m1", execution_id=eid,
+                          task_id=t["task_id"], kind="filing", payload={})
+    assert con.execute("SELECT COUNT(*) FROM approvals").fetchone()[0] == 0
+    _seed_passed_moot(con, eid, verdict="CAPPED")
+    with pytest.raises(MootRequired):
+        approvals.request(con, matter_id="m1", execution_id=eid,
+                          task_id=t["task_id"], kind="filing", payload={})
+    _seed_passed_moot(con, eid, verdict="PASSED")
+    aid = approvals.request(con, matter_id="m1", execution_id=eid,
+                            task_id=t["task_id"], kind="filing", payload={})
+    assert aid.startswith("apr-")
+
+
 def test_every_decision_lands_in_the_audit_chain(con):
     from harness.workflow import audit
     eid = orchestrator.create_execution(con, "m1", "s1", "t", _stages(("a", "filing")))
+    _seed_passed_moot(con, eid)
     t = orchestrator.claim(con, "o1", lease_s=60)
     orchestrator.complete(con, t["task_id"], "o1", result_summary="d")
     approvals.request(con, matter_id="m1", execution_id=eid, task_id=t["task_id"],

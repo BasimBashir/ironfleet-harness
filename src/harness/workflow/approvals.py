@@ -17,9 +17,23 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class MootRequired(RuntimeError):
+    """M6: a filing approval was requested without a PASSED moot.verdict record
+    for the execution — nothing reaches approval without a moot record."""
+
+
 def request(con, *, matter_id: str, execution_id: str, task_id: str, kind: str,
             payload: dict) -> str:
-    """One transaction: approval row pending + audit event + execution parked."""
+    """One transaction: approval row pending + audit event + execution parked.
+    M6: kind='filing' refuses (MootRequired, no row written) unless the execution
+    carries a PASSED moot.verdict audit record."""
+    if kind == "filing":
+        from harness.moot.gate import last_verdict
+        v = last_verdict(con, matter_id, execution_id)
+        if not v or v.get("verdict") != "PASSED":
+            raise MootRequired(
+                f"no PASSED moot record for execution {execution_id} — the moot "
+                f"stage must run and pass before a filing approval can be requested")
     aid = f"apr-{uuid.uuid4().hex[:12]}"
     con.execute("BEGIN IMMEDIATE")
     try:

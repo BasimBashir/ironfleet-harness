@@ -1,0 +1,72 @@
+"""M6 step 7: the /hearing-pack and /mock-hearing workflows (NEXT_STEPS §9 M6).
+
+Data files data/module-e/workflows/{hearing_pack,mock_hearing}.yaml are picked by
+fallback_plan when the goal starts with the slash command; load_legal_pipeline(name=...)
+reads them. One fake-driver run each proves the stages execute end to end.
+"""
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from harness.session.factory import FactoryRunner, fallback_plan, load_legal_pipeline
+from harness.session.store import SessionStore, TurnRow
+
+
+class _FakeDriver:
+    def __init__(self, root: Path):
+        self.calls: list[str] = []
+        self.root = root
+
+    def workspace_for(self, session_id, agent, matter_ref, classification="LOCAL_PREFERRED"):
+        ws = self.root / "workspaces" / session_id / agent
+        ws.mkdir(parents=True, exist_ok=True)
+        return ws
+
+    async def run_turn(self, session_id, matter_ref, agent, prompt, **kw):
+        self.calls.append(agent)
+        return TurnRow(ts="t", session_id=session_id, matter_ref=matter_ref, display="",
+                       agent=agent, tools_used=[], output_summary=f"{agent} done",
+                       docs_touched=[], trace_refs=[])
+
+
+def test_loader_reads_named_workflow_files():
+    pack = load_legal_pipeline("hearing_pack")
+    mock = load_legal_pipeline("mock_hearing")
+    assert [s["agent"] for s in pack] == ["bench", "clerk"]
+    assert [s["agent"] for s in mock] == ["hearing-coach"]
+    assert all("{task}" in s["instruction"] for s in pack + mock)
+
+
+def test_slash_goals_pick_the_workflow_files():
+    pack = fallback_plan("", "LOW", "/hearing-pack for matter m1")
+    mock = fallback_plan("", "LOW", "/mock-hearing m1")
+    plain = fallback_plan("drafting", "LOW", "draft a response")
+    assert pack.source == "legal-pipeline:hearing_pack"
+    assert mock.source == "legal-pipeline:mock_hearing"
+    assert plain.source == "legal-pipeline"          # unchanged default
+    assert [s["stage"] for s in pack.stages] == ["pack-bench", "pack-assemble"]
+    assert [s["stage"] for s in mock.stages] == ["rehearsal"]
+    assert all("/hearing-pack for matter m1" in s["instruction"] for s in pack.stages)
+
+
+def test_hearing_pack_runs_end_to_end(tmp_path, monkeypatch):
+    monkeypatch.delenv("HARNESS_DURABLE", raising=False)
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    driver = _FakeDriver(tmp_path)
+    runner = FactoryRunner(driver, store=store)
+    rows = asyncio.run(runner.run_task(sid, "m1", "/hearing-pack m1"))
+    assert [r.agent for r in rows] == ["bench", "clerk"]
+    assert driver.calls == ["bench-stage-pack-bench", "clerk-stage-pack-assemble"]
+
+
+def test_mock_hearing_runs_end_to_end(tmp_path, monkeypatch):
+    monkeypatch.delenv("HARNESS_DURABLE", raising=False)
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    driver = _FakeDriver(tmp_path)
+    runner = FactoryRunner(driver, store=store)
+    rows = asyncio.run(runner.run_task(sid, "m1", "/mock-hearing m1"))
+    assert [r.agent for r in rows] == ["hearing-coach"]
+    assert driver.calls == ["hearing-coach-stage-rehearsal"]

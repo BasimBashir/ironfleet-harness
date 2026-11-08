@@ -28,6 +28,18 @@ the remaining `SYSTEM_PROMPT_*` constants.
 - `_source/verifier.txt` ← `agents/verifier/prompts.py:SYSTEM_PROMPT`
 - `_source/wargamer.txt` ← `agents/wargamer/prompts.py:SYSTEM_PROMPT`
 
+M6 (2026-11-08): five plugin personas ported from `ironfleet-legal/agents/<name>.md`
+(the plugin repo, not the old tree) — body only, the plugin frontmatter
+(`name`/`description`/`disallowedTools`) stripped; the index row carries the
+`description` and maps `disallowedTools: Bash, WebFetch, WebSearch` onto
+`denied_tools: [shell_exec, web_scrape, web_search]` via DENY_MAP:
+
+- `_source/opposing-counsel.txt` ← `ironfleet-legal/agents/opposing-counsel.md`
+- `_source/procedural-examiner.txt` ← `ironfleet-legal/agents/procedural-examiner.md`
+- `_source/evidence-examiner.txt` ← `ironfleet-legal/agents/evidence-examiner.md`
+- `_source/bench.txt` ← `ironfleet-legal/agents/bench.md`
+- `_source/hearing-coach.txt` ← `ironfleet-legal/agents/hearing-coach.md`
+
 Index fields per persona (`description`, `task_type`, `allowed_tools`,
 `denied_tools`) come from `agents/<name>/config.yaml`. Two divergences from the
 common shape, carried verbatim:

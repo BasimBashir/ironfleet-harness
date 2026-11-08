@@ -1,0 +1,41 @@
+# data/module-e/workflows/hearing_pack.yaml — the /hearing-pack workflow (M6, 2026-11-08)
+#
+# Ported from ironfleet-legal/commands/hearing-pack.md as pipeline DATA (same rule as
+# legal_pipeline.yaml: this file is DATA, never code). A goal starting /hearing-pack
+# runs these stages instead of the case crew (fallback_plan picks this file).
+#
+# The pack's first line flags a matter whose draft has no PASSED moot record —
+# the same rule as the plugin's "a draft that never passed the moot gate gets
+# flagged AT THE TOP of the pack". Dates come from the deadlines register
+# (kernel-sourced rows), never invented. The pack prepares the hearing; it does
+# NOT promise the court accepts anything.
+
+pipeline:
+  - stage: pack-bench
+    agent: bench
+    instruction: >
+      Bench questions and model answers for this ask: {task}
+      From the matter's dossier (strategy, facts, evidence, deadlines with
+      today-relative status) and the latest moot verdict, write bench-qa.md:
+      up to ten questions a judge would actually ask, hardest first, each with
+      a MODEL ANSWER grounded only in the matter's corpus and record. Flag any
+      question the record cannot answer — that is a risk to carry, not to hide.
+  - stage: pack-assemble
+    agent: clerk
+    instruction: >
+      Assemble the hearing pack for this ask: {task}
+      Write hearing-pack.md. FIRST LINE: if the matter's latest moot.verdict is
+      not PASSED, flag it — "NO PASSED MOOT RECORD — draft not cleared for
+      approval". Then: (1) bring list — every registered exhibit (label + file),
+      copies count, the draft + moot verdict, the run_id; (2) opening script —
+      three sentences: who we act for, what we seek, why on the record (one
+      corpus pin per claim); (3) bench Q&A from bench-qa.md verbatim; (4)
+      cross-examination plan — per opposing witness/document, the three
+      questions that make the gap (from the evidence-examiner's attack rows in
+      the flaws ledger); (5) objection cheat-sheet — the moot flaw classes as
+      one-line "if they say X, you say Y" rows with the record pin; (6) surprise
+      protocol — if they raise an authority or exhibit NOT in the record, ask
+      for adjournment to verify; never argue an unverified document on its
+      feet. Dates only from the deadlines register (kernel rows). State
+      plainly: the pack prepares the hearing; it does NOT promise the court
+      accepts anything.

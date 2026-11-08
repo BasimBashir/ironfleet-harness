@@ -56,7 +56,6 @@ pipeline:
       steps that reduce liability). Every judgement tied to an authority or [ASSUMPTION].
   - stage: filings
     agent: clerk
-    approval: filing
     instruction: >
       Produce the filings roadmap for this ask: {task}
       Write filings-roadmap.md from the win-assessment's proceed branch (and the
@@ -66,6 +65,23 @@ pipeline:
       steps under the PPSA 1999, any pre-action requirement), who acts, and WHEN
       (deadlines computed as relative dates from today; never invent absolute dates
       you cannot ground). Use ironfleet_corpus_search for each rule you cite.
+  # M6 (2026-11-08): the moot gate is a mandatory stage between drafting and
+  # approval. `gate: moot` makes FactoryRunner run the round loop (mechanical
+  # pre-pass + adversarial agent rounds + keep-if-better) instead of one turn;
+  # the stage records a PASSED moot.verdict or raises (CAPPED), and only then
+  # does `approval: filing` park the execution — approvals.request refuses a
+  # filing approval with no PASSED record.
+  - stage: moot
+    agent: clerk
+    gate: moot
+    approval: filing
+    instruction: >
+      Moot the filings roadmap for this ask: {task}
+      Run the moot gate on filings-roadmap.md: the mechanical pre-pass (quotes,
+      refs, kernel dates, exhibits, demand form), then the attack rounds —
+      opposing counsel, procedural examiner, evidence examiner — and revise until
+      two consecutive rounds are clean. The verdict (PASSED / CAPPED) is recorded
+      in the audit chain; a CAPPED draft never goes to approval.
   - stage: advice
     agent: clerk
     instruction: >

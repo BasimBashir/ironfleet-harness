@@ -6,11 +6,14 @@ DATA = Path(__file__).resolve().parent.parent / "data" / "module-e"
 def _index():
     return yaml.safe_load((DATA / "personas.yaml").read_text())["personas"]
 
-def test_index_names_exactly_the_thirteen_personas():
+def test_index_names_exactly_the_eighteen_personas():
+    # M6 (2026-11-08) adds the plugin's five moot/hearing personas
     names = sorted(p["name"] for p in _index())
     assert names == sorted(["adversary", "ambiguity", "architect", "auditor", "citation",
                             "clerk", "evaluator", "hunter", "ingestor", "negotiator",
-                            "strategist", "verifier", "wargamer"])
+                            "strategist", "verifier", "wargamer",
+                            "opposing-counsel", "procedural-examiner", "evidence-examiner",
+                            "bench", "hearing-coach"])
 
 def test_every_persona_declares_required_fields():
     for p in _index():

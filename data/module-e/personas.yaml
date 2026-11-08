@@ -133,3 +133,48 @@ personas:
     variants: {}
     allowed_tools: [ironfleet_limitation_act]
     denied_tools: [file_write, web_scrape, shell_exec]
+
+  # M6 (2026-11-08): the plugin's moot/hearing personas, ported from
+  # ironfleet-legal/agents/*.md (body only — the plugin frontmatter is stripped;
+  # its `disallowedTools: Bash, WebFetch, WebSearch` maps onto the denied list
+  # below via DENY_MAP, and DEFAULT_DENY already covers edit). No tools: the
+  # attackers get the matter record through the prompt, not their own searches.
+  - name: opposing-counsel
+    description: "Moot gate adversary — attacks the draft, forcing a fix or a prose answer for every flaw"
+    task_type: complex_reasoning
+    primary: _source/opposing-counsel.txt
+    variants: {}
+    allowed_tools: []
+    denied_tools: [shell_exec, web_scrape, web_search]
+
+  - name: procedural-examiner
+    description: "Procedure attacks — dates, periods, forms and filing steps, judged where the kernels do not yet reach"
+    task_type: complex_reasoning
+    primary: _source/procedural-examiner.txt
+    variants: {}
+    allowed_tools: []
+    denied_tools: [shell_exec, web_scrape, web_search]
+
+  - name: evidence-examiner
+    description: "Evidence attacks — exhibits, authenticity, and the gap between what a document shows and what the draft claims"
+    task_type: complex_reasoning
+    primary: _source/evidence-examiner.txt
+    variants: {}
+    allowed_tools: []
+    denied_tools: [shell_exec, web_scrape, web_search]
+
+  - name: bench
+    description: "Likely bench questions with model answers, grounded in the matter's own record"
+    task_type: complex_reasoning
+    primary: _source/bench.txt
+    variants: {}
+    allowed_tools: []
+    denied_tools: [shell_exec, web_scrape, web_search]
+
+  - name: hearing-coach
+    description: "Mock-hearing rehearsal — plays bench and opposing counsel, critiques each answer, writes the transcript"
+    task_type: complex_reasoning
+    primary: _source/hearing-coach.txt
+    variants: {}
+    allowed_tools: []
+    denied_tools: [shell_exec, web_scrape, web_search]

@@ -115,6 +115,29 @@ def _mtable(matter_ref: str, kind: str) -> str:
     return f"{kind}_{name}"
 
 
+# M6 (G3 tier helpers, ported from the plugin's corpus.py): openness ordering —
+# T0/T2 privileged rank below T1 open; an unknown tier fails closed (ranks below T0)
+_OPENNESS = {"T0": 0, "T2": 1, "T1": 2, "T3": 3}
+
+
+def quotable_tier(tier: str | None, min_tier: str | None = "T1") -> bool:
+    return _OPENNESS.get(tier, -1) >= _OPENNESS.get(min_tier or "T1", 99)
+
+
+def bound_tier(root: Path, matter_ref: str) -> str | None:
+    """W3: the operator's tier binding for a matter (matter.json at the store root,
+    written by the operator CLI's bind-tier) — the ingest-time default when the call
+    passes no trust_tier. Returned RAW: an unknown bound value ranks below T0
+    downstream (G3), so a corrupt binding fails closed, never silently opens."""
+    try:
+        data = json.loads((Path(root) / "matter.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get(matter_ref), dict):
+        return data[matter_ref].get("trust_tier") or None
+    return None
+
+
 def _fts_query(query: str, max_terms: int = 24) -> str:
     """FTS5 OR of the alphanumeric tokens — FTS5 query syntax chokes on legal punctuation."""
     terms = [t for t in re.findall(r"[A-Za-z0-9]{3,}", query)][:max_terms]
@@ -239,7 +262,8 @@ class CorpusStore:
         with self._c() as c:
             c.execute(f"CREATE TABLE IF NOT EXISTS {_mtable(matter_ref, 'docs')}"
                       "(doc_id TEXT PRIMARY KEY, source_name TEXT, sha256 TEXT,"
-                      " words INTEGER, chunk_count INTEGER, ts TEXT)")
+                      " words INTEGER, chunk_count INTEGER, ts TEXT,"
+                      " trust_tier TEXT DEFAULT 'T1')")
             c.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS {_mtable(matter_ref, 'fts')}"
                       " USING fts5(doc_id, heading, body)")
             c.execute(f"CREATE TABLE IF NOT EXISTS {_mtable(matter_ref, 'cites')}"
