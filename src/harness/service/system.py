@@ -44,6 +44,14 @@ def doctor_report(on_error=lambda where, exc: None) -> str:
         autoupdate=autoupdate, providers=provs))
 
 
+def open_db(store_root):
+    """platform.db at the store root — the API's one connection factory, kept
+    here so harness/api never imports harness.workflow (M7 layering test)."""
+    from harness.workflow.db import connect
+    from harness.workflow.orchestrator import platform_db
+    return connect(platform_db(Path(store_root)))
+
+
 def provider_lines() -> str:
     """The registry as data — rows, tiers, windows. Switching a class's provider
     is a routing-table edit (data/, by ruling); this shows, it does not rewire."""

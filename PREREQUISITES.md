@@ -81,7 +81,9 @@ per-provider in the keychain. No code edit, ever.
 built in — no extra tool) · `pyyaml ≥ 6` · `pypdf ≥ 6.0` · **`sqlite-vec==0.1.9`**
 (pinned, fail-closed — the vector index) · `markitdown ≥ 0.1` (document parsing) ·
 `textual>=3.0` (the R3 TUI's toolkit — MIT, pure-Python; without it the shell
-does not start).
+does not start) · **`fastapi==0.162.2`** + **`uvicorn==0.54.0`** (pinned — the M7
+REST + SSE API, `python -m harness.api serve`, loopback only; fastapi pulls
+`starlette`, `annotated-doc` and `opentelemetry-api` as hard requirements).
 
 ## 5. Network
 

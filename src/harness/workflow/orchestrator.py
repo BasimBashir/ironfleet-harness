@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from harness.workflow import audit
 from harness.workflow.db import connect
 
 DEFAULT_MAX_ATTEMPTS = 3
@@ -54,6 +55,7 @@ def create_execution(con, matter_id: str, session_id: str, task_text: str,
                 " VALUES(?,?,?,?,?,?,?,?,?)",
                 (f"{eid}-t{i}", eid, i, s["stage"], s.get("agent", ""),
                  s.get("instruction", ""), s.get("approval"), "pending", max_attempts))
+        audit.emit(con, matter_id, "execution.created", {"execution_id": eid})
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -84,12 +86,14 @@ def claim(con, owner: str, *, lease_s: float = 120, now: float | None = None) ->
             con.execute("UPDATE tasks SET state='failed' WHERE task_id=?", (row["task_id"],))
             con.execute("UPDATE executions SET state='failed', ended_at=?"
                         " WHERE execution_id=?", (_now(), row["execution_id"]))
+            _emit(con, row["execution_id"], "execution.failed", task_id=row["task_id"])
             con.execute("COMMIT")
             return None
         con.execute(
             "UPDATE tasks SET state='running', lease_owner=?, lease_expires_at=?,"
             " attempts=attempts+1 WHERE task_id=?",
             (owner, now + lease_s, row["task_id"]))
+        _emit(con, row["execution_id"], "task.running", task_id=row["task_id"])
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -118,6 +122,9 @@ def complete(con, task_id: str, owner: str, *, result_summary: str = "") -> bool
         if cur.rowcount != 1:
             con.execute("ROLLBACK")
             return False
+        eid = con.execute("SELECT execution_id FROM tasks WHERE task_id=?",
+                          (task_id,)).fetchone()["execution_id"]
+        _emit(con, eid, "task.completed", task_id=task_id)
         _maybe_finish_execution(con)
         con.execute("COMMIT")
     except Exception:
@@ -141,11 +148,21 @@ def fail(con, task_id: str, owner: str, *, error: str = "") -> bool:
                           (task_id,)).fetchone()
         con.execute("UPDATE executions SET state='failed', ended_at=?"
                     " WHERE execution_id=?", (_now(), row["execution_id"]))
+        _emit(con, row["execution_id"], "task.failed", task_id=task_id)
+        _emit(con, row["execution_id"], "execution.failed")
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
         raise
     return True
+
+
+def _emit(con, execution_id: str, type: str, **payload) -> None:
+    """Task/execution state changes are not audited; they still feed SSE (M7)."""
+    m = con.execute("SELECT matter_id FROM executions WHERE execution_id=?",
+                    (execution_id,)).fetchone()
+    audit.emit(con, m["matter_id"] if m else "", type,
+               {"execution_id": execution_id, **payload})
 
 
 def _maybe_finish_execution(con) -> None:
@@ -158,6 +175,7 @@ def _maybe_finish_execution(con) -> None:
     for r in row:
         con.execute("UPDATE executions SET state='completed', ended_at=?"
                     " WHERE execution_id=?", (_now(), r["execution_id"]))
+        _emit(con, r["execution_id"], "execution.completed")
 
 
 def matter_state(con, matter_id: str) -> str:

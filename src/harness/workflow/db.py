@@ -66,13 +66,72 @@ CREATE INDEX IF NOT EXISTS idx_facts_matter ON facts(matter_id, field);
 CREATE TABLE IF NOT EXISTS evidence(
   evidence_id TEXT PRIMARY KEY, matter_id TEXT, op TEXT, label TEXT, file TEXT,
   sha256 TEXT, actor TEXT, ts TEXT);
+-- M7 API tables (enterprise 03 §2, 04): additive only.
+CREATE TABLE IF NOT EXISTS users(
+  user_id TEXT PRIMARY KEY, username TEXT UNIQUE, pw_hash TEXT, role_id TEXT,
+  is_active INTEGER DEFAULT 1, created_at TEXT);
+CREATE TABLE IF NOT EXISTS tokens(
+  token_hash TEXT PRIMARY KEY, user_id TEXT, kind TEXT, expires_at REAL,
+  revoked INTEGER DEFAULT 0, created_at TEXT);
+CREATE TABLE IF NOT EXISTS roles(role_id TEXT PRIMARY KEY, name TEXT);
+CREATE TABLE IF NOT EXISTS role_permissions(
+  role_id TEXT, perm TEXT, PRIMARY KEY(role_id, perm));
+CREATE TABLE IF NOT EXISTS matters(
+  matter_id TEXT PRIMARY KEY, title TEXT, client_ref TEXT, matter_type TEXT,
+  jurisdiction TEXT, confidentiality TEXT, objectives TEXT, priority TEXT,
+  archived INTEGER DEFAULT 0, created_by TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS matter_members(
+  matter_id TEXT, user_id TEXT, role_id TEXT, PRIMARY KEY(matter_id, user_id));
+CREATE TABLE IF NOT EXISTS documents(
+  doc_id TEXT PRIMARY KEY, matter_id TEXT, filename TEXT, doc_type TEXT,
+  jurisdiction TEXT, sha256 TEXT, size INTEGER, path TEXT, ingest_status TEXT,
+  created_by TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS artifacts(
+  artifact_id TEXT PRIMARY KEY, matter_id TEXT, execution_id TEXT, kind TEXT,
+  title TEXT, content TEXT, review_state TEXT, review_note TEXT,
+  created_at TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS workflow_events(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, matter_id TEXT, type TEXT,
+  payload_json TEXT, ts TEXT);
+CREATE TRIGGER IF NOT EXISTS wfev_no_update BEFORE UPDATE ON workflow_events
+BEGIN SELECT RAISE(ABORT, 'workflow_events is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS wfev_no_delete BEFORE DELETE ON workflow_events
+BEGIN SELECT RAISE(ABORT, 'workflow_events is append-only'); END;
+CREATE TABLE IF NOT EXISTS idempotency_keys(
+  user_id TEXT, key TEXT, request_hash TEXT, status INTEGER, body TEXT,
+  created_at TEXT, PRIMARY KEY(user_id, key));
+CREATE TABLE IF NOT EXISTS workflows(
+  workflow_id TEXT PRIMARY KEY, name TEXT, definition_json TEXT, created_by TEXT,
+  created_at TEXT);
+CREATE TABLE IF NOT EXISTS agents(
+  agent_id TEXT PRIMARY KEY, name TEXT, role TEXT, tool_policy TEXT,
+  default_task_class TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS interjections(
+  interjection_id TEXT PRIMARY KEY, run_id TEXT, matter_id TEXT, text TEXT,
+  actor TEXT, ts TEXT);
+CREATE TABLE IF NOT EXISTS conversations(
+  conversation_id TEXT PRIMARY KEY, matter_id TEXT, title TEXT, created_by TEXT,
+  created_at TEXT);
+CREATE TABLE IF NOT EXISTS messages(
+  message_id TEXT PRIMARY KEY, conversation_id TEXT, matter_id TEXT, role TEXT,
+  text TEXT, execution_id TEXT, actor TEXT, ts TEXT);
+INSERT OR IGNORE INTO roles VALUES('admin','Admin'),('editor','Editor'),('reader','Reader');
+INSERT OR IGNORE INTO role_permissions VALUES
+  ('admin','matter.read'),('admin','matter.write'),('admin','matter.dispatch'),
+  ('admin','approval.decide'),('admin','matter.cross_read'),('admin','audit.read'),
+  ('admin','guard.policy.write'),('admin','provider.key.read'),
+  ('editor','matter.read'),('editor','matter.write'),('editor','matter.dispatch'),
+  ('editor','approval.decide'),('reader','matter.read');
 """
 
 
 def connect(path: Path) -> sqlite3.Connection:
     """Open (and create) platform.db at `path`. WAL so a reader never blocks a
     claim; timeout=30 so a racing writer waits instead of raising."""
-    con = sqlite3.connect(str(path), timeout=30, isolation_level=None)
+    # check_same_thread off: the API opens one con per request, but FastAPI may run
+    # the dependency and the handler on different threadpool threads (never concurrently).
+    con = sqlite3.connect(str(path), timeout=30, isolation_level=None,
+                          check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.executescript(SCHEMA)

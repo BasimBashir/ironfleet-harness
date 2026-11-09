@@ -39,7 +39,19 @@ def append(con, *, matter_id: str, actor: str, action: str, target: str,
         " VALUES(?,?,?,?,?,?,?,?,?,?)",
         (row["audit_id"], matter_id, actor, action, target, inputs_digest,
          outputs_digest, prev_hash, row["hash"], row["ts"]))
+    # every audited write is also an SSE event, in the same transaction (M7, 03 §2.14)
+    emit(con, matter_id, action, {"actor": actor, "target": target, "audit_id": aid})
     return aid
+
+
+def emit(con, matter_id: str, type: str, payload: dict) -> int:
+    """Append one workflow_events row in the caller's transaction (SSE source;
+    id = rowid so Last-Event-ID replay is WHERE id > ?)."""
+    cur = con.execute(
+        "INSERT INTO workflow_events(matter_id, type, payload_json, ts) VALUES(?,?,?,?)",
+        (matter_id, type, json.dumps(payload, sort_keys=True),
+         datetime.now(timezone.utc).isoformat()))
+    return cur.lastrowid
 
 
 def verify(con) -> tuple[bool, str | None]:

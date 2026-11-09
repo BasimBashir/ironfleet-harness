@@ -1,0 +1,168 @@
+# src/harness/service/documents.py — upload/ingest/list/bytes (M7, 04 §5.3)
+"""Upload = raw request body + ?filename=&doc_type=&jurisdiction= query params
+(plan §0.1 — no python-multipart). The bytes land under the store root's
+documents/ tree; the row carries sha256 + size + relative path. Ingest is the
+existing service.ingest.ingest_source, run synchronously here and reported via
+the document row's ingest_status (202 + run row per plan §3)."""
+from __future__ import annotations
+
+import hashlib
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from harness.service import authz, ingest
+from harness.workflow import audit
+
+WRITE = "matter.write"
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _doc_row(r) -> dict:
+    return dict(r)
+
+
+def upload(con, principal: dict, matter_id: str, body: bytes, *, filename: str,
+           doc_type: str = "", jurisdiction: str = "",
+           store_root: Path | None = None) -> dict:
+    authz.require(con, principal, WRITE, matter_id)
+    if not filename or not body:
+        raise authz.ServiceError(422, "validation_failed",
+                                 "filename and a non-empty body are required")
+    doc_id = f"doc-{uuid.uuid4().hex[:12]}"
+    sha = hashlib.sha256(body).hexdigest()
+    rel = Path("documents") / matter_id / f"{doc_id}-{Path(filename).name}"
+    if store_root is not None:
+        dest = Path(store_root) / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+    now = _now()
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        con.execute(
+            "INSERT INTO documents(doc_id, matter_id, filename, doc_type,"
+            " jurisdiction, sha256, size, path, ingest_status, created_by, created_at)"
+            " VALUES(?,?,?,?,?,?,?,?, 'pending',?,?)",
+            (doc_id, matter_id, filename, doc_type, jurisdiction, sha, len(body),
+             str(rel), principal["user_id"], now))
+        audit.append(con, matter_id=matter_id, actor=principal["username"],
+                     action="document.uploaded", target=doc_id,
+                     inputs_digest=f"{filename} {sha[:12]}")
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    row = con.execute("SELECT * FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+    return _doc_row(row)
+
+
+def ingest_doc(con, principal: dict, matter_id: str, body: dict,
+               store_root: Path | None = None) -> dict:
+    """POST /matters/{mid}/documents/ingest {source_spec}: run the existing
+    ingest pipeline over the source and mark every document of the matter
+    ingested. Returns 202 + the run report."""
+    authz.require(con, principal, WRITE, matter_id)
+    source = (body or {}).get("source")
+    if not source:
+        raise authz.ServiceError(422, "validation_failed", "source required")
+    report = ingest.ingest_source(matter_id, source)
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        con.execute("UPDATE documents SET ingest_status='ingested' WHERE matter_id=?",
+                    (matter_id,))
+        audit.append(con, matter_id=matter_id, actor=principal["username"],
+                     action="documents.ingested", target=source[:200])
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    return {"ingest_run": report}
+
+
+def list_docs(con, principal: dict, matter_id: str, *, limit: int = 50,
+              cursor: int = 0) -> dict:
+    authz.require(con, principal, authz.READ, matter_id)
+    rows = con.execute(
+        "SELECT * FROM documents WHERE matter_id=? ORDER BY created_at, doc_id",
+        (matter_id,)).fetchall()
+    total = len(rows)
+    page = [_doc_row(r) for r in rows[cursor:cursor + limit]]
+    next_cursor = cursor + limit if cursor + limit < total else None
+    return {"items": page, "next_cursor": next_cursor}
+
+
+def evidence(con, principal: dict, matter_id: str, *, q: str = "",
+             limit: int = 50, cursor: int = 0) -> dict:
+    from harness.lifecycle import dossier
+    authz.require(con, principal, authz.READ, matter_id)
+    rows = dossier.read(con, matter_id, "evidence")["events"]
+    if q:
+        rows = [r for r in rows if q.lower() in (r.get("label") or "").lower()]
+    nxt = cursor + limit if cursor + limit < len(rows) else None
+    return {"items": rows[cursor:cursor + limit], "next_cursor": nxt}
+
+
+def list_artifacts(con, principal: dict, matter_id: str, *, review_state: str = "",
+                   limit: int = 50, cursor: int = 0) -> dict:
+    authz.require(con, principal, authz.READ, matter_id)
+    rows = [dict(r) for r in con.execute(
+        "SELECT artifact_id, matter_id, execution_id, kind, title, review_state,"
+        " created_at, updated_at FROM artifacts WHERE matter_id=?"
+        " ORDER BY created_at, artifact_id", (matter_id,))
+        if not review_state or r["review_state"] == review_state]
+    nxt = cursor + limit if cursor + limit < len(rows) else None
+    return {"items": rows[cursor:cursor + limit], "next_cursor": nxt}
+
+
+def _artifact(con, principal, aid: str, perm: str) -> dict:
+    row = con.execute("SELECT * FROM artifacts WHERE artifact_id=?", (aid,)).fetchone()
+    if row is None:
+        raise authz.not_found("artifact_not_found", f"artifact {aid!r} not found")
+    authz.require(con, principal, perm, row["matter_id"])
+    return dict(row)
+
+
+def get_artifact(con, principal: dict, aid: str) -> dict:
+    return _artifact(con, principal, aid, authz.READ)
+
+
+def review_artifact(con, principal: dict, aid: str, body: dict) -> dict:
+    row = _artifact(con, principal, aid, "approval.decide")
+    decision = (body or {}).get("decision")
+    states = {"approve": "approved", "reject": "rejected",
+              "request_changes": "changes_requested"}
+    if decision not in states:
+        raise authz.ServiceError(422, "validation_failed",
+                                 "decision must be approve|reject|request_changes")
+    note = (body or {}).get("note") or ""
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        con.execute("UPDATE artifacts SET review_state=?, review_note=?, updated_at=?"
+                    " WHERE artifact_id=?", (states[decision], note, _now(), aid))
+        audit.append(con, matter_id=row["matter_id"], actor=principal["username"],
+                     action="artifact.reviewed", target=aid,
+                     inputs_digest=states[decision], outputs_digest=note[:500])
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    return get_artifact(con, principal, aid)
+
+
+def get_bytes(con, principal: dict, doc_id: str, *,
+              store_root: Path | None = None) -> tuple[dict, bytes]:
+    """GET /api/v1/documents/{doc_id} — authz via the parent matter (fails
+    closed: no membership on the parent matter -> 404)."""
+    row = con.execute("SELECT * FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+    if row is None:
+        raise authz.not_found("document_not_found", f"document {doc_id!r} not found")
+    authz.require(con, principal, authz.READ, row["matter_id"])
+    data = b""
+    if store_root is not None:
+        p = Path(store_root) / row["path"]
+        if p.is_file():
+            data = p.read_bytes()
+    return _doc_row(row), data

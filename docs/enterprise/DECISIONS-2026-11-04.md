@@ -172,7 +172,7 @@ fine for tables/approvals but the graph goes bespoke JS either way.
 **Blocks:** Phase 4 (API) and Phase 5 (web workspace); brief §18 requires this sign-off before
 the dependency lands.
 
-**Ruling: ___________  Date: ___________**
+**Ruling: API = FastAPI + uvicorn (owner yes, M7 session)  Date: 2026-11-08** · frontend stack: ___________  Date: ___________
 
 ### D7 · UI mockup sign-off before any screen; TUI retirement at parity (05 §14)
 

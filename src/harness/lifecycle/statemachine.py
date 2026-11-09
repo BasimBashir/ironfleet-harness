@@ -49,16 +49,21 @@ def transition(con, matter: str, to: str, *, actor: str = "operator",
         row = con.execute("SELECT state FROM cases WHERE matter_id=?",
                           (matter,)).fetchone()
         cur = row["state"] if row else None
-        if row is None:
+        # a row with state NULL (lawyer_now.evaluate creates one) is still stateless
+        if cur is None:
             if to != STATES[0]:
                 con.execute("ROLLBACK")
                 raise RuntimeError(
                     f"case {matter!r} has no state yet — first transition must be "
                     f"{STATES[0]!r}, got {to!r}")
             now = _now()
-            con.execute("INSERT INTO cases(matter_id, state, lawyer_now, "
-                        "lawyer_now_reason, needs_restrategy, created_at, updated_at)"
-                        " VALUES(?,?,0,'[]',0,?,?)", (matter, to, now, now))
+            if row is None:
+                con.execute("INSERT INTO cases(matter_id, state, lawyer_now, "
+                            "lawyer_now_reason, needs_restrategy, created_at, updated_at)"
+                            " VALUES(?,?,0,'[]',0,?,?)", (matter, to, now, now))
+            else:
+                con.execute("UPDATE cases SET state=?, updated_at=? WHERE matter_id=?",
+                            (to, now, matter))
         else:
             if to not in TRANSITIONS.get(cur, set()):
                 con.execute("ROLLBACK")
