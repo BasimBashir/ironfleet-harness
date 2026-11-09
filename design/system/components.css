@@ -1,0 +1,90 @@
+/* IronFleet components (D-4): table · status chip · provenance header · approval card ·
+   timeline · banner · token meter. Built on tokens.css only; no raw colours below this line. */
+
+/* ---- base ---- */
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:var(--fs-base)/var(--lh) var(--font-sans);font-variant-numeric:tabular-nums}
+a{color:var(--accent);text-underline-offset:2px}
+:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:4px}
+*{transition:background-color var(--dur) var(--ease),color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.mono,.id{font-family:var(--font-mono);font-size:var(--fs-xs)}
+.id{color:var(--muted)}
+.muted{color:var(--muted)}
+.card{background:var(--raise);border:1px solid var(--rule);border-radius:var(--radius);box-shadow:var(--shadow)}
+.btn{font:inherit;min-height:var(--control-h);padding:0 var(--sp-4);border:1px solid var(--control-border);border-radius:var(--radius);background:var(--raise);color:var(--text);cursor:pointer}
+.btn--primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:var(--fw-medium)}
+.btn[aria-disabled="true"]{opacity:.6;cursor:not-allowed}  /* disabled-with-reason (05 §12): keep focusable, say why */
+.btn__why{display:block;font-size:var(--fs-xs);color:var(--muted);margin-top:var(--sp-1)}
+
+/* ---- status chip: colour + icon + word, never colour alone ---- */
+.chip{display:inline-flex;align-items:center;gap:6px;padding:1px 10px;border:1px solid currentColor;border-radius:var(--radius-pill);font-size:var(--fs-sm);font-weight:var(--fw-medium);white-space:nowrap;color:var(--s-idle)}
+.chip::before{content:attr(data-icon)}
+.chip--waiting{color:var(--s-waiting);background:var(--s-waiting-bg)}
+.chip--running{color:var(--s-running)} .chip--blocked{color:var(--s-blocked)} .chip--failed{color:var(--s-failed)}
+.chip--review{color:var(--s-review)} .chip--done{color:var(--s-done)} .chip--idle{color:var(--s-idle)}
+.chip--verified{color:var(--v-verified)} .chip--unverified{color:var(--v-unverified);border-style:dashed}
+
+/* ---- table: dense, the primary component (05 §0) ---- */
+.table{width:100%;border-collapse:separate;border-spacing:0;background:var(--raise);border:1px solid var(--rule);border-radius:var(--radius)}
+.table th{font-size:var(--fs-xs);font-weight:var(--fw-medium);color:var(--muted);text-align:left;padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--rule);white-space:nowrap}
+.table td{height:var(--row);padding:0 var(--sp-3);border-bottom:1px solid var(--rule);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.table tbody tr:last-child td{border-bottom:0}
+.table tbody tr:hover{background:var(--bg)}
+.table tbody tr[aria-selected="true"]{background:var(--accent-soft);box-shadow:inset 3px 0 var(--accent)}
+.table .num{text-align:right;font-family:var(--font-mono);font-size:var(--fs-xs)}
+.table td.title{height:auto;padding:7px var(--sp-3)} .table td.title b{display:block;font-weight:var(--fw-medium)}
+.table td.title span{font-size:var(--fs-xs);color:var(--muted)}
+.table__empty{padding:var(--sp-5);color:var(--muted)}  /* one explainer line + the one action (05 §10) */
+.skeleton{display:block;height:10px;border-radius:4px;background:var(--rule);width:70%}
+
+/* ---- provenance header: what this is, where it came from, how verified (05 §8) ---- */
+.prov{display:grid;grid-template-columns:auto 1fr auto;gap:var(--sp-1) var(--sp-4);align-items:baseline;padding:var(--sp-3) var(--sp-4);background:var(--raise);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--radius)}
+.prov__title{font-weight:var(--fw-medium);font-size:var(--fs-md)}
+.prov__meta{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:var(--sp-1) var(--sp-4);font-size:var(--fs-sm);color:var(--muted)}
+.prov__meta dt{display:inline;color:var(--muted)} .prov__meta dd{display:inline;margin:0 0 0 4px;color:var(--text)}
+.prov--unverified{border-left-color:var(--v-unverified)}
+.prov__chain{font-family:var(--font-mono);font-size:var(--fs-xs)}
+
+/* ---- approval card: payload, requester, residual risk next to the action (05 §7, 08 §1.8) ---- */
+.approval{padding:var(--sp-4) var(--sp-5);border-top:4px solid var(--s-waiting)}
+.approval__head{display:flex;gap:var(--sp-3);align-items:baseline;flex-wrap:wrap}
+.approval__kind{font-size:var(--fs-xs);font-weight:var(--fw-bold);letter-spacing:.06em;text-transform:uppercase;color:var(--s-waiting)}
+.approval__title{font-size:var(--fs-md);font-weight:var(--fw-medium);margin:var(--sp-1) 0 var(--sp-2)}
+.approval__payload{background:var(--bg);border-radius:var(--radius);padding:var(--sp-2) var(--sp-3);font-size:var(--fs-sm)}
+.approval__by{font-size:var(--fs-sm);color:var(--muted);margin:var(--sp-2) 0}
+.approval__actions{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)}
+.approval__risk{margin-top:var(--sp-2);font-size:var(--fs-sm)} .approval__risk b{color:var(--muted)}
+.approval--decided{border-top-color:var(--s-done)}
+.approval--decided .approval__kind{color:var(--s-done)}
+
+/* ---- timeline: an ordered list (08 §17) — journey (horizontal) or activity (vertical) ---- */
+.timeline{list-style:none;margin:0;padding:0;display:flex;gap:6px;flex-wrap:wrap}
+.timeline li{flex:1;min-width:84px;padding-top:var(--sp-2);border-top:4px solid var(--rule);font-size:var(--fs-sm);color:var(--muted);text-align:center}
+.timeline li[data-state="done"]{border-top-color:var(--s-done);color:var(--text)}
+.timeline li[data-state="done"]::before{content:"✓ ";color:var(--s-done)}
+.timeline li[aria-current="step"]{border-top-color:var(--accent);color:var(--accent);font-weight:var(--fw-bold)}
+.timeline li[aria-current="step"]::before{content:"▸ "}
+.timeline small{display:block;font-weight:400;color:var(--muted)}
+.timeline--activity{flex-direction:column;gap:0}
+.timeline--activity li{text-align:left;border-top:0;border-left:2px solid var(--rule);padding:0 0 var(--sp-3) var(--sp-4);position:relative;color:var(--text)}
+.timeline--activity li::before{content:"";position:absolute;left:-6px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--raise);border:2px solid var(--control-border)}
+.timeline--activity li[data-state="done"]::before{content:"";border-color:var(--s-done)}
+.timeline--activity time{font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--muted);margin-right:var(--sp-2)}
+
+/* ---- banner: lawyer-now block (self-rep) / flag (firm) / info (08 §2) ---- */
+.banner{border-radius:var(--radius);padding:var(--sp-3) var(--sp-4);border:1px solid var(--control-border);background:var(--raise)}
+.banner__title{margin:0 0 var(--sp-1);font-size:var(--fs-md);font-weight:var(--fw-bold)}
+.banner--block{border:2px solid var(--s-failed);background:var(--danger-bg);padding:var(--sp-4) var(--sp-5)}
+.banner--block .banner__title{font-size:var(--fs-lg);color:var(--s-failed)}
+.banner--flag{border-color:var(--s-failed);border-left-width:4px}
+.banner--flag .banner__title{display:inline;font-size:var(--fs-sm);color:var(--s-failed)}
+.banner--info{border-left:4px solid var(--accent)}
+
+/* ---- token meter: overall budget (header) + per-agent counts (C's meters on B) ---- */
+.meter{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-sm);color:var(--muted)}
+.meter__bar{width:96px;height:6px;border-radius:var(--radius-pill);background:var(--meter-track);overflow:hidden}
+.meter__bar i{display:block;height:100%;background:var(--meter-fill)}
+.meter[data-level="warn"] .meter__bar i{background:var(--meter-warn)}
+.meter[data-level="over"] .meter__bar i{background:var(--meter-over)}
+.meter b{color:var(--text)}
+.tokens{font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--muted)}  /* per-agent: "18.2k · in 14.9k · out 3.3k · think 0" */

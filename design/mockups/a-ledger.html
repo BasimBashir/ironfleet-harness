@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en-NZ" data-theme="light" data-mode="firm" data-lawyer="off">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IronFleet: D-3 mockup A · Ledger</title>
+<style>
+/* Direction A · Ledger: court docket / file ledger. Highest density, hairline rules, square corners, navy accent. */
+:root{
+  --bg:#ffffff; --surface:#f5f6f8; --raise:#ffffff; --text:#14181f; --muted:#4f5866; --rule:#d3d8e0; --rule-strong:#9aa3b0;
+  --accent:#1f3a68; --accent-text:#ffffff; --accent-soft:#e7edf7; --focus:#1f3a68;
+  --s-waiting:#9a4d00; --s-waiting-bg:#fff1d6; --s-running:#1d4fb8; --s-blocked:#b93815; --s-failed:#b42318;
+  --s-review:#6233b5; --s-done:#0b6b3a; --s-idle:#5d6675;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace; --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --row:28px; --fs:13px;
+}
+[data-theme="dark"]{
+  --bg:#0e1116; --surface:#151a21; --raise:#1b2129; --text:#e4e8ee; --muted:#a3acb9; --rule:#2b333e; --rule-strong:#4a5463;
+  --accent:#9db8ec; --accent-text:#0e1116; --accent-soft:#1c2a42; --focus:#9db8ec;
+  --s-waiting:#f5b443; --s-waiting-bg:#3a2a0c; --s-running:#8db1ff; --s-blocked:#ff8a65; --s-failed:#ff8580;
+  --s-review:#c3a6ff; --s-done:#5fd394; --s-idle:#a3acb9;
+}
+[data-mode="self-rep"]{ --row:40px; --fs:15px; }
+*{box-sizing:border-box} html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:var(--fs)/1.45 var(--sans);font-variant-numeric:tabular-nums}
+a{color:var(--accent)} :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){*{transition:background-color .12s,color .12s}}
+.mock{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:6px 14px;border-bottom:1px dashed var(--rule-strong);background:repeating-linear-gradient(135deg,var(--surface) 0 8px,var(--bg) 8px 16px);font-size:12px}
+.mock b{letter-spacing:.06em;text-transform:uppercase;font-size:11px}
+.mock .grp{display:flex;gap:2px} .mock button{font:inherit;padding:3px 9px;border:1px solid var(--rule-strong);background:var(--raise);color:var(--text);cursor:pointer}
+.mock button[aria-pressed="true"],.mock button[aria-current="page"]{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.top{display:flex;align-items:center;gap:16px;height:40px;padding:0 14px;border-bottom:1px solid var(--rule)}
+.brand{font-weight:700;letter-spacing:.14em;font-size:12px;text-transform:uppercase}
+.search{flex:1;max-width:460px;border:1px solid var(--rule);padding:4px 8px;color:var(--muted);background:var(--surface)}
+kbd{font:11px var(--mono);border:1px solid var(--rule-strong);padding:0 4px}
+.health{color:var(--s-done)} .user{color:var(--muted)}
+.shell{display:grid;grid-template-columns:208px 1fr;min-height:calc(100vh - 74px)}
+[data-mode="self-rep"] .shell{grid-template-columns:1fr}
+[data-mode="self-rep"] .rail{display:none}
+.rail{border-right:1px solid var(--rule);padding:10px 0;background:var(--surface)}
+.rail h2{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:10px 14px 4px;font-weight:600}
+.rail a{display:flex;justify-content:space-between;padding:3px 14px;color:var(--text);text-decoration:none}
+.rail a:hover{background:var(--accent-soft)} .rail hr{border:0;border-top:1px solid var(--rule);margin:8px 0}
+.count{font-weight:700;color:var(--s-waiting)}
+main{padding:14px 18px;min-width:0}
+.h1{display:flex;align-items:baseline;gap:12px;border-bottom:2px solid var(--text);padding-bottom:4px;margin-bottom:8px}
+.h1 h1{font-size:13px;letter-spacing:.14em;text-transform:uppercase;margin:0}
+.h1 .sub{color:var(--muted)} .h1 .act{margin-left:auto;display:flex;gap:6px}
+.btn{font:inherit;padding:3px 10px;border:1px solid var(--rule-strong);background:var(--raise);color:var(--text);cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+.chips{display:flex;gap:6px;margin:6px 0 8px;flex-wrap:wrap}
+.chip{border:1px solid var(--rule);padding:1px 8px;color:var(--muted)}
+.chip.loud{border-color:var(--s-waiting);color:var(--s-waiting);background:var(--s-waiting-bg);font-weight:700}
+table{border-collapse:collapse;width:100%}
+th{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:600;border-bottom:1px solid var(--rule-strong);padding:4px 8px;white-space:nowrap}
+td{border-bottom:1px solid var(--rule);height:var(--row);padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+tbody tr:hover{background:var(--accent-soft)} tr.needs td:first-child{box-shadow:inset 3px 0 var(--s-waiting)}
+.id{font-family:var(--mono);font-size:12px}
+.st{font-weight:600} .st.waiting{color:var(--s-waiting)} .st.running{color:var(--s-running)} .st.blocked{color:var(--s-blocked)}
+.st.failed{color:var(--s-failed)} .st.review{color:var(--s-review)} .st.done{color:var(--s-done)} .st.idle{color:var(--s-idle)}
+.due-late{color:var(--s-failed);font-weight:700}
+.foot{margin-top:6px;color:var(--muted);border-top:1px solid var(--rule);padding-top:4px}
+.screen[hidden]{display:none}
+.only-note{border:1px dashed var(--rule-strong);padding:14px;color:var(--muted);max-width:640px}
+[data-mode="self-rep"] .firm-only{display:none} [data-mode="firm"] .self-only{display:none}
+[data-mode="firm"] .only-note{display:none}
+.swarm{display:grid;grid-template-columns:1fr 300px;border:1px solid var(--rule)}
+.swarm svg{width:100%;height:auto;display:block;background:var(--bg)}
+.n rect{fill:var(--raise);stroke:var(--rule-strong);stroke-width:1}
+.n.sel rect{stroke:var(--accent);stroke-width:2.5}
+.n text{fill:var(--text);font:12px var(--sans)} .n .t2{font:11px var(--mono);fill:var(--muted)}
+.n .ok{fill:var(--s-done)} .n .run{fill:var(--s-running)} .n .wait{fill:var(--s-waiting)} .n .idle{fill:var(--s-idle)}
+.edge{fill:none;stroke:var(--rule-strong);stroke-width:1}
+.drawer{border-left:1px solid var(--rule);padding:10px 12px;background:var(--surface)}
+.drawer h3{font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin:0 0 6px}
+.kv{display:grid;grid-template-columns:90px 1fr;gap:2px 8px;margin:0 0 10px}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+.log{font:11.5px/1.5 var(--mono);border-top:1px solid var(--rule);padding-top:6px;color:var(--muted);white-space:pre-wrap;margin:10px 0 0}
+.legend{color:var(--muted);padding:4px 8px;border-top:1px solid var(--rule)}
+.lnow{display:none} [data-lawyer="on"] .lnow{display:block}
+[data-mode="firm"] .lnow.block,[data-mode="self-rep"] .lnow.flag{display:none!important}
+.lnow.block{border:2px solid var(--s-failed);background:var(--bg);padding:12px 16px;margin:0 0 14px}
+.lnow.block h2{margin:0 0 4px;font-size:17px;color:var(--s-failed)}
+.lnow.flag{border-left:3px solid var(--s-failed);padding:4px 10px;margin:0 0 8px;background:var(--surface)}
+.lnow.flag b{color:var(--s-failed)}
+.ledgerbox{border:1px solid var(--text);max-width:860px}
+.ledgerbox .hd{display:flex;justify-content:space-between;border-bottom:1px solid var(--text);padding:6px 12px;font-weight:600}
+.do{padding:12px 14px} .do .lbl{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.do h2{font-size:20px;margin:2px 0 10px}
+.do dl{display:grid;grid-template-columns:130px 1fr;gap:6px 12px;margin:0 0 14px} .do dt{color:var(--muted)} .do dd{margin:0}
+.risk{margin-top:8px;color:var(--muted)} .risk::before{content:"Residual risk: ";font-weight:700;color:var(--text)}
+.also{border-top:1px solid var(--rule);padding:8px 14px} .also ul{margin:4px 0;padding-left:18px} .also li{padding:3px 0}
+.timeline-mini{display:flex;margin:12px 0 0;padding:0;max-width:860px;border:1px solid var(--rule)}
+.timeline-mini li{list-style:none;flex:1;padding:4px 8px;border-right:1px solid var(--rule);font-size:12px;color:var(--muted)}
+.timeline-mini li.now{background:var(--accent);color:var(--accent-text);font-weight:600}
+.timeline-mini li.done::before{content:"✓ "}
+fieldset{border:1px solid var(--rule);margin:0 0 10px;padding:8px 12px;max-width:860px} legend{font-weight:600;padding:0 4px}
+label{display:block;margin:6px 0 2px} textarea,input[type=text]{width:100%;font:inherit;padding:6px;border:1px solid var(--rule-strong);background:var(--raise);color:var(--text)}
+.hint{color:var(--muted);font-size:.92em}
+.diff{border:1px solid var(--rule);max-width:860px;margin-top:12px}
+.diff .hd{padding:6px 12px;border-bottom:1px solid var(--rule);font-weight:600;background:var(--surface)}
+.pair{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--rule)} .pair>div{padding:8px 12px}
+.pair>div+div{border-left:1px solid var(--rule)} .pair .k{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.miss{color:var(--s-waiting);font-weight:700} .hit{color:var(--s-done);font-weight:700}
+.minute{font:12px/1.5 var(--mono);background:var(--surface);border:1px solid var(--rule);padding:8px;white-space:pre-wrap}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:1200px}
+.footnote{margin-top:20px;color:var(--muted);font-size:11px}
+</style>
+</head>
+<body>
+<div class="mock" role="region" aria-label="Mockup controls (not part of the design)">
+  <b>D-3 · A · Ledger</b>
+  <span class="grp" role="group" aria-label="Screen">
+    <button data-go="s2">S2 Board</button><button data-go="s4">S4 Swarm</button><button data-go="n2">N2 Case home</button><button data-go="n7">N7 Debrief</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode"><button data-set="mode=firm">Firm</button><button data-set="mode=self-rep">Self-rep</button></span>
+  <span class="grp" role="group" aria-label="Theme"><button data-set="theme=light">Light</button><button data-set="theme=dark">Dark</button></span>
+  <span class="grp" role="group" aria-label="Lawyer-now trigger"><button data-set="lawyer=off">Lawyer-now off</button><button data-set="lawyer=on">on</button></span>
+  <a href="index.html">all directions</a>
+</div>
+
+<header class="top">
+  <span class="brand">IronFleet</span>
+  <span class="search firm-only">Matter, document, run or command… <kbd>⌘K</kbd></span>
+  <span class="self-only" style="flex:1">Your case: <b>Harriet v Fleetwood Plumbing</b></span>
+  <span class="health" title="All services healthy">● <span class="firm-only">healthy</span><span class="self-only">Online</span></span>
+  <span class="user">A. Ngata ▾</span>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Main">
+    <h2>Matters</h2>
+    <a href="#s2"><span><span class="st waiting">⚑</span> <span class="id">m-1077</span> Southern Haulage</span></a>
+    <a href="#s2"><span><span class="st running">●</span> <span class="id">m-1042</span> Kaimai Leasing</span></a>
+    <a href="#s2"><span><span class="st idle">○</span> <span class="id">m-1039</span> Tasman Agri</span></a>
+    <a href="#s2">+ New matter</a>
+    <hr>
+    <a href="#"><span>Approvals</span><span class="count">3</span></a>
+    <a href="#"><span>Drafts</span></a>
+    <a href="#"><span>Activity</span></a>
+    <hr>
+    <a href="#"><span>⚙ Providers</span></a>
+  </nav>
+
+  <main>
+    <!-- S2 MATTER BOARD -->
+    <section class="screen" id="s2" aria-labelledby="s2h">
+      <div class="only-note">Matter Board is a <b>firm-only</b> screen (§9A.2). In self-rep mode the person lands on <a href="#n2" data-go="n2">Case home (N2)</a>.</div>
+      <div class="firm-only">
+        <div class="h1"><h1 id="s2h">Matters</h1><span class="sub">6 matters · firm docket</span>
+          <span class="act"><button class="btn">All states ▾</button><button class="btn">Type ▾</button><button class="btn">Jurisdiction ▾</button><button class="btn primary">+ New matter</button></span></div>
+        <div class="chips"><span class="chip loud">⚑ Needs you (3)</span><span class="chip">● Running 1</span><span class="chip">◆ Review 1</span><span class="chip">■ Blocked 1</span></div>
+        <table>
+          <thead><tr><th>Ref</th><th>Title</th><th>Type</th><th>State</th><th>Agents</th><th>Stage</th><th>Approvals</th><th>Due</th><th>Risk</th><th>Last act</th></tr></thead>
+          <tbody>
+            <tr class="needs"><td class="id">m-1077</td><td>Southern Haulage v Harbour Freight</td><td>Debt recovery</td><td class="st waiting">⚑ Waiting on you</td><td>4/6</td><td>filings</td><td>1 ⚑</td><td>14 Nov 2026</td><td>s 292 preference flag</td><td>2m ago</td></tr>
+            <tr class="needs"><td class="id">m-0988</td><td>Whaanga v Coastline Retail</td><td>Employment</td><td class="st waiting">⚑ Waiting on you</td><td>2/5</td><td>strategy</td><td>2 ⚑</td><td class="due-late">⚠ overdue 1d</td><td>—</td><td>1h ago</td></tr>
+            <tr><td class="id">m-1042</td><td>Kaimai Leasing — PPSA priority</td><td>Banking</td><td class="st running">● Running</td><td>3</td><td>research</td><td>—</td><td>03 Dec 2026</td><td>—</td><td>12s ago</td></tr>
+            <tr><td class="id">m-0971</td><td>Ōtaki Cafés — lease dispute</td><td>Property</td><td class="st blocked">■ Blocked</td><td>0</td><td>assess</td><td>—</td><td>21 Nov 2026</td><td>provider outage</td><td>9m ago</td></tr>
+            <tr><td class="id">m-0953</td><td>Matiu Marine — supply terms</td><td>Commercial</td><td class="st review">◆ Review required</td><td>5</td><td>advice</td><td>—</td><td>28 Nov 2026</td><td>—</td><td>3h ago</td></tr>
+            <tr><td class="id">m-1039</td><td>Tasman Agri — due diligence</td><td>Corporate</td><td class="st idle">○ Draft</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>1d ago</td></tr>
+          </tbody>
+        </table>
+        <div class="foot">6 matters · 1 running · 2 need your attention · 1 blocked · live (board channel) · <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>Enter</kbd> open</div>
+      </div>
+    </section>
+
+    <!-- S4 SWARM -->
+    <section class="screen" id="s4" aria-labelledby="s4h" hidden>
+      <div class="only-note">Swarm is a <b>firm-only</b> screen (§9A.2). Self-rep users see progress as the journey timeline on <a href="#n2" data-go="n2">Case home</a>.</div>
+      <div class="firm-only">
+        <div class="h1"><h1 id="s4h">Execution exe-221</h1><span class="sub"><span class="id">m-1077</span> · legal_pipeline · stage 6 of 10 · 132.4k tok</span>
+          <span class="act"><button class="btn">Collapse completed</button><button class="btn">Fit</button><button class="btn">Pause</button><button class="btn">Cancel</button></span></div>
+        <div class="swarm">
+          <svg viewBox="0 0 760 440" role="img" aria-labelledby="swt">
+            <title id="swt">Agent run tree for execution exe-221: intake, research and strategy done; attack running; assess queued; filings awaiting approval; moot, advice, verify and close not started.</title>
+            <path class="edge" d="M210 42 H300"/>
+            <path class="edge" d="M385 64 V87 H125 V110 M385 87 V110 M385 87 H645 V110"/>
+            <path class="edge" d="M385 154 V200 M385 244 V290"/>
+            <path class="edge" d="M385 334 V357 H125 V380 M385 357 V380 M385 357 H645 V380"/>
+            <g class="n" transform="translate(40,20)"><rect width="170" height="44"/><text x="10" y="18">intake / ingestor</text><text class="t2" x="10" y="35"><tspan class="ok">✓</tspan> done · 2m 04s · 14.1k</text></g>
+            <g class="n" transform="translate(300,20)"><rect width="170" height="44"/><text x="10" y="18">research / hunter</text><text class="t2" x="10" y="35"><tspan class="ok">✓</tspan> done · 9m 31s · 61.0k</text></g>
+            <g class="n" transform="translate(40,110)"><rect width="170" height="44"/><text x="10" y="18">strategy / strategist</text><text class="t2" x="10" y="35"><tspan class="ok">✓</tspan> done · 6m 12s · 22.4k</text></g>
+            <g class="n sel" transform="translate(300,110)"><rect width="170" height="44"/><text x="10" y="18">attack / adversary</text><text class="t2" x="10" y="35"><tspan class="run">●</tspan> running · 4m 12s · 18.2k</text></g>
+            <g class="n" transform="translate(560,110)"><rect width="170" height="44"/><text x="10" y="18">assess / evaluator</text><text class="t2" x="10" y="35"><tspan class="idle">◌</tspan> queued</text></g>
+            <g class="n" transform="translate(300,200)"><rect width="170" height="44"/><text x="10" y="18">filings / clerk  ⚑</text><text class="t2" x="10" y="35"><tspan class="wait">⏸</tspan> awaiting approval</text></g>
+            <g class="n" transform="translate(300,290)"><rect width="170" height="44"/><text x="10" y="18">moot / opposing-counsel</text><text class="t2" x="10" y="35"><tspan class="idle">○</tspan> created</text></g>
+            <g class="n" transform="translate(40,380)"><rect width="170" height="44"/><text x="10" y="18">advice / clerk</text><text class="t2" x="10" y="35"><tspan class="idle">○</tspan> created</text></g>
+            <g class="n" transform="translate(300,380)"><rect width="170" height="44"/><text x="10" y="18">verify / citation</text><text class="t2" x="10" y="35"><tspan class="idle">○</tspan> created</text></g>
+            <g class="n" transform="translate(560,380)"><rect width="170" height="44"/><text x="10" y="18">close / auditor</text><text class="t2" x="10" y="35"><tspan class="idle">○</tspan> created</text></g>
+          </svg>
+          <aside class="drawer" aria-label="Agent inspection">
+            <h3>Run r-637 · attack / adversary</h3>
+            <dl class="kv"><dt>State</dt><dd class="st running">● Running 4m 12s</dd><dt>Persona</dt><dd>adversary (snapshot 3f2a…)</dd><dt>Model</dt><dd>thomson1-chat · local</dd><dt>Tokens</dt><dd>in 14.9k · out 3.3k</dd><dt>Guard</dt><dd>0 [UNGROUNDED] · 0 [UNQUOTED]</dd><dt>Objective</dt><dd style="white-space:normal">Attack the $126,000 demand: limitation, s 290 dispute, set-off.</dd></dl>
+            <button class="btn">Redirect objective</button> <button class="btn">Supply evidence</button>
+            <pre class="log">14:02:11 corpus_search "Limitation Act 2010 s 11" → 6 hits
+14:02:19 quote_check s 11(1) exact ✓
+14:03:40 objection: 2019 invoice time-barred (excluded) ✓
+14:05:02 drafting attack memo §3 set-off…</pre>
+          </aside>
+        </div>
+        <div class="legend">✓ done · ● running · ◌ queued · ⏸ awaiting approval ⚑ · ○ created · ✕ failed — state is always word + icon</div>
+      </div>
+    </section>
+
+    <!-- N2 CASE HOME -->
+    <section class="screen" id="n2" aria-labelledby="n2h" hidden>
+      <div class="lnow block" role="alert" tabindex="-1">
+        <h2>⛔ Stop — you need a lawyer for this</h2>
+        <p style="margin:0 0 6px">A court has made an order against you. Get legal advice before you do anything else.</p>
+        <p class="hint" style="margin:0 0 8px">Your case stays open. You can keep uploading documents. We stop advising you on this matter until a lawyer is involved.<br>Free help: Community Law Centre · Citizens Advice Bureau · local Duty Lawyer.</p>
+        <button class="btn primary">I have a lawyer now</button>
+      </div>
+      <div class="lnow flag"><b>⛔ Lawyer-now flag:</b> court order binding the client ingested (doc d-212). Supervising lawyer decides; nothing is gated.</div>
+
+      <div class="self-only">
+        <div class="ledgerbox" role="region" aria-labelledby="n2h">
+          <div class="hd"><span>Harriet v Fleetwood Plumbing</span><span>You are here: Waiting</span></div>
+          <div class="do">
+            <div class="lbl">Do this now</div>
+            <h2 id="n2h">Send the pre-action letter to Fleetwood Plumbing</h2>
+            <dl>
+              <dt>Why</dt><dd>It starts the formal process. It often leads to payment without going to court.</dd>
+              <dt>By</dt><dd><b>14 November 2026</b> (in 10 days)</dd>
+              <dt>If you miss it</dt><dd>We may have to re-plan. Fixing that later can cost more. We will remind you 7, 3 and 1 day before.</dd>
+            </dl>
+            <button class="btn primary" aria-describedby="n2risk">Send the letter the way the instructions say</button>
+            <div class="risk" id="n2risk">The other side may deny the debt. Our answer to that is already prepared.</div>
+          </div>
+          <div class="also"><b>Also waiting on you (2)</b>
+            <ul><li>⚑ Approve the strategy — <a href="#">read what changed</a></li><li>⚑ Upload the invoice from 3 March 2026</li></ul>
+            <div class="hint">Last update: the other side replied — <a href="#">read it</a> (2 days ago)</div>
+          </div>
+        </div>
+        <ol class="timeline-mini" aria-label="Your journey">
+          <li class="done">Intake</li><li class="done">Assess</li><li class="done">Strategy</li><li class="now" aria-current="step">Pre-action · now</li><li>Response</li><li>Hearing prep</li><li>Hearing</li><li>Closed</li>
+        </ol>
+        <div class="hint" style="margin-top:6px">Next date: 20 November 2026 (in 16 days) — the other side's reply is due.</div>
+      </div>
+
+      <div class="firm-only">
+        <div class="h1"><h1>m-1077 · Next action</h1><span class="sub">Southern Haulage Ltd v Harbour Freight Solutions Ltd · Work Plan</span></div>
+        <table>
+          <thead><tr><th>#</th><th>Next task</th><th>Kind</th><th>Due</th><th>Gate</th><th>Residual risk</th><th></th></tr></thead>
+          <tbody>
+            <tr class="needs"><td>1</td><td>Approve filing: statutory demand v2 — $126,000</td><td>filing</td><td>14 Nov 2026 (10d)</td><td class="st done">✓ moot PASSED r-641</td><td>s 290 dispute low (2019 invoice excluded)</td><td><button class="btn primary">Open approval</button></td></tr>
+            <tr><td>2</td><td>Approve strategy v3</td><td>strategy change</td><td>—</td><td class="st done">✓ moot PASSED r-629</td><td>$22,000 s 292 preference exposure</td><td><button class="btn">Open</button></td></tr>
+            <tr><td>3</td><td>Info: debtor's Sept 2026 board minutes (certified)</td><td>info request</td><td>—</td><td>—</td><td>—</td><td><button class="btn">Provide</button></td></tr>
+          </tbody>
+        </table>
+        <div class="foot">Lifecycle: PRE-ACTION · next date 20 Nov 2026 · deadlines source=kernel · 3 pending (server count)</div>
+      </div>
+    </section>
+
+    <!-- N7 DEBRIEF -->
+    <section class="screen" id="n7" aria-labelledby="n7h" hidden>
+      <div class="self-only">
+        <div class="h1"><h1 id="n7h">Tell us what happened at the Tribunal</h1><span class="sub">Hearing 9 November 2026 · Harriet v Fleetwood Plumbing</span></div>
+        <fieldset><legend>What the referee said</legend>
+          <label for="q1">What did the referee say about the unpaid invoice?</label><textarea id="q1" rows="2">She said the work was done and the invoice is owed.</textarea>
+          <label for="q2">Were any orders made? What exactly do they say?</label><textarea id="q2" rows="2">Fleetwood must pay $4,850 within 14 days.</textarea>
+        </fieldset>
+        <fieldset><legend>Dates and papers</legend>
+          <label for="q3">What is the next date, if one was given?</label><input id="q3" type="text" placeholder="For example: 14 March 2026">
+          <label>Upload the order or anything you were given <span class="hint">— photograph it if you have no scanner</span></label>
+          <button class="btn">Choose files…</button> <span class="hint">order-2026-11-09.jpg ✓ read as: Tribunal order</span>
+        </fieldset>
+        <button class="btn primary">Tell us what happened</button> <span class="hint">Your answers save as you type.</span>
+        <div class="diff" role="region" aria-label="What we predicted and what happened">
+          <div class="hd">What we predicted, and what happened</div>
+          <div class="pair"><div><div class="k">We predicted</div>The referee would order payment straight away.</div><div><div class="k">The Tribunal ordered</div>Payment within 14 days. <span class="miss">◐ Different</span></div></div>
+          <div class="pair"><div><div class="k">We predicted</div>Fleetwood would not dispute the work.</div><div><div class="k">What happened</div>They did not dispute it. <span class="hit">✓ Same</span></div></div>
+          <div style="padding:8px 12px">Your plan changes in these ways: we wait 14 days, then help you ask for enforcement if nothing is paid.</div>
+        </div>
+      </div>
+      <div class="firm-only">
+        <div class="h1"><h1>Debrief · m-1077</h1><span class="sub">Set-aside hearing (s 290) · 28 Jan 2027 · Associate Judge · strategy v3</span><span class="act"><button class="btn primary">Submit debrief</button></span></div>
+        <div class="cols">
+          <div>
+            <fieldset><legend>Court event</legend>
+              <label for="f1">Outcome</label><input id="f1" type="text" value="Application to set aside dismissed in part">
+              <label for="f2">Orders</label><textarea id="f2" rows="3">Demand stands as to $104,000. Adjourned as to the $22,000 3 Aug 2026 payment issue to 10 Feb 2027.</textarea>
+              <label for="f3">Next date</label><input id="f3" type="text" value="10 February 2027">
+            </fieldset>
+            <div class="minute">MINUTE OF ASSOCIATE JUDGE (No 2)
+[1] The applicant seeks to set aside the statutory demand dated …
+[4] I am not satisfied there is a substantial dispute as to $104,000 …</div>
+          </div>
+          <div>
+            <table>
+              <thead><tr><th>Pred</th><th>Predicted</th><th>p</th><th>Outcome</th><th></th></tr></thead>
+              <tbody>
+                <tr><td class="id">P-3</td><td>Set-aside dismissed</td><td>0.70</td><td>Dismissed in part</td><td class="miss">◐ partial</td></tr>
+                <tr><td class="id">P-4</td><td>No s 290 dispute on 2019 invoice</td><td>0.85</td><td>n/a — excluded</td><td class="hit">✓ hit</td></tr>
+                <tr><td class="id">P-5</td><td>Preference raised by debtor</td><td>0.40</td><td>Raised; adjourned</td><td class="hit">✓ hit</td></tr>
+              </tbody>
+            </table>
+            <div class="foot">Brier (this round) 0.18 · prediction record 7/10 · re-strategy → v4 on submit</div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <p class="footnote">D-3 mockup · direction A · Ledger · static, fictional data (harbour-freight dummy case, doc 08 examples) · not a working screen.</p>
+  </main>
+</div>
+<script>
+const h=document.documentElement;
+function show(id){document.querySelectorAll('.screen').forEach(s=>s.hidden=s.id!==id);document.querySelectorAll('.mock [data-go]').forEach(b=>b.setAttribute('aria-current',b.dataset.go===id?'page':'false'));history.replaceState(null,'','#'+id)}
+function sync(){document.querySelectorAll('[data-set]').forEach(b=>{const[k,v]=b.dataset.set.split('=');b.setAttribute('aria-pressed',h.dataset[k]===v)})}
+document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();show(b.dataset.go)}));
+document.querySelectorAll('[data-set]').forEach(b=>b.addEventListener('click',()=>{const[k,v]=b.dataset.set.split('=');h.dataset[k]=v;sync()}));
+show(location.hash.slice(1)||'s2');sync();
+</script>
+</body>
+</html>

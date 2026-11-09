@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en-NZ" data-theme="light" data-mode="firm">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IronFleet design system: component gallery (D-4)</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+/* gallery layout only, not part of the system */
+.g-bar{position:sticky;top:0;z-index:2;display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;padding:var(--sp-2) var(--sp-5);background:var(--surface);border-bottom:1px solid var(--rule);font-size:var(--fs-sm)}
+.g-bar [aria-pressed="true"]{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+main{max-width:1100px;margin:0 auto;padding:var(--sp-6) var(--sp-5)}
+h1{font-size:var(--fs-xl);margin:0 0 var(--sp-1)} h2{font-size:var(--fs-lg);margin:var(--sp-8) 0 var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--rule)}
+h3{font-size:var(--fs-sm);color:var(--muted);font-weight:var(--fw-medium);margin:var(--sp-4) 0 var(--sp-2)}
+.row{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4)}
+.sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--sp-2)}
+.sw div{border:1px solid var(--rule);border-radius:var(--radius);padding:var(--sp-2) var(--sp-3);background:var(--raise);font-size:var(--fs-sm)}
+.sw i{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:6px;border:1px solid var(--rule)}
+</style>
+</head>
+<body>
+<div class="g-bar" role="region" aria-label="Gallery controls">
+  <b>IronFleet · design system</b>
+  <span class="row" role="group" aria-label="Theme"><button class="btn" data-set="theme=light">Light</button><button class="btn" data-set="theme=dark">Dark</button></span>
+  <span class="row" role="group" aria-label="Mode"><button class="btn" data-set="mode=firm">Firm</button><button class="btn" data-set="mode=self-rep">Self-rep</button></span>
+  <a href="../mockups/b-chambers.html">reference mockup (B)</a>
+</div>
+<main>
+  <h1>Component gallery</h1>
+  <p class="muted">Direction B · Chambers + C's token meters (D-3 pick, 9 November 2026). Seven components, every state, both themes, both modes. Contrast is checked by <span class="mono">scripts/check_contrast.py</span>; the live ratios are below.</p>
+
+  <h2 id="tokens">Tokens: colour + measured contrast</h2>
+  <div class="sw" id="swatches"></div>
+
+  <h2 id="chip">Status chip</h2>
+  <h3>Matter states (02 §4)</h3>
+  <div class="row">
+    <span class="chip chip--waiting" data-icon="⚑">Waiting on you</span><span class="chip chip--running" data-icon="●">Running</span>
+    <span class="chip chip--blocked" data-icon="■">Blocked</span><span class="chip chip--failed" data-icon="✕">Failed</span>
+    <span class="chip chip--review" data-icon="◆">Review required</span><span class="chip chip--done" data-icon="✓">Completed</span>
+    <span class="chip chip--idle" data-icon="○">Draft</span><span class="chip chip--idle" data-icon="◌">Queued</span><span class="chip chip--idle" data-icon="▫">Archived</span>
+  </div>
+  <h3>Agent states (02 §5)</h3>
+  <div class="row">
+    <span class="chip chip--idle" data-icon="○">Created</span><span class="chip chip--idle" data-icon="◌">Queued</span><span class="chip chip--running" data-icon="●">Running</span>
+    <span class="chip chip--waiting" data-icon="⏸">Waiting</span><span class="chip chip--waiting" data-icon="⚑">Awaiting approval</span><span class="chip chip--done" data-icon="✓">Completed</span>
+    <span class="chip chip--failed" data-icon="✕">Failed</span><span class="chip chip--failed" data-icon="⏱">Timed out</span><span class="chip chip--idle" data-icon="⊘">Cancelled</span>
+  </div>
+  <h3>Evidence verification (05 §8)</h3>
+  <div class="row"><span class="chip chip--verified" data-icon="✓">Verified quote · exact</span><span class="chip chip--verified" data-icon="✓">Verified · normalised</span><span class="chip chip--unverified" data-icon="?">Unverified assertion</span><span class="chip chip--idle" data-icon="≈">Agent interpretation</span></div>
+
+  <h2 id="table">Table</h2>
+  <h3>Populated (row 2 selected)</h3>
+  <table class="table">
+    <thead><tr><th>Matter</th><th>State</th><th>Stage</th><th>Due</th><th class="num">Tokens</th><th>Last activity</th></tr></thead>
+    <tbody>
+      <tr><td class="title"><b>Southern Haulage v Harbour Freight</b><span><span class="id">m-1077</span> · Debt recovery · 4/6 agents</span></td><td><span class="chip chip--waiting" data-icon="⚑">Waiting on you</span></td><td>filings</td><td>14 Nov 2026</td><td class="num">132.4k</td><td>2 min ago</td></tr>
+      <tr aria-selected="true"><td class="title"><b>Kaimai Leasing — PPSA priority</b><span><span class="id">m-1042</span> · Banking · 3 agents</span></td><td><span class="chip chip--running" data-icon="●">Running</span></td><td>research</td><td>3 Dec 2026</td><td class="num">41.7k</td><td>12 s ago</td></tr>
+      <tr><td class="title"><b>Ōtaki Cafés — lease dispute</b><span><span class="id">m-0971</span> · Property</span></td><td><span class="chip chip--blocked" data-icon="■">Blocked</span></td><td>assess</td><td>21 Nov 2026</td><td class="num">19.2k</td><td>9 min ago</td></tr>
+    </tbody>
+  </table>
+  <div class="two">
+    <div><h3>Loading (skeleton rows, 05 §10)</h3>
+      <table class="table" aria-busy="true"><thead><tr><th>Matter</th><th>State</th><th>Due</th></tr></thead>
+      <tbody><tr><td><span class="skeleton"></span></td><td><span class="skeleton" style="width:50%"></span></td><td><span class="skeleton" style="width:40%"></span></td></tr><tr><td><span class="skeleton"></span></td><td><span class="skeleton" style="width:50%"></span></td><td><span class="skeleton" style="width:40%"></span></td></tr></tbody></table></div>
+    <div><h3>Empty (one line + the one action)</h3>
+      <div class="table table__empty">No matters yet. <button class="btn btn--primary">Create your first matter</button></div></div>
+  </div>
+
+  <h2 id="prov">Provenance header</h2>
+  <div class="prov" role="group" aria-label="Provenance">
+    <span class="prov__title">Statement of claim — draft v2</span><span></span><span class="chip chip--verified" data-icon="✓">7 / 7 quotes verified</span>
+    <dl class="prov__meta"><div><dt>Origin</dt><dd>generated · filings/clerk run r-633</dd></div><div><dt>Sources</dt><dd>Limitation Act 2010 s 11 · Companies Act 1993 s 289</dd></div><div><dt>Moot</dt><dd>PASSED r-641</dd></div><div><dt>Versions</dt><dd class="prov__chain">v2 ← v1</dd></div><div><dt>Licence</dt><dd>Crown copyright (NZ legislation)</dd></div></dl>
+  </div>
+  <div class="prov prov--unverified" role="group" aria-label="Provenance" style="margin-top:var(--sp-3)">
+    <span class="prov__title">Research note — set-off position</span><span></span><span class="chip chip--unverified" data-icon="?">2 unverified assertions</span>
+    <dl class="prov__meta"><div><dt>Origin</dt><dd>generated · attack/adversary run r-637</dd></div><div><dt>Guard</dt><dd>[UNQUOTED] ×2 (annotate-only)</dd></div></dl>
+  </div>
+
+  <h2 id="approval">Approval card</h2>
+  <div class="two">
+    <article class="card approval" aria-labelledby="ap1">
+      <div class="approval__head"><span class="approval__kind">⚑ Filing</span><span class="id">m-1077 · a-88</span><span class="muted">requested 14 min ago</span></div>
+      <div class="approval__title" id="ap1">File statutory demand v2 — $126,000</div>
+      <div class="approval__payload">Demand on Harbour Freight Solutions Ltd under s 289. 2019 invoice ($22,000) excluded as time-barred. <a href="#">Open artifact</a></div>
+      <div class="approval__by">Requested by filings/clerk (run r-633) · moot PASSED r-641</div>
+      <div class="approval__actions"><button class="btn btn--primary" aria-describedby="ap1r">Approve</button><button class="btn">Request changes</button><button class="btn">Reject</button></div>
+      <div class="approval__risk" id="ap1r"><b>Residual risk:</b> debtor may raise the 3 Aug 2026 $22,000 payment as a s 292 preference issue.</div>
+    </article>
+    <div>
+      <article class="card approval" aria-labelledby="ap2">
+        <div class="approval__head"><span class="approval__kind">⚑ Strategy change</span><span class="id">m-0988 · a-91</span></div>
+        <div class="approval__title" id="ap2">Approve strategy v3</div>
+        <div class="approval__actions"><span><button class="btn btn--primary" aria-disabled="true" aria-describedby="ap2w">Approve</button><span class="btn__why" id="ap2w">Requires approval.decide</span></span></div>
+      </article>
+      <article class="card approval approval--decided" aria-labelledby="ap3" style="margin-top:var(--sp-3)">
+        <div class="approval__head"><span class="approval__kind">✓ Approved</span><span class="id">a-84</span><span class="muted">A. Ngata · 8 Nov 2026 16:02 · in audit chain</span></div>
+        <div class="approval__title" id="ap3">Send pre-action letter</div>
+      </article>
+    </div>
+  </div>
+
+  <h2 id="timeline">Timeline</h2>
+  <h3>Journey (N3: done / now / next)</h3>
+  <ol class="timeline" aria-label="Case journey">
+    <li data-state="done">Intake<small>2 Oct</small></li><li data-state="done">Assess<small>4 Oct</small></li><li data-state="done">Strategy<small>9 Oct</small></li>
+    <li aria-current="step">Pre-action<small>now</small></li><li>Response<small>20 Nov</small></li><li>Hearing prep</li><li>Hearing</li><li>Closed</li>
+  </ol>
+  <h3>Activity (S9, newest first)</h3>
+  <ol class="timeline timeline--activity" aria-label="Activity">
+    <li><time datetime="2026-11-09T14:05">14:05</time>attack/adversary drafting set-off section <span class="tokens">18.2k</span></li>
+    <li data-state="done"><time datetime="2026-11-09T13:58">13:58</time>Approval a-88 requested (filing) <span class="chip chip--waiting" data-icon="⚑">Waiting on you</span></li>
+    <li data-state="done"><time datetime="2026-11-09T13:41">13:41</time>Moot r-641 PASSED · 0 critical · 2 minor fixed</li>
+  </ol>
+
+  <h2 id="banner">Banner</h2>
+  <h3>Lawyer-now, block (self-rep, 08 §2)</h3>
+  <div class="banner banner--block" role="alert">
+    <p class="banner__title">⛔ Stop — you need a lawyer for this</p>
+    <p style="margin:0 0 var(--sp-2)">A court has made an order against you. Get legal advice before you do anything else.</p>
+    <p class="muted" style="margin:0 0 var(--sp-3)">Your case stays open. You can keep uploading documents. We stop advising you on this matter until a lawyer is involved. Free help: Community Law Centre · Citizens Advice Bureau · local Duty Lawyer.</p>
+    <button class="btn btn--primary">I have a lawyer now</button>
+  </div>
+  <h3>Lawyer-now, flag (firm: nothing gated)</h3>
+  <div class="banner banner--flag"><span class="banner__title">⛔ Lawyer-now flag</span> — a court order binding the client was ingested (d-212). The supervising lawyer decides.</div>
+  <h3>Info / stale data (05 §10)</h3>
+  <div class="banner banner--info" role="status">↻ Reconnecting… rows show their last values and are marked stale.</div>
+
+  <h2 id="meter">Token meter (C's meters on B)</h2>
+  <h3>Overall: per-matter budget in the header</h3>
+  <div class="row" style="gap:var(--sp-6)">
+    <span class="meter" role="meter" aria-label="Token budget used" aria-valuemin="0" aria-valuemax="300000" aria-valuenow="132400">Tokens <span class="meter__bar"><i style="width:44%"></i></span><b>132.4k</b> / 300k</span>
+    <span class="meter" data-level="warn" role="meter" aria-label="Token budget used, over 80 per cent" aria-valuemin="0" aria-valuemax="300000" aria-valuenow="258000">Tokens <span class="meter__bar"><i style="width:86%"></i></span><b>258k</b> / 300k · ⚠ 86%</span>
+    <span class="meter" data-level="over" role="meter" aria-label="Token budget exceeded" aria-valuemin="0" aria-valuemax="300000" aria-valuenow="300000">Tokens <span class="meter__bar"><i style="width:100%"></i></span><b>312k</b> / 300k · ✕ over</span>
+  </div>
+  <h3>Per agent: swarm node + inspection drawer</h3>
+  <div class="row">
+    <div class="card" style="padding:var(--sp-3);border-left:4px solid var(--s-running);min-width:220px"><b>Adversary</b><br><span class="chip chip--running" data-icon="●">Running</span><div class="tokens">4m 12s · 18.2k</div></div>
+    <div class="card" style="padding:var(--sp-3)"><span class="tokens">18.2k total · in 14.9k · out 3.3k · think 0</span></div>
+  </div>
+  <p class="muted" style="margin-top:var(--sp-8)">D-4 gallery · harness-core/design/system · tokens.css + components.css · stack-neutral (plain CSS).</p>
+</main>
+<script>
+const h=document.documentElement;
+new URLSearchParams(location.search).forEach((v,k)=>{if(k==='theme'||k==='mode')h.dataset[k]=v});  // ?theme=dark&mode=self-rep deep link
+function sync(){document.querySelectorAll('[data-set]').forEach(b=>{const[k,v]=b.dataset.set.split('=');b.setAttribute('aria-pressed',h.dataset[k]===v)});swatches()}
+document.querySelectorAll('[data-set]').forEach(b=>b.addEventListener('click',()=>{const[k,v]=b.dataset.set.split('=');h.dataset[k]=v;sync()}));
+// live WCAG ratios: same formula as scripts/check_contrast.py (the test is the gate; this is a display)
+const lum=hex=>{const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return .2126*c[0]+.7152*c[1]+.0722*c[2]};
+const ratio=(a,b)=>{const[x,y]=[lum(a),lum(b)].sort((p,q)=>q-p);return(x+.05)/(y+.05)};
+function swatches(){const cs=getComputedStyle(h),v=n=>cs.getPropertyValue('--'+n).trim();
+  const pairs=[['text','raise',4.5],['muted','raise',4.5],['muted','bg',4.5],['accent','raise',4.5],['accent-text','accent',4.5],['s-waiting','s-waiting-bg',4.5],['s-running','raise',4.5],['s-blocked','raise',4.5],['s-failed','danger-bg',4.5],['s-review','raise',4.5],['s-done','raise',4.5],['s-idle','raise',4.5],['v-unverified','raise',4.5],['control-border','raise',3],['focus','bg',3],['accent','meter-track',3]];
+  document.getElementById('swatches').innerHTML=pairs.map(([f,b,need])=>{const r=ratio(v(f),v(b));return `<div><i style="background:${v(f)}"></i><span class="mono">--${f}</span> on <span class="mono">--${b}</span><br><b>${r.toFixed(2)}:1</b> ${r>=need?'✓ AA':'✕ FAIL'} <span class="muted">(≥${need})</span></div>`}).join('')}
+sync();
+</script>
+</body>
+</html>

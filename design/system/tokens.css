@@ -1,0 +1,55 @@
+/* IronFleet design tokens: direction B · Chambers + C's token meters (D-3 pick, 2026-11-09).
+   Stack-neutral: plain CSS custom properties; React or htmx consume them unchanged.
+   Contrast (WCAG 2.2 AA) is checked by scripts/check_contrast.py + tests/test_design_contrast.py.
+   Theme: <html data-theme="light|dark">. Mode: <html data-mode="firm|self-rep"> (size/density only). */
+:root{
+  /* surfaces + ink */
+  --bg:#f7f5f0; --surface:#efece4; --raise:#ffffff;
+  --text:#1f1d1a; --muted:#5a554c;
+  --rule:#e2ddd2; --control-border:#857d6e;
+  /* the one accent */
+  --accent:#1d5c4a; --accent-text:#ffffff; --accent-soft:#e3efe9; --focus:#1d5c4a;
+  /* state colours: always paired with a word + icon, never colour alone (05 §0).
+     Matter (02 §4): Waiting on you=waiting · Running=running · Blocked=blocked · Failed=failed ·
+       Review required=review · Completed=done · Draft/Queued/Archived=idle.
+     Agent (02 §5): Waiting/AwaitingApproval=waiting · Running=running · Failed/TimedOut=failed ·
+       Completed=done · Created/Queued/Cancelled=idle. */
+  --s-waiting:#8f4a00; --s-waiting-bg:#fbecd2; --s-running:#1f55a8; --s-blocked:#b0360f;
+  --s-failed:#ad2a1f; --s-review:#5f37a8; --s-done:#1d6b3e; --s-idle:#5f5b55;
+  --danger-bg:#fbe9e7;
+  /* evidence verification (05 §8): verified quote vs unverified assertion */
+  --v-verified:#1d6b3e; --v-unverified:#8f4a00;
+  /* token meter (C's meters on B) */
+  --meter-track:#e2ddd2; --meter-fill:var(--accent); --meter-warn:var(--s-waiting); --meter-over:var(--s-failed);
+
+  /* type */
+  --font-sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --fs-xs:12px; --fs-sm:13px; --fs-base:14px; --fs-md:16px; --fs-lg:20px; --fs-xl:24px; --fs-2xl:26px;
+  --lh:1.5; --fw-medium:600; --fw-bold:700;
+  /* space (4px grid) */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-8:32px;
+  /* density */
+  --row:36px; --control-h:32px;
+  /* shape + depth */
+  --radius:6px; --radius-pill:999px;
+  --shadow:0 1px 2px rgba(40,30,10,.08),0 1px 0 rgba(40,30,10,.04);
+  /* motion: ≤150 ms, nothing decorative (05 §0) */
+  --dur:150ms; --ease:cubic-bezier(.2,0,0,1);
+  --focus-ring:0 0 0 3px var(--focus);
+}
+[data-theme="dark"]{
+  --bg:#171612; --surface:#1f1d18; --raise:#26241e;
+  --text:#ece8df; --muted:#b0a999;
+  --rule:#353229; --control-border:#878070;
+  --accent:#7cc8aa; --accent-text:#10201a; --accent-soft:#1f3229; --focus:#7cc8aa;
+  --s-waiting:#f2b04a; --s-waiting-bg:#3b2b10; --s-running:#93b6ff; --s-blocked:#ff9470;
+  --s-failed:#ff8a80; --s-review:#c7aaff; --s-done:#6fd39c; --s-idle:#b0a999;
+  --danger-bg:#3a1a17;
+  --v-verified:#6fd39c; --v-unverified:#f2b04a;
+  --meter-track:#353229;
+  --shadow:none;
+}
+/* self-rep: bigger type, roomier rows, one primary action reads first (08 §1) */
+[data-mode="self-rep"]{ --fs-base:16px; --fs-sm:14px; --row:44px; --control-h:44px; }
+@media (prefers-reduced-motion:reduce){ :root{ --dur:0ms; } }
