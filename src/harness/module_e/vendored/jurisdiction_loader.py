@@ -31,8 +31,10 @@ class JurisdictionConfig:
     interest_statute_ref: str
     limitation_periods: dict[str, int]
     statutory_demand_minimum: Decimal
-    compliance_period_working_days: int
+    compliance_period_days: int
+    compliance_period_day_type: str      # "working" (nz) | "calendar" (au/uk)
     statutory_demand_statute_ref: str
+    statutory_demand_compliance_statute_ref: str
     penalty_ratio_thresholds: dict[str, Decimal]
     penalty_statute_ref: str
     solvency_warning_threshold: Decimal
@@ -40,6 +42,14 @@ class JurisdictionConfig:
     solvency_statute_ref: str
     valid_collateral_types: frozenset[str]
     security_interest_statute_ref: str
+    without_prejudice_statute_ref: str
+    appeal_days: int | None               # M9: absent pack section -> None
+    appeal_day_type: str
+    appeal_rule_ref: str
+    enforcement_options: tuple[dict[str, str], ...]
+    enforcement_issue_rule_ref: str
+    settlement_milestone_day_type: str
+    settlement_milestone_ref: str
     holidays_file: str
 
 
@@ -108,8 +118,10 @@ class JurisdictionLoader:
         cfg = cls.load(jurisdiction)
         return {
             "prescribed_minimum": cfg.statutory_demand_minimum,
-            "compliance_period_working_days": cfg.compliance_period_working_days,
+            "compliance_period_days": cfg.compliance_period_days,
+            "compliance_period_day_type": cfg.compliance_period_day_type,
             "statute_ref": cfg.statutory_demand_statute_ref,
+            "compliance_statute_ref": cfg.statutory_demand_compliance_statute_ref,
         }
 
     @classmethod
@@ -131,6 +143,24 @@ class JurisdictionLoader:
         """Return valid collateral types for *jurisdiction*."""
         return cls.load(jurisdiction).valid_collateral_types
 
+    @classmethod
+    def get_without_prejudice_rules(cls, jurisdiction: str = "nz") -> dict[str, Any]:
+        """Return without-prejudice privilege rules for *jurisdiction*."""
+        cfg = cls.load(jurisdiction)
+        return {"privilege_statute_ref": cfg.without_prejudice_statute_ref}
+
+    @classmethod
+    def get_post_judgment_rules(cls, jurisdiction: str = "nz") -> dict[str, Any]:
+        """M9: appeal window + enforcement options + settlement milestones,
+        straight from the pack (empty when the pack does not carry them)."""
+        cfg = cls.load(jurisdiction)
+        return {"appeal_days": cfg.appeal_days, "appeal_day_type": cfg.appeal_day_type,
+                "appeal_rule_ref": cfg.appeal_rule_ref,
+                "enforcement_options": list(cfg.enforcement_options),
+                "enforcement_issue_rule_ref": cfg.enforcement_issue_rule_ref,
+                "settlement_milestone_day_type": cfg.settlement_milestone_day_type,
+                "settlement_milestone_ref": cfg.settlement_milestone_ref}
+
 
 def _parse_config(raw: dict[str, Any]) -> JurisdictionConfig:
     """Parse a raw JSON dict into a JurisdictionConfig."""
@@ -140,6 +170,9 @@ def _parse_config(raw: dict[str, Any]) -> JurisdictionConfig:
     pen = raw["penalty_clause"]
     sol = raw["solvency"]
     sec = raw["security_interest"]
+    ap = raw.get("appeal", {})             # M9 sections are optional per pack
+    enf = raw.get("enforcement", {})
+    st = raw.get("settlement", {})
 
     return JurisdictionConfig(
         code=raw["code"],
@@ -150,8 +183,10 @@ def _parse_config(raw: dict[str, Any]) -> JurisdictionConfig:
         interest_statute_ref=interest["statute_ref"],
         limitation_periods=dict(lim),
         statutory_demand_minimum=Decimal(sd["prescribed_minimum"]),
-        compliance_period_working_days=int(sd["compliance_period_working_days"]),
+        compliance_period_days=int(sd["compliance_period_days"]),
+        compliance_period_day_type=sd.get("compliance_period_day_type", "working"),
         statutory_demand_statute_ref=sd["statute_ref"],
+        statutory_demand_compliance_statute_ref=sd["compliance_statute_ref"],
         penalty_ratio_thresholds={
             k: Decimal(v) for k, v in pen["ratio_thresholds"].items()
         },
@@ -161,5 +196,13 @@ def _parse_config(raw: dict[str, Any]) -> JurisdictionConfig:
         solvency_statute_ref=sol["statute_ref"],
         valid_collateral_types=frozenset(sec["valid_collateral_types"]),
         security_interest_statute_ref=sec["statute_ref"],
+        without_prejudice_statute_ref=raw["without_prejudice"]["privilege_statute_ref"],
+        appeal_days=(int(ap["days"]) if ap.get("days") is not None else None),
+        appeal_day_type=ap.get("day_type", "working"),
+        appeal_rule_ref=ap.get("rule_ref", ""),
+        enforcement_options=tuple(enf.get("options", [])),
+        enforcement_issue_rule_ref=enf.get("issue_rule_ref", ""),
+        settlement_milestone_day_type=st.get("day_type", "calendar"),
+        settlement_milestone_ref=st.get("rule_ref", ""),
         holidays_file=raw["holidays_file"],
     )

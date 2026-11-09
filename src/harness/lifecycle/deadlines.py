@@ -11,6 +11,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 from harness.lifecycle import dossier
+from harness.module_e import post_judgment
 from harness.module_e.kernel_tools import statutory_demand
 from harness.module_e.vendored.court_calendar import court_filing_deadline
 from harness.workflow import audit
@@ -41,8 +42,22 @@ def register(con, matter: str, what: str, service_date, *, days=None,
                                 "jurisdiction": jurisdiction})
         d = date.fromisoformat(str(out["compliance_deadline"])[:10])
         rule = f"statutory demand compliance period ({jurisdiction})"
+    elif kind == "appeal":
+        out = post_judgment.appeal_window(svc.isoformat(), region=region,
+                                          jurisdiction=jurisdiction)
+        d = date.fromisoformat(out["due"])
+        rule = out["rule_ref"] or f"appeal window ({jurisdiction})"
+    elif kind == "settlement":
+        if days is None:
+            raise RuntimeError("kind=settlement needs days (milestone offset)")
+        out = post_judgment.settlement_milestone(svc.isoformat(), int(days),
+                                                 region=region,
+                                                 jurisdiction=jurisdiction)
+        d = date.fromisoformat(out["due"])
+        rule = out["rule_ref"] or f"settlement milestone ({jurisdiction})"
     else:
-        raise RuntimeError(f"unknown deadline kind: {kind!r} (filing | statutory_demand)")
+        raise RuntimeError(f"unknown deadline kind: {kind!r} "
+                           "(filing | statutory_demand | appeal | settlement)")
     row = dossier.append(con, matter, "deadlines",
                          {"what": what, "due": d.isoformat(), "rule": rule,
                           "source": "kernel", "service_date": svc.isoformat(),

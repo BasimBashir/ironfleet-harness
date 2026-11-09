@@ -20,8 +20,10 @@
   },
   "statutory_demand": {
     "prescribed_minimum": "1000.00",
-    "compliance_period_working_days": 15,
-    "statute_ref": "Companies Act 1993 s 289"
+    "compliance_period_days": 15,
+    "compliance_period_day_type": "working",
+    "statute_ref": "Companies Act 1993 s 289",
+    "compliance_statute_ref": "Companies Act 1993 s 289(2)(d)"
   },
   "penalty_clause": {
     "ratio_thresholds": {
@@ -54,6 +56,32 @@
       "other_goods"
     ],
     "statute_ref": "Personal Property Securities Act 1999"
+  },
+  "without_prejudice": {
+    "privilege_statute_ref": "Evidence Act 2006 s 57"
+  },
+  "appeal": {
+    "days": 20,
+    "day_type": "working",
+    "rule_ref": "High Court Rules 2016 r 20.4(2)(b)",
+    "source": "operator-supplied export: High Court Rules 2016.md (Desktop/nz), r 20.4(2)(b): within 20 working days after the decision appealed against is given; r 20.5 commencement; Senior Courts Act 2016 s 58(3),(5): 20 working days for leave applications"
+  },
+  "enforcement": {
+    "issue_rule_ref": "High Court Rules 2016 r 17.3(3)",
+    "options": [
+      {"code": "attachment_order", "label": "Attachment order", "rule_ref": "High Court Rules 2016 r 17.3(1)(a)"},
+      {"code": "charging_order", "label": "Charging order", "rule_ref": "High Court Rules 2016 r 17.3(1)(b)"},
+      {"code": "sale_order", "label": "Sale order", "rule_ref": "High Court Rules 2016 r 17.3(1)(c)"},
+      {"code": "possession_order", "label": "Possession order", "rule_ref": "High Court Rules 2016 r 17.3(1)(d)"},
+      {"code": "arrest_order", "label": "Arrest order", "rule_ref": "High Court Rules 2016 r 17.3(1)(e)"},
+      {"code": "sequestration_order", "label": "Sequestration order", "rule_ref": "High Court Rules 2016 r 17.3(1)(f)"}
+    ],
+    "source": "operator-supplied export: High Court Rules 2016.md (Desktop/nz), r 17.2-17.4"
+  },
+  "settlement": {
+    "day_type": "calendar",
+    "rule_ref": "settlement deed terms as agreed by the parties; milestones tracked as kernel-computed calendar-day deadlines",
+    "source": "product convention, not a statute — the dates are always counted by the kernel, never the model"
   },
   "holidays_file": "config/jurisdictions/nz_holidays.json"
 }

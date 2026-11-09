@@ -12,7 +12,8 @@ def test_valid_demand_returns_no_issues_and_a_deadline():
     assert r["is_valid"] is True
     assert r["issues"] == []
     assert r["compliance_deadline"] is not None
-    assert r["compliance_period_working_days"] == 15   # s 241(4)(a) statutory minimum
+    assert r["compliance_period_days"] == 15            # s 241(4)(a) statutory minimum
+    assert r["compliance_period_day_type"] == "working"  # nz pack day_type
 
 def test_demand_below_the_prescribed_minimum_is_invalid():
     r = statutory_demand({**VALID, "amount": "500.00"})
