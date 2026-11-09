@@ -86,6 +86,7 @@ ROUTES = {
     "POST /api/v1/matters/{mid}/debrief": ("write", {"answers": {"date": "2026-11-01"}}, ""),
     "GET /api/v1/matters/{mid}/deadlines": ("read", None, ""),
     "GET /api/v1/matters/{mid}/lawyer-now": ("read", None, ""),
+    "GET /api/v1/matters/{mid}/tokens": ("read", None, ""),
     "GET /api/v1/matters/{mid}/closure-checklist": ("read", None, ""),
     "POST /api/v1/matters/{mid}/close": ("write", {"note": "done"}, ""),
     "GET /api/v1/events": ("read", None, "channels=matter:{mid}"),

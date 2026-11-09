@@ -39,12 +39,17 @@ def evaluate(con, matter: str, *, actor: str = "safety",
         except (ValueError, TypeError):
             facts[r["field"]] = r["value_json"]
 
+    # intake answers are free text ("yes"), API facts may be JSON booleans
+    def yes(field):
+        v = facts.get(field)
+        return v is True or str(v).strip().lower() in {"yes", "y", "true"}
+
     triggered: list[str] = []
-    if facts.get("criminal") is True:
+    if yes("criminal"):
         triggered.append("criminal_exposure")
-    if facts.get("children_involved") is True:
+    if yes("children_involved"):
         triggered.append("family_safety")
-    if facts.get("insolvent") is True:
+    if yes("insolvent"):
         triggered.append("user_insolvency")
     try:
         if float(facts.get("claim_amount", 0)) > _SELF_HELP_MAX:
@@ -62,7 +67,10 @@ def evaluate(con, matter: str, *, actor: str = "safety",
             payload = json.loads(r["payload_json"] or "{}")
         except ValueError:
             continue
-        text = " ".join(str(o) for o in payload.get("orders", [])).lower()
+        orders = payload.get("orders") or []
+        if isinstance(orders, str):  # the debrief form sends one typed string
+            orders = [orders]
+        text = " ".join(str(o) for o in orders).lower()
         if any(k in text for k in ("against the defendant", "against the plaintiff",
                                    "costs against", "contempt")):
             triggered.append("court_order_against_user")

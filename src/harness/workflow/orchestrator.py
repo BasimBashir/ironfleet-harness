@@ -38,8 +38,11 @@ def create_execution(con, matter_id: str, session_id: str, task_text: str,
     """One execution row (state=executing) plus one pending task per stage."""
     import json
     eid = execution_id or f"exec-{uuid.uuid4().hex[:12]}"
+    # M8: `gate` must survive compilation, or a resumed/API-dispatched moot stage runs as a
+    # plain turn and its filing approval is (correctly) refused for want of a verdict
     plan_json = json.dumps([{"stage": s["stage"], "agent": s["agent"],
-                             "instruction": s["instruction"]} for s in stages])
+                             "instruction": s["instruction"],
+                             **({"gate": s["gate"]} if s.get("gate") else {})} for s in stages])
     now = _now()
     con.execute("BEGIN IMMEDIATE")
     try:
@@ -233,9 +236,17 @@ async def run(con, execution_id: str, body, *, owner: str | None = None,
             from harness.workflow import approvals as _approvals
             matter = con.execute("SELECT matter_id FROM executions WHERE execution_id=?",
                                  (execution_id,)).fetchone()
-            _approvals.park_after_stage(con, matter_id=matter["matter_id"],
-                                       execution_id=execution_id,
-                                       task={**task, "result_summary": (result or "")[:2000]})
+            try:
+                _approvals.park_after_stage(con, matter_id=matter["matter_id"],
+                                           execution_id=execution_id,
+                                           task={**task, "result_summary": (result or "")[:2000]})
+            except Exception:
+                # D3 halt: a refused park (e.g. MootRequired) must never leave the next
+                # task claimable — a restarted worker would otherwise run past the approval
+                con.execute("UPDATE executions SET state='failed', ended_at=?"
+                            " WHERE execution_id=?", (_now(), execution_id))
+                _emit(con, execution_id, "execution.failed", task_id=task["task_id"])
+                raise
             return
 
 

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from harness.api.deps import get_con, get_principal, page, paged
 from harness.api.schemas import (IngestIn, LoginIn, MatterIn, MatterPatch, MemberIn,
                                  ReviewIn, ToIn)
-from harness.service import auth, conversations, documents, matters
+from harness.service import auth, conversations, documents, matters, usage
 
 router = APIRouter(prefix="/api/v1")
 ops = APIRouter()
@@ -48,6 +48,11 @@ def create_matter(body: MatterIn, p=P, con=C):
 @router.get("/matters/{mid}")
 def get_matter(mid: str, p=P, con=C):
     return matters.get(con, p, mid)
+
+
+@router.get("/matters/{mid}/tokens")
+def matter_tokens(mid: str, p=P, con=C):
+    return usage.get(con, p, mid)
 
 
 @router.patch("/matters/{mid}")

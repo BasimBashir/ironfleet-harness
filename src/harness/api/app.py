@@ -104,8 +104,30 @@ class IdempotencyMiddleware:
 
 
 def create_app(store_root, *, sse_heartbeat_s: float = 15.0, sse_poll_s: float = 0.5,
-               sse_max_s: float | None = None) -> FastAPI:
-    app = FastAPI(title="IronFleet harness API", version="1")
+               sse_max_s: float | None = None, web_dist=None, worker: str | None = None,
+               worker_poll_s: float = 1.0) -> FastAPI:
+    """M8: `web_dist` (the built React client) is served at / after the API
+    routes, so OpenAPI is unchanged; `worker="demo"` runs the harbour-freight
+    demo body as one lifespan task (harness.service.worker)."""
+    lifespan = None
+    if worker is not None:
+        if worker != "demo":
+            raise ValueError(f"unknown worker body: {worker!r}")
+        import asyncio
+        from contextlib import asynccontextmanager
+
+        from harness.service import worker as _worker
+
+        @asynccontextmanager
+        async def lifespan(_app):
+            task = asyncio.create_task(_worker.loop(
+                store_root, _worker.demo_body(store_root), poll_s=worker_poll_s))
+            try:
+                yield
+            finally:
+                task.cancel()
+
+    app = FastAPI(title="IronFleet harness API", version="1", lifespan=lifespan)
     app.state.store_root = Path(store_root)
     app.state.sse = {"heartbeat_s": sse_heartbeat_s, "poll_s": sse_poll_s,
                      "max_s": sse_max_s}
@@ -129,5 +151,8 @@ def create_app(store_root, *, sse_heartbeat_s: float = 15.0, sse_poll_s: float =
 
     for r in (core.router, core.ops, work.router, lifecycle.router, sse.router):
         app.include_router(r)
+    if web_dist is not None and Path(web_dist).is_dir():
+        from starlette.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=web_dist, html=True), name="web")
     app.add_middleware(IdempotencyMiddleware, store_root=Path(store_root))
     return app

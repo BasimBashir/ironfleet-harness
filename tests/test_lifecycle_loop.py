@@ -166,6 +166,24 @@ def test_lawyer_now_truth_table(con):
     assert "criminal_exposure" in row["lawyer_now_reason"]
 
 
+def test_lawyer_now_fires_on_free_text_yes_from_intake(con):
+    # the N1 intake stores the user's typed answer ("yes"), not a JSON boolean
+    statemachine.transition(con, MATTER, "INTAKE")
+    _set_fact(con, "criminal", " Yes ")
+    _set_fact(con, "children_involved", "no")
+    r = lawyer_now.evaluate(con, MATTER)
+    assert r["rules"] == ["criminal_exposure"]
+
+
+def test_lawyer_now_reads_orders_typed_as_one_string(con):
+    # the N7 debrief form sends `orders` as the textarea's string, not a list
+    statemachine.transition(con, MATTER, "INTAKE")
+    dossier.append(con, MATTER, "court_events",
+                   {"event_type": "hearing", "event_date": "2026-11-20",
+                    "payload": {"orders": "Costs against the plaintiff of $1,500."}})
+    assert "court_order_against_user" in lawyer_now.evaluate(con, MATTER)["rules"]
+
+
 def test_lawyer_now_missed_limitation_and_court_order(con):
     statemachine.transition(con, MATTER, "INTAKE")
     deadlines.register(con, MATTER, "limitation period expiry", "2026-11-05", days=5)

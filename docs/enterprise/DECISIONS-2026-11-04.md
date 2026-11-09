@@ -172,7 +172,7 @@ fine for tables/approvals but the graph goes bespoke JS either way.
 **Blocks:** Phase 4 (API) and Phase 5 (web workspace); brief §18 requires this sign-off before
 the dependency lands.
 
-**Ruling: API = FastAPI + uvicorn (owner yes, M7 session)  Date: 2026-11-08** · frontend stack: ___________  Date: ___________
+**Ruling: API = FastAPI + uvicorn (owner yes, M7 session)  Date: 2026-11-08** · **frontend stack: React SPA (Vite build; owner pick, M8 session — over the zero-dependency vanilla-JS option) · browser E2E: Playwright (owner yes)  Date: 2026-11-09** — pinned set in [plans/2026-11-09-m8-guided-workspace.md](../../../plans/2026-11-09-m8-guided-workspace.md) §0
 
 ### D7 · UI mockup sign-off before any screen; TUI retirement at parity (05 §14)
 

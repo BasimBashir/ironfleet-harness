@@ -24,6 +24,8 @@ def _matter_dict(con, r) -> dict:
     d["outstanding_approvals"] = con.execute(
         "SELECT COUNT(*) AS c FROM approvals WHERE matter_id=? AND state='pending'",
         (d["matter_id"],)).fetchone()["c"]
+    from harness.service.usage import matter_tokens
+    d["tokens_total"] = matter_tokens(con, d["matter_id"])["total"]["all"]
     return d
 
 

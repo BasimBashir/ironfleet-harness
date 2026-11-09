@@ -251,3 +251,35 @@ def test_kill9_mid_pipeline_resumes_without_double_dispatch(tmp_path):
     assert lines.count("start:s2") == 2          # interrupted stage re-runs once more
     assert lines.count("done:s2") == 1           # and completes exactly once
     assert lines.count("start:s3") == 1 and lines.count("done:s3") == 1
+
+
+# -- M8: gate survives compilation; a refused park halts (no approval bypass) ----
+
+def test_compiled_plan_keeps_the_moot_gate(con):
+    import json
+    stages = _stages("filings") + [{"stage": "moot", "agent": "clerk", "instruction": "m",
+                                     "gate": "moot", "approval": "filing"}]
+    eid = orchestrator.create_execution(con, "m1", "s1", "t", stages)
+    plan = json.loads(con.execute("SELECT compiled_plan_json FROM executions WHERE"
+                                  " execution_id=?", (eid,)).fetchone()[0])
+    assert plan[1]["gate"] == "moot" and "gate" not in plan[0]
+
+
+async def test_refused_park_halts_the_execution_never_skips_the_approval(con):
+    # a filing approval with no PASSED moot record is refused (M6); the stage must not
+    # leave the next task claimable, or a restarted worker would run past the approval
+    from harness.workflow.approvals import MootRequired
+    stages = [{"stage": "moot", "agent": "clerk", "instruction": "m", "approval": "filing"},
+              {"stage": "advice", "agent": "clerk", "instruction": "a"}]
+    eid = orchestrator.create_execution(con, "m1", "s1", "t", stages)
+
+    async def body(task, prev):
+        return "drafted"
+
+    with pytest.raises(MootRequired):
+        await orchestrator.run(con, eid, body, owner="o1", lease_s=30)
+    assert con.execute("SELECT state FROM executions WHERE execution_id=?",
+                       (eid,)).fetchone()["state"] == "failed"
+    assert orchestrator.claim(con, "o2", lease_s=30) is None
+    assert con.execute("SELECT state FROM tasks WHERE execution_id=? AND key='advice'",
+                       (eid,)).fetchone()["state"] == "pending"
