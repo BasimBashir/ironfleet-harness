@@ -3,6 +3,7 @@ const ROUTES = [
   ["board", []],
   ["approvals", []],
   ["new", []],
+  ["users", []],
   ["workspace", ["mid", "tab"], "m", { tab: "overview" }],
   ["case", ["mid", "view"], "case", { view: "home" }],
   ["run", ["rid"], "runs"],

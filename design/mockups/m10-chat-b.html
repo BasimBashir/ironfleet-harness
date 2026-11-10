@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en-NZ">
+<head><meta charset="utf-8"><title>M10 S6 option B — Calm single column</title>
+<style>
+/* Direction B · Chambers (the D-3 pick) — calm paper, soft cards, ink-green accent + C's meters. */
+:root{
+  --bg:#f7f5f0; --surface:#efece4; --raise:#ffffff; --text:#1f1d1a; --muted:#5a554c; --rule:#e2ddd2; --rule-strong:#b9b2a4;
+  --accent:#1d5c4a; --accent-text:#ffffff; --accent-soft:#e3efe9; --focus:#1d5c4a;
+  --s-waiting:#8f4a00; --s-waiting-bg:#fbecd2; --s-running:#1f55a8; --s-blocked:#b0360f; --s-failed:#ad2a1f;
+  --s-review:#5f37a8; --s-done:#1d6b3e; --s-idle:#5f5b55;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace; --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --row:36px; --fs:14px; --r:6px; --shadow:0 1px 2px rgba(40,30,10,.08),0 1px 0 rgba(40,30,10,.04);
+}
+[data-theme="dark"]{
+  --bg:#171612; --surface:#1f1d18; --raise:#26241e; --text:#ece8df; --muted:#b0a999; --rule:#353229; --rule-strong:#5a554a;
+  --accent:#7cc8aa; --accent-text:#10201a; --accent-soft:#1f3229; --focus:#7cc8aa;
+  --s-waiting:#f2b04a; --s-waiting-bg:#3b2b10; --s-running:#93b6ff; --s-blocked:#ff9470; --s-failed:#ff8a80;
+  --s-review:#c7aaff; --s-done:#6fd39c; --s-idle:#b0a999; --shadow:none;
+}
+*{box-sizing:border-box} html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:var(--fs)/1.5 var(--sans);font-variant-numeric:tabular-nums}
+a{color:var(--accent);text-underline-offset:2px} :focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:no-preference){*{transition:background-color .15s,color .15s,box-shadow .15s}}
+.mock{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:6px 16px;border-bottom:1px dashed var(--rule-strong);background:repeating-linear-gradient(135deg,var(--surface) 0 8px,var(--bg) 8px 16px);font-size:12px}
+.mock b{letter-spacing:.06em;text-transform:uppercase;font-size:11px}
+.mock label{display:flex;gap:4px;align-items:center}
+.top{display:flex;align-items:center;gap:18px;height:52px;padding:0 20px;background:var(--raise);border-bottom:1px solid var(--rule)}
+.brand{font-weight:700;font-size:16px} .brand small{color:var(--muted);font-weight:400}
+.matter{color:var(--muted);font-size:13px} .matter b{color:var(--text)}
+.meter{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin-left:auto} .meter b{color:var(--text);font-variant-numeric:tabular-nums}
+.meter .bar{width:96px;height:6px;border-radius:999px;background:var(--rule);overflow:hidden} .meter .bar i{display:block;height:100%;width:44%;background:var(--accent)}
+.av{width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:12px}
+.page{padding:18px 22px;max-width:1240px;margin:0 auto}
+.crumb{color:var(--muted);font-size:12.5px;margin-bottom:10px} .crumb a{color:var(--muted)}
+h1{font-size:20px;margin:0 0 14px}
+.chat{display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start}
+.thread{background:var(--raise);border:1px solid var(--rule);border-radius:var(--r);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:560px}
+.thd-h{display:flex;justify-content:space-between;align-items:baseline;padding:12px 18px;border-bottom:1px solid var(--rule)}
+.thd-h h2{margin:0;font-size:15px} .thd-h span{color:var(--muted);font-size:12.5px}
+.msgs{padding:6px 18px 14px;flex:1}
+.msg{margin:14px 0}
+.msg .who{font-size:12px;color:var(--muted);margin-bottom:3px} .msg .who b{color:var(--text)}
+.msg .body{background:var(--bg);border-radius:var(--r);padding:10px 14px}
+.msg.lead .body{border-left:4px solid var(--accent)}
+.sys{color:var(--muted);font-size:12.5px;margin:12px 0;padding-left:14px;border-left:2px solid var(--rule)}
+.sys .mono,.mono{font-family:var(--mono);font-size:12px}
+.chips{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:12px var(--mono);border:1px solid var(--rule-strong);border-radius:4px;padding:2px 8px;background:var(--raise);color:var(--muted)}
+.chip.ok{border-color:var(--s-done);color:var(--s-done)}
+.chip.unv{border-color:var(--s-waiting);color:var(--s-waiting)}
+.appr{border:1px solid var(--s-waiting);background:var(--s-waiting-bg);border-radius:var(--r);padding:12px 14px;margin:14px 0}
+.appr .t{font-weight:700;color:var(--s-waiting);font-size:13px}
+.appr .d{margin:6px 0 10px;color:var(--text)}
+.btn{font:inherit;font-size:13px;padding:5px 14px;border-radius:var(--r);border:1px solid var(--rule-strong);background:var(--raise);color:var(--text);cursor:pointer}
+.btn.prime{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.btn.mute{color:var(--muted)}
+.pending{display:inline-flex;gap:8px;align-items:center;color:var(--s-running);font-size:13px}
+.pending .dot{width:8px;height:8px;border-radius:50%;background:var(--s-running);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.3}}
+.comp{border-top:1px solid var(--rule);padding:12px 18px}
+.comp textarea{width:100%;min-height:64px;border:1px solid var(--rule-strong);border-radius:var(--r);padding:8px 12px;font:inherit;background:var(--bg);color:var(--text);resize:vertical}
+.comp .row{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+.comp .hint{color:var(--muted);font-size:12px}
+.rail{display:flex;flex-direction:column;gap:16px}
+.card{background:var(--raise);border:1px solid var(--rule);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px}
+.card h3{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.card .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.card .kv dt{color:var(--muted)} .card .kv dd{margin:0}
+.st{font-weight:600} .st.run{color:var(--s-running)} .st.wait{color:var(--s-waiting)} .st.done{color:var(--s-done)}
+.bar2{height:5px;border-radius:999px;background:var(--rule);overflow:hidden;margin:6px 0 2px} .bar2 i{display:block;height:100%;width:64%;background:var(--accent)}
+.small{font-size:12.5px;color:var(--muted)}
+ul.links{margin:4px 0 0;padding-left:18px} ul.links li{margin:3px 0}
+</style></head>
+<body data-theme="light">
+<div class="mock"><b>M10 mockup — S6 Counsel chat · Option B</b>
+  <span>one calm column ~760px; approvals + system lines live in the thread; context as chips above the composer</span>
+  <label>Theme <button class="btn" onclick="document.body.dataset.theme=document.body.dataset.theme==='light'?'dark':'light'">toggle</button></label>
+  <a href="m10-chat-a.html">← Option A</a> <a href="m10-chat-c.html">Option C →</a></div>
+<header class="top">
+  <span class="brand">IronFleet <small>· Chambers</small></span>
+  <span class="matter"><b>Acme v State</b> · m-1077 · awaiting response (due 18 Nov)</span>
+  <span class="meter">Budget <b>312k / 700k</b><span class="bar"><i></i></span></span>
+  <span class="av">RS</span>
+</header>
+<main class="page" style="max-width:760px">
+  <div class="crumb"><a href="#">Workspace</a> / Chat / Supervision</div>
+  <h1>Counsel chat — Acme v State</h1>
+  <section class="thread" aria-label="Conversation: supervision">
+      <div class="thd-h"><h2>Supervision</h2><span>6 messages · started 09 Nov</span></div>
+      <div class="msgs">
+        <div class="msg"><div class="who"><b>You</b> · 09:12</div>
+          <div class="body">Compare the two versions of the SSA and tell me what changed in the payment clause.</div></div>
+        <div class="msg lead"><div class="who"><b>Lead counsel</b> · 09:14</div>
+          <div class="body">Draft comparison prepared → artifact <a href="#" class="mono">a-88</a> (v2). Three clauses diverge; clause 14 now lacks a counterpart clause. The payment term moved from 20 to 30 days; no interest clause was added.
+            <div class="chips"><span class="chip ok">E3.S2 ✓ verified</span><span class="chip unv">E7.S1 unverified</span><span class="chip">a-88 v2</span></div></div></div>
+        <div class="sys">↳ spawned <span class="mono">research/hunter</span> (run <a href="#" class="mono">r-641</a>) · delivered at next boundary</div>
+        <div class="msg"><div class="who"><b>You</b> · 09:15</div>
+          <div class="body">Ask research to verify the two new authorities before we cite them.</div></div>
+        <div class="msg lead"><div class="who"><b>Lead counsel</b> · 09:16</div>
+          <div class="body">Verification run queued on <span class="mono">r-641</span>. I will report the quote-check result here when the stage closes.</div>
+          <div class="pending"><span class="dot"></span> run r-641 · verify stage pending…</div></div>
+        <div class="appr">
+          <div class="t">⚑ Approval requested — filing</div>
+          <div class="d">Statement of claim draft v2 (<a href="#" class="mono">a-92</a>) passed the moot gate (2 material flaws fixed). Approving permits the filings stage to prepare the court pack.</div>
+          <button class="btn prime">Approve</button> <button class="btn">Reject</button> <button class="btn mute">Request changes</button>
+          <div class="small" style="margin-top:8px">requested by <span class="mono">filings/clerk</span> (run <a href="#" class="mono">r-633</a>) · 14 min ago · deciding writes the audit chain</div>
+        </div>
+      </div>
+      <div class="ctx">Context: <span class="chip link">run r-641 · stage 6/10 moot</span> <span class="chip link">1 ⚑ approval pending</span> <span class="chip link">a-92 v2</span> <span class="chip">full thread →</span></div>
+      <div class="comp">
+        <label for="c1" class="small">Instruction to lead counsel</label>
+        <textarea id="c1" placeholder="Type an instruction… (enter sends, shift+enter newline)"></textarea>
+        <div class="row"><span class="hint">Sending dispatches an execution — it appears in the swarm and the Board.</span><button class="btn prime">Send</button></div>
+      </div>
+    </section>
+</main>
+</body></html>

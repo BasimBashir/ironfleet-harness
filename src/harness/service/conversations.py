@@ -98,8 +98,12 @@ def healthz(con) -> dict:
         doctor = doctor_report()
     except Exception as exc:                                      # noqa: BLE001
         doctor = f"doctor unavailable: {type(exc).__name__}"
+    from harness.service.usage import trace_errors
+    queue = con.execute("SELECT COUNT(*) FROM tasks t JOIN executions e USING(execution_id)"
+                        " WHERE e.state='executing' AND t.state IN ('pending','running')"
+                        ).fetchone()[0]
     return {"stores": "ok", "proxy_bound": True, "providers": doctor,
-            "version": "v1"}
+            "version": "v1", "queue_depth": queue, "trace_errors": trace_errors(con)}
 
 
 def audit_list(con, principal: dict, *, matter_id: str = "", limit: int = 50,

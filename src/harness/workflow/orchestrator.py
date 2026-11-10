@@ -179,6 +179,25 @@ def _maybe_finish_execution(con) -> None:
         con.execute("UPDATE executions SET state='completed', ended_at=?"
                     " WHERE execution_id=?", (_now(), r["execution_id"]))
         _emit(con, r["execution_id"], "execution.completed")
+        _reply_in_thread(con, r["execution_id"])
+
+
+def _reply_in_thread(con, eid: str) -> None:
+    """Turn-based chat (M10): an execution a counsel message started answers in
+    that thread when it completes (a stage-by-stage digest), never before."""
+    msg = con.execute("SELECT conversation_id, matter_id FROM messages WHERE execution_id=?"
+                      " AND role='user' LIMIT 1", (eid,)).fetchone()
+    if msg is None:
+        return
+    lines = [f"{t['key']}: {t['state']} — {(t['result_summary'] or '').strip()[:160]}"
+             for t in con.execute("SELECT key, state, result_summary FROM tasks"
+                                  " WHERE execution_id=? ORDER BY seq", (eid,))]
+    mid_ = f"msg-{uuid.uuid4().hex[:12]}"
+    con.execute("INSERT INTO messages(message_id, conversation_id, matter_id, role, text,"
+                " execution_id, actor, ts) VALUES(?,?,?,?,?,?,?,?)",
+                (mid_, msg["conversation_id"], msg["matter_id"], "lead",
+                 f"Run {eid} completed.\n" + "\n".join(lines), eid, "lead", _now()))
+    _emit(con, eid, "chat.replied", conversation_id=msg["conversation_id"], message_id=mid_)
 
 
 def matter_state(con, matter_id: str) -> str:

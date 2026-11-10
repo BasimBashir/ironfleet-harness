@@ -5,13 +5,14 @@ import { getToken, post, setToken } from "./api.js";
 import { href, parseRoute } from "./router.js";
 import { subscribe } from "./sse.js";
 import { EVENT, useApi } from "./useApi.js";
-import { Meter } from "./ui.jsx";
+import { Meter, allowed } from "./ui.jsx";
 import Board from "./screens/Board.jsx";
 import NewMatter from "./screens/NewMatter.jsx";
 import Workspace from "./screens/Workspace.jsx";
 import Approvals from "./screens/Approvals.jsx";
 import RunPage from "./screens/RunPage.jsx";
 import CaseScreens from "./screens/CaseScreens.jsx";
+import Users from "./screens/Users.jsx";
 
 export const Ctx = createContext(null);
 export const useCtx = () => useContext(Ctx);
@@ -161,6 +162,7 @@ function Shell({ me, onLogout }) {
     case "approvals": screen = <Approvals />; break;
     case "run": screen = <RunPage rid={route.params.rid} />; break;
     case "case": screen = <CaseScreens mid={mid} view={route.params.view} />; break;
+    case "users": screen = <Users />; break;
     default: screen = <section><h1>Page not found</h1><p>That page does not exist. <a href={href("board")}>Go to the board</a></p></section>;
   }
 
@@ -194,6 +196,7 @@ function Shell({ me, onLogout }) {
           {nav("board", "Matters")}
           {nav("approvals", "Approvals", nPending ? <span className="pill" aria-label={`${nPending} waiting`}>{nPending}</span> : null)}
           {nav("new", "+ New matter")}
+          {allowed(perms, "user.admin") ? nav("users", "Users & roles") : null}
           <h2>Recent matters</h2>
           {(recent.data?.items || []).slice(0, 6).map((m) => (
             <a key={m.matter_id} href={href("workspace", { mid: m.matter_id })}

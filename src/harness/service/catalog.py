@@ -140,7 +140,12 @@ def get_run(con, principal: dict, run_id: str) -> dict:
     if row is None:
         raise authz.not_found("run_not_found", f"run {run_id!r} not found")
     authz.require(con, principal, authz.READ, row["matter_id"])
-    return dict(row)
+    # inspection timeline (05 §5.5/§5.9): the run's last 200 events, oldest first
+    events = [dict(e) for e in con.execute(
+        "SELECT id, ts, type, json_extract(payload_json,'$.task_id') AS task_id"
+        " FROM workflow_events WHERE json_extract(payload_json,'$.execution_id')=?"
+        " ORDER BY id DESC LIMIT 200", (run_id,))]
+    return {**dict(row), "events": events[::-1]}
 
 
 def interject(con, principal: dict, run_id: str, body: dict) -> dict:

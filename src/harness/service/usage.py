@@ -5,6 +5,7 @@ the gate writes and session/tokens.py aggregates; keyed by matter_ref (= the
 platform matter_id on the durable path) and the F1 agent column."""
 from __future__ import annotations
 
+import math
 import sqlite3
 from pathlib import Path
 
@@ -49,3 +50,46 @@ def matter_tokens(con, matter_id: str) -> dict:
 def get(con, principal: dict, matter_id: str) -> dict:
     authz.require(con, principal, authz.READ, matter_id)
     return matter_tokens(con, matter_id)
+
+
+def _dispatches(con, sql: str) -> list:
+    path = _trace_db(con)
+    if not path.is_file():
+        return []
+    t = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return t.execute(sql).fetchall()
+    finally:
+        t.close()
+
+
+def trace_errors(con) -> int:
+    rows = _dispatches(con, "SELECT COUNT(*) FROM dispatches WHERE status='error'")
+    return rows[0][0] if rows else 0
+
+
+def _rank(xs: list[int], p: float) -> int:
+    """Nearest-rank percentile over a sorted list."""
+    return xs[max(0, math.ceil(len(xs) * p) - 1)] if xs else 0
+
+
+def metrics(con, principal: dict) -> dict:
+    """02 §14: derived queries over trace.db + the workflow tables — no metrics stack."""
+    authz.require(con, principal, "audit.read")
+    rows = _dispatches(con, "SELECT provider, model, engine, status, latency_ms"
+                            " FROM dispatches ORDER BY provider, model, latency_ms")
+    by_engine: dict[str, int] = {}
+    lat: dict[tuple, list[int]] = {}
+    for prov, model, engine, _, ms in rows:
+        by_engine[engine or ""] = by_engine.get(engine or "", 0) + 1
+        lat.setdefault((prov, model), []).append(ms or 0)
+    tasks = dict(con.execute("SELECT state, COUNT(*) FROM tasks GROUP BY state").fetchall())
+    return {
+        "dispatches": {"total": len(rows), "errors": sum(r[3] == "error" for r in rows),
+                       "by_engine": by_engine},
+        "latency": [{"provider": p, "model": m, "n": len(xs), "p50_ms": _rank(xs, .5),
+                     "p95_ms": _rank(xs, .95)} for (p, m), xs in lat.items()],
+        "tasks": {"pending": tasks.get("pending", 0), "running": tasks.get("running", 0)},
+        "executions": dict(con.execute("SELECT state, COUNT(*) FROM executions"
+                                       " GROUP BY state").fetchall()),
+    }

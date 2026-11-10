@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 
 from harness.api.deps import get_con, get_principal, page, paged
 from harness.api.schemas import (IngestIn, LoginIn, MatterIn, MatterPatch, MemberIn,
-                                 ReviewIn, ToIn)
-from harness.service import auth, conversations, documents, matters, usage
+                                 ReviewIn, ToIn, UserCreateIn, UserPatchIn)
+from harness.service import auth, conversations, documents, matters, usage, users
 
 router = APIRouter(prefix="/api/v1")
 ops = APIRouter()
@@ -81,6 +81,28 @@ def delete_member(mid: str, uid: str, p=P, con=C):
     return Response(status_code=204)
 
 
+# -- users & roles (05 §12; user.admin) -------------------------------------------
+
+@router.get("/users")
+def list_users(p=P, con=C):
+    return users.list_users(con, p)
+
+
+@router.post("/users", status_code=201)
+def create_user(body: UserCreateIn, p=P, con=C):
+    return users.create(con, p, body.model_dump())
+
+
+@router.patch("/users/{uid}")
+def patch_user(uid: str, body: UserPatchIn, p=P, con=C):
+    return users.patch(con, p, uid, body.model_dump(exclude_unset=True))
+
+
+@router.get("/roles")
+def list_roles(p=P, con=C):
+    return users.list_roles(con, p)
+
+
 # -- 5.3 documents, evidence, artifacts ---------------------------------------------
 
 _RAW = {"requestBody": {"required": True, "content": {"application/octet-stream": {
@@ -140,6 +162,11 @@ def review_artifact(aid: str, body: ReviewIn, p=P, con=C):
 @ops.get("/healthz")
 def healthz(con=C):
     return conversations.healthz(con)
+
+
+@router.get("/metrics")
+def metrics(p=P, con=C):
+    return usage.metrics(con, p)
 
 
 @router.get("/audit")

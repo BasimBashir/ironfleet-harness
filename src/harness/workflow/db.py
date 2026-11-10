@@ -119,7 +119,7 @@ INSERT OR IGNORE INTO roles VALUES('admin','Admin'),('editor','Editor'),('reader
 INSERT OR IGNORE INTO role_permissions VALUES
   ('admin','matter.read'),('admin','matter.write'),('admin','matter.dispatch'),
   ('admin','approval.decide'),('admin','matter.cross_read'),('admin','audit.read'),
-  ('admin','guard.policy.write'),('admin','provider.key.read'),
+  ('admin','guard.policy.write'),('admin','provider.key.read'),('admin','user.admin'),
   ('editor','matter.read'),('editor','matter.write'),('editor','matter.dispatch'),
   ('editor','approval.decide'),('reader','matter.read');
 """

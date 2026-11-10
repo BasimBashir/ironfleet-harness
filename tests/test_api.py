@@ -15,6 +15,8 @@ from test_api_authz import ROUTES, call, code
 
 # admin outcomes that are domain answers, not the declared success status
 DOMAIN = {"POST /api/v1/executions/{eid}/resume": (409, "invalid_transition"),
+          # the fixture's run is parked at an approval: decided, not paused (M10 guard)
+          "POST /api/v1/executions/{eid}/pause": (409, "invalid_transition"),
           "POST /api/v1/executions/{eid}/redirect": (409, "lease_conflict"),
           "POST /api/v1/matters/{mid}/close": (409, "invalid_transition")}
 PAGED = {"GET /api/v1/matters", "GET /api/v1/matters/{mid}/documents",
@@ -43,6 +45,26 @@ def test_contract_allowed_caller(api_world, key):
     assert r.status_code == _declared(w.app)[key], (key, r.text)
     if key in PAGED:
         assert {"items", "next_cursor"} <= set(r.json()), key
+
+
+def test_pause_only_a_running_execution_and_redirect_keeps_a_park(api_world):
+    """M10: pausing (then resuming) a run parked at an approval would let the worker run
+    past it; redirect must not unpark it either."""
+    c, h, A, B = api_world.client, api_world.h("admin"), api_world.A, api_world.B
+    ex = lambda eid: c.get(f"/api/v1/executions/{eid}", headers=h).json()  # noqa: E731
+    pending = [t for t in ex(B["eid"])["tasks"] if t["state"] == "pending"]
+    r = c.post(f"/api/v1/executions/{B['eid']}/redirect", headers=h,
+               json={"task_id": pending[0]["task_id"], "instruction": "narrower"})
+    assert r.status_code == 202 and ex(B["eid"])["state"] == "waiting_human", r.text
+    assert c.post(f"/api/v1/approvals/{A['apid']}/approve", json={},
+                  headers=h).status_code == 200
+    assert ex(A["eid"])["state"] == "executing"
+    assert c.post(f"/api/v1/executions/{A['eid']}/pause", headers=h).status_code == 202
+    assert ex(A["eid"])["state"] == "paused"
+    again = c.post(f"/api/v1/executions/{A['eid']}/pause", headers=h)
+    assert (again.status_code, code(again)) == (409, "invalid_transition")
+    assert c.post(f"/api/v1/executions/{A['eid']}/resume", headers=h).status_code == 202
+    assert ex(A["eid"])["state"] == "executing"
 
 
 def test_healthz_needs_no_token(api_world):

@@ -8,6 +8,7 @@ import { subscribe } from "../sse.js";
 import { useApi } from "../useApi.js";
 import { Btn, Empty, ErrorLine, Loading, StatusChip, allowed, fmtAgo, fmtDate, fmtDue, fmtTokens } from "../ui.jsx";
 import { RunDrawer } from "./RunPage.jsx";
+import { Members } from "./Users.jsx";
 
 const TABS = [["overview", "Overview"], ["documents", "Documents"], ["evidence", "Evidence"],
   ["workplan", "Work plan"], ["agents", "Agents"], ["drafts", "Drafts"], ["decisions", "Decisions"],
@@ -104,6 +105,10 @@ function Overview({ mid, m }) {
             <a href={href("workspace", { mid, tab: "workplan" })} className="mono">{r.execution_id}</a> <StatusChip kind="agent" state={r.state} />
             <span className="muted"> {fmtAgo(r.started_at)}</span></li>)}</ul>}
       </div>
+      <section className="card qcard" aria-labelledby="mem-h">
+        <h2 id="mem-h">Members</h2>
+        <Members mid={mid} />
+      </section>
       {canWrite ? <p><button type="button" className="btn" onClick={archive}>{m.archived ? "Re-open matter" : "Archive matter"}</button></p> : null}
     </div>
   );

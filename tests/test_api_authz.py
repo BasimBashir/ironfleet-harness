@@ -39,6 +39,7 @@ ROUTES = {
     "POST /api/v1/artifacts/{aid}/review": ("write", {"decision": "approve"}, ""),
     "GET /healthz": ("public", None, ""),
     "GET /api/v1/audit": ("audit", None, ""),
+    "GET /api/v1/metrics": ("audit", None, ""),
     "GET /api/v1/workflows": ("authed", None, ""),
     "POST /api/v1/workflows": ("gwrite", {"name": "w", "definition": WF}, ""),
     "POST /api/v1/matters/{mid}/executions": ("write", {"task_text": "t",
@@ -90,6 +91,10 @@ ROUTES = {
     "GET /api/v1/matters/{mid}/closure-checklist": ("read", None, ""),
     "POST /api/v1/matters/{mid}/close": ("write", {"note": "done"}, ""),
     "GET /api/v1/events": ("read", None, "channels=matter:{mid}"),
+    "GET /api/v1/users": ("useradmin", None, ""),
+    "POST /api/v1/users": ("useradmin", {"username": "mx", "password": "pw"}, ""),
+    "PATCH /api/v1/users/{uid}": ("useradmin", {"role_id": "reader"}, ""),
+    "GET /api/v1/roles": ("useradmin", None, ""),
 }
 
 
@@ -142,6 +147,8 @@ _EXPECT = {
     "gwrite": {None: "unauthenticated", "reader": "permission_denied"},
     "audit": {None: "unauthenticated", "reader": "permission_denied",
               "editor": "permission_denied", "outsider": "permission_denied"},
+    "useradmin": {None: "unauthenticated", "reader": "permission_denied",
+                  "editor": "permission_denied", "outsider": "permission_denied"},
     "read": {None: "unauthenticated", "outsider": "matter_not_found"},
     "write": {None: "unauthenticated", "outsider": "matter_not_found",
               "reader": "permission_denied"},

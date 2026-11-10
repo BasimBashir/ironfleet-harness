@@ -112,6 +112,12 @@ def _set_state(con, principal, execution_id, to: str, *, note: str = "",
 
 
 def pause(con, principal: dict, execution_id: str) -> dict:
+    # only a running execution pauses: pausing a run parked at an approval and resuming it
+    # would set it executing and the worker would run past the pending approval
+    row = _require_exec(con, principal, execution_id, DISPATCH)
+    if row["state"] != "executing":
+        raise authz.ServiceError(409, "invalid_transition",
+                                 f"pause needs state executing, got {row['state']!r}")
     return _set_state(con, principal, execution_id, "paused")
 
 
@@ -134,5 +140,7 @@ def redirect(con, principal: dict, execution_id: str, body: dict) -> dict:
     if not task_id or not instruction:
         raise authz.ServiceError(422, "validation_failed",
                                  "task_id and instruction required")
-    return _set_state(con, principal, execution_id, "executing",
+    # keeps the run's state: forcing "executing" would unpark a run waiting on an approval
+    row = _require_exec(con, principal, execution_id, DISPATCH)
+    return _set_state(con, principal, execution_id, row["state"],
                       task_id=task_id, instruction=instruction)

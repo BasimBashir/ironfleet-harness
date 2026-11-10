@@ -42,6 +42,17 @@ class MemberIn(BaseModel):
     role_id: str
 
 
+class UserCreateIn(BaseModel):
+    username: str
+    password: str
+    role_id: str = "reader"
+
+
+class UserPatchIn(BaseModel):
+    role_id: str | None = None
+    is_active: bool | None = None
+
+
 class IngestIn(BaseModel):
     source: str
 
