@@ -48,3 +48,19 @@ def test_doc_names_pinned_python_deps():
 def test_doc_names_the_local_servers_and_ports():
     for endpoint in ("127.0.0.1:11434", "127.0.0.1:7373", "127.0.0.1:8778"):
         assert endpoint in DOC, f"doc must name the local server {endpoint}"
+
+
+def test_version_is_single_sourced():
+    # M11 T1: pyproject's `version` is the single source (CHANGELOG header says so);
+    # `harness.__version__` must equal it or the zip name, `harness --version` and
+    # the doc's version story drift apart.
+    import harness
+    deps = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert harness.__version__ == deps["project"]["version"]
+
+
+def test_changelog_covers_the_current_version():
+    # M11 T1: every released version is recorded; the current one must have an entry.
+    import harness
+    cl = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert f"[{harness.__version__}]" in cl, "CHANGELOG.md must carry the current version"

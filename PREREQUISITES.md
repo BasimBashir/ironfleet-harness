@@ -128,3 +128,25 @@ REST + SSE API, `python -m harness.api serve`, loopback only; fastapi pulls
   wipe-and-reingest (the vector store records the model per row).
 - **Python deps**: bump in `pyproject.toml`, re-run the installer. `sqlite-vec` is
   pinned and fails closed if it cannot import.
+
+## 9. Reliability surface (M11)
+
+- **Upgrades**: after extracting a new zip, run `harness migrate` before first use
+  — it upgrades the SQLite stores in place, additive-only and versioned; rollback
+  is "restore backup" (migrate never rewrites history).
+- **Backups + the drill**: the installer lays down a versioned backup script
+  (RUNBOOK_P0_7). Prove the restore path with
+  `.venv/Scripts/python.exe scripts/restore_drill.py` — quarterly and before every
+  release; the live store is read-only throughout and it prints an evidence block.
+- **Crash logs**: an unexpected death of `harness serve` or the API leaves a log
+  under `<store-root>\crash\` (version + component + traceback; last 20 kept).
+  Local only — nothing is ever sent automatically. Ctrl-C is clean and writes none.
+- **Help + legal in the zip**: `docs/help/firm-mode.md`, `docs/help/selfrep-mode.md`,
+  and the `docs/legal/*-DRAFT.md` terms/privacy/disclosure drafts. The legal drafts
+  are marked **DRAFT — PENDING R-1**: not legal advice and not for publication
+  until the R-1 consultation rules.
+- **Tri-OS distribution**: one zip serves all three OSes (the `-windows` in the
+  name is only accept_r2's fresh-machine contract). Linux: `install_linux.sh` +
+  `verify_linux_install.sh`; macOS: `src/harness/ops/pack_macos.sh` builds
+  `IronFleet.dmg`. This release ships **unsigned + sha256-checksummed** — verify
+  `<artifact>.sha256` before installing (docs/enterprise/11-release-runbook.md §1).

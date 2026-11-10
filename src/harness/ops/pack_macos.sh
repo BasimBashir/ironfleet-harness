@@ -41,15 +41,36 @@ echo "==> S7g-M: PyInstaller -> Contents/MacOS/$LAUNCHER"                       
 mv "$ROOT/dist/$LAUNCHER" "$APP/Contents/MacOS/$LAUNCHER"                       # S7g-M
 
 echo "==> S7g-M: codesign (Developer ID Application required)"                   # S7g-M
-codesign --deep --force --options runtime \                                     # S7g-M
-  --sign "$IRONFLEET_CODESIGN_ID" "$APP"                                        # S7g-M
+if [[ -n "${IRONFLEET_CODESIGN_ID:-}" ]]; then                                  # S7g-M
+  codesign --deep --force --options runtime --sign "$IRONFLEET_CODESIGN_ID" "$APP"
+else
+  # M11 release ruling (plan 2026-11-10): this release ships UNSIGNED; the
+  # sha256 checksum next to the artifact is the integrity guarantee. Gate says
+  # macOS will still flag an unsigned app — that friction is accepted and the
+  # operator documents it in the fresh-OS record.
+  echo "==> UNSIGNED build (IRONFLEET_CODESIGN_ID unset): Gatekeeper will flag the app; the .sha256 checksum is the integrity guarantee this release"
+fi
 
-echo "==> S7g-M: notarize + staple"                                             # S7g-M
-xcrun notarytool submit "$APP.zip" --keychain-profile "$IRONFLEET_NOTARY_PROFILE" --wait   # S7g-M
-xcrun stapler staple "$APP"                                                     # S7g-M
+if [[ -n "${IRONFLEET_NOTARY_PROFILE:-}" ]]; then                               # S7g-M
+  echo "==> S7g-M: notarize + staple"                                           # S7g-M
+  xcrun notarytool submit "$APP.zip" --keychain-profile "$IRONFLEET_NOTARY_PROFILE" --wait   # S7g-M
+  xcrun stapler staple "$APP"                                                   # S7g-M
+else
+  echo "==> notarization skipped (IRONFLEET_NOTARY_PROFILE unset)"
+fi
 
 echo "==> S7g-M: DMG"                                                           # S7g-M
 hdiutil create -volname IronFleet -srcfolder "$DIST" -ov -format UDZO \          # S7g-M
   "$ROOT/dist/IronFleet.dmg"                                                    # S7g-M
 
-echo "done: $ROOT/dist/IronFleet.dmg (signed + notarized)"
+# M11 T6: the checksum travels WITH the artifact — verify before install:
+#   shasum -a 256 -c IronFleet.dmg.sha256
+dmg="$ROOT/dist/IronFleet.dmg"
+( cd "$ROOT/dist" && shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256" )
+echo "==> checksum: $(cat "$ROOT/dist/IronFleet.dmg.sha256")"
+
+if [[ -n "${IRONFLEET_CODESIGN_ID:-}" ]]; then
+  echo "done: $ROOT/dist/IronFleet.dmg (signed$( [[ -n "${IRONFLEET_NOTARY_PROFILE:-}" ]] && echo ' + notarized' ))"
+else
+  echo "done: $ROOT/dist/IronFleet.dmg (UNSIGNED; integrity = the .sha256 checksum above)"
+fi

@@ -38,8 +38,13 @@ def main(argv=None) -> int:
         return 0
     import uvicorn
     from harness.api.app import create_app
-    uvicorn.run(create_app(root, web_dist=args.web_dist, worker=args.worker),
-                host="127.0.0.1", port=args.port)
+    try:  # M11 T4: startup failures leave a local log under <root>/crash/
+        uvicorn.run(create_app(root, web_dist=args.web_dist, worker=args.worker),
+                    host="127.0.0.1", port=args.port)
+    except Exception:
+        from harness.crashlog import capture
+        capture(root, "api-serve")  # never a network send — 02 §15
+        raise
     return 0
 
 

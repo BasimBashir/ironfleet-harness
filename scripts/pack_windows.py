@@ -14,15 +14,20 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OPS = ROOT / "src" / "harness" / "ops"
-# The three files a fresh-machine user must see on top of the extracted zip (R2):
-# the installer, its first-run verify + drive smoke, and the dependency inventory.
+# The five files a fresh-machine user must see on top of the extracted zip:
+# the Windows installer + its verify, the M11 Linux twins, and the dependency
+# inventory. The zip name keeps "-windows" for accept_r2's fresh-machine
+# contract, but the zip is the tri-OS distribution (same tree, all three OSes).
 INSTALL_SRC = OPS / "install_windows.ps1"
 VERIFY_SRC = OPS / "verify_windows_install.ps1"
+INSTALL_LINUX_SRC = OPS / "install_linux.sh"
+VERIFY_LINUX_SRC = OPS / "verify_linux_install.sh"
 PREREQ_SRC = ROOT / "PREREQUISITES.md"
 
 # Pruned by NAME anywhere in the tree; the dev substrate has no product meaning.
@@ -79,7 +84,17 @@ def pack(root: Path = ROOT, out_dir: Path | None = None) -> Path:
             stage(p, (Path(name) / p.relative_to(root)).as_posix())
         stage(INSTALL_SRC, f"{name}/install_windows.ps1")
         stage(VERIFY_SRC, f"{name}/verify_windows_install.ps1")
+        stage(INSTALL_LINUX_SRC, f"{name}/install_linux.sh")
+        stage(VERIFY_LINUX_SRC, f"{name}/verify_linux_install.sh")
         stage(PREREQ_SRC, f"{name}/PREREQUISITES.md")
+    # M11 (plan ruling, 2026-11-10): the release ships UNSIGNED + sha256-checksummed —
+    # the checksum travels with the artifact, verify before install
+    h = hashlib.sha256()
+    with open(zip_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    (out_dir / f"{zip_path.name}.sha256").write_text(
+        f"{h.hexdigest()}  {zip_path.name}\n", encoding="utf-8")
     return zip_path
 
 

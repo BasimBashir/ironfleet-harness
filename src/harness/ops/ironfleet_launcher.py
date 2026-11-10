@@ -45,30 +45,35 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[launcher] store {root} (source: {source})", file=sys.stderr)
 
     trace_db = Path(args.trace_db) if args.trace_db else root / "trace.db"
-    gate, rt, aliases = build_gate(trace_db, Path(args.routing))
-    scheduler = build_scheduler()
-    # ThreadingHTTPServer binds in its CONSTRUCTOR (stand_up_opencode.py precedent):
-    # start() only spawns the serve_forever thread and cannot raise OSError, so the
-    # collision guard must wrap construction — a bind failure aborts here rather than
-    # letting a mount's baseURL point at whatever else is listening on the port.
-    try:
-        proxy = EgressProxy(HOST, args.port, gate, rt, aliases, root / "matters",
-                            scheduler=scheduler)
-    except OSError as ex:
-        print(f"[launcher] cannot bind {HOST}:{args.port} — refusing to start: {ex}",
-              file=sys.stderr)
-        return 2
-    proxy.start()
-    print(f"[launcher] proxy on http://{HOST}:{args.port}/v1, models: "
-          f"{sorted(aliases)}", file=sys.stderr)
-    try:
-        while True:
-            time.sleep(3600)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        proxy.stop()
-    return 0
+    try:  # M11 T4: any startup/serve crash leaves a local log under <root>/crash/
+        gate, rt, aliases = build_gate(trace_db, Path(args.routing))
+        scheduler = build_scheduler()
+        # ThreadingHTTPServer binds in its CONSTRUCTOR (stand_up_opencode.py precedent):
+        # start() only spawns the serve_forever thread and cannot raise OSError, so the
+        # collision guard must wrap construction — a bind failure aborts here rather than
+        # letting a mount's baseURL point at whatever else is listening on the port.
+        try:
+            proxy = EgressProxy(HOST, args.port, gate, rt, aliases, root / "matters",
+                                scheduler=scheduler)
+        except OSError as ex:
+            print(f"[launcher] cannot bind {HOST}:{args.port} — refusing to start: {ex}",
+                  file=sys.stderr)
+            return 2
+        proxy.start()
+        print(f"[launcher] proxy on http://{HOST}:{args.port}/v1, models: "
+              f"{sorted(aliases)}", file=sys.stderr)
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            proxy.stop()
+        return 0
+    except Exception:
+        from harness.crashlog import capture
+        capture(root, "launcher", source=source)  # never a network send — 02 §15
+        raise
 
 
 if __name__ == "__main__":

@@ -86,6 +86,13 @@ def main(argv: list[str] | None = None) -> int:
     sess.add_argument("--agent", default=None, help="agent/persona name (with --turn)")
     sess.add_argument("--prompt", default=None, help="the turn prompt (required with --turn)")
     sess.add_argument("--model", default="gate-local/gate/extraction", help="routing model")
+    # M11 T2: the upgrade surface. Brings every known SQLite store under the
+    # privileged root to the current schema — versioned, additive-only (02 §15).
+    mig = sub.add_parser("migrate",
+                         help="upgrade the store databases to the current schema"
+                              " (run after extracting a new version, before first use)")
+    mig.add_argument("--root", default=None,
+                     help="store root (default: resolve_store_root())")
     args = ap.parse_args(argv)
 
     if args.cmd == "serve":
@@ -154,6 +161,27 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         prov.print_help()
         return 2
+    if args.cmd == "migrate":
+        from harness.migrate import MigrationError, migrate
+        root = Path(args.root) if args.root else None
+        if root is None:
+            from harness.paths import resolve_store_root
+            root, src = resolve_store_root()
+            print(f"store {root} (source: {src})")
+        try:
+            reports = migrate(root)
+        except MigrationError as ex:
+            print(f"MIGRATION FAILED: {ex}", file=sys.stderr)
+            return 1
+        for r in reports:
+            if r.status == "absent":
+                print(f"  absent  {r.path} (created on first use)")
+            elif r.steps_applied:
+                print(f"  migrated {r.path}: v{r.from_version} -> v{r.to_version}"
+                      f" ({r.steps_applied} step{'s' if r.steps_applied != 1 else ''})")
+            else:
+                print(f"  current  {r.path} (v{r.to_version})")
+        return 0
     if args.cmd == "session":
         # the session CLI lives in the installed package now (M3)
         from harness.session.cli import main_with_args
