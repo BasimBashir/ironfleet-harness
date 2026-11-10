@@ -24,6 +24,25 @@ def test_ingest_skips_scanned_and_reports(tmp_path):
     assert report["chunks"] > 0 and "chunks_per_s" in report
 
 
+def test_ingest_dir_source_accounts_for_every_file(tmp_path):
+    """POST /documents/ingest {"source": <dir>} -> ingest_source -> ingest_dir. A dir
+    holding one short .txt came back with nothing ingested AND nothing skipped: the
+    dir walker globbed only *.pdf (2026-11-09). Every file must land in a bucket."""
+    src = tmp_path / "src"
+    (src / "sub").mkdir(parents=True)
+    (src / "note.txt").write_text(
+        "The tenant paid the March rent late and the landlord issued a notice.\n",
+        encoding="utf-8")
+    (src / "sub" / "long.md").write_text("HEADING\n\n" + ("word " * 400), encoding="utf-8")
+    (src / "photo.png").write_bytes(b"\x89PNG")
+    report = ingest_dir("m-r1", [src], _store(tmp_path),
+                        embed_fn=lambda texts: [[0.1, 0.9] for _ in texts])
+    assert report["ingested"] == ["long.md"]
+    assert any(s.startswith("note.txt: ") and "words" in s for s in report["skipped"])
+    assert any(s.startswith("photo.png: ") and "unsupported" in s for s in report["skipped"])
+    assert len(report["skipped"]) == 2 and report["skipped_by_resume"] == []
+
+
 def test_ingest_resume_skips_already_stored(tmp_path):
     src = tmp_path / "doc.txt"
     src.write_text("HEADING\n\n" + ("body text here " * 100), encoding="utf-8")

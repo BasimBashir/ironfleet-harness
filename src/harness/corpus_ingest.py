@@ -30,6 +30,7 @@ from harness.vectors import VectorStore
 
 BATCH = 64                       # EmbeddingRequest.max_texts ceiling
 MIN_WORDS = 200                  # below this a source is recorded-and-skipped (scanned)
+READABLE = (".pdf", ".txt", ".md")  # what ingest_generic._files_for globs for dirs
 
 
 def extract_text(source: Path, timeout: int | None = None) -> str:
@@ -51,7 +52,17 @@ def ingest_dir(matter_ref: str, sources: list[Path], store: CorpusStore,
                     "chunks": 0, "tokens_in": 0}
     files: list[Path] = []
     for s in sources:
-        files.extend(sorted(s.glob("**/*.pdf")) if s.is_dir() else [s])
+        if not s.is_dir():
+            files.append(s)                            # a named file goes to the parser chain
+            continue
+        # every walked file lands in a bucket — the old *.pdf-only glob silently
+        # dropped .txt/.md and everything else in a directory source (2026-11-09)
+        for f in sorted(p for p in s.rglob("*") if p.is_file()):
+            if f.suffix.lower() in READABLE:
+                files.append(f)
+            else:
+                report["skipped"].append(
+                    f"{f.name}: unsupported file type {f.suffix or '(none)'!r}")
     t0 = time.perf_counter()
     for src in files:
         try:
