@@ -41,17 +41,52 @@ def _sha(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def create_user(con, username: str, password: str, *, role_id: str = "admin") -> str:
+def create_user(con, username: str, password: str, *, role_id: str = "admin",
+                must_change_password: bool = False) -> str:
     if not username or not password:
         raise ServiceError(422, "validation_failed", "username and password required")
     uid = f"u-{uuid.uuid4().hex[:12]}"
     try:
-        con.execute("INSERT INTO users(user_id, username, pw_hash, role_id, created_at)"
-                    " VALUES(?,?,?,?,?)", (uid, username, hash_password(password),
-                                           role_id, _now()))
+        con.execute("INSERT INTO users(user_id, username, pw_hash, role_id, created_at,"
+                    " state, must_change_password) VALUES(?,?,?,?,?,'active',?)",
+                    (uid, username, hash_password(password), role_id, _now(),
+                     int(must_change_password)))
     except Exception as e:  # sqlite3.IntegrityError: username taken
         raise ServiceError(409, "user_exists", f"user {username!r} exists") from e
     return uid
+
+
+def signup(con, username: str, password: str) -> dict:
+    """Public account request (B): pending + inactive until a user.admin approves.
+    Rejected names stay reserved, so any state conflict is the same 409."""
+    from harness.workflow import audit
+    if not username or not password:
+        raise ServiceError(422, "validation_failed", "username and password required")
+    uid = f"u-{uuid.uuid4().hex[:12]}"
+    try:
+        con.execute("INSERT INTO users(user_id, username, pw_hash, role_id, is_active,"
+                    " created_at, state) VALUES(?,?,?,?,0,?,'pending')",
+                    (uid, username, hash_password(password), "reader", _now()))
+    except Exception as e:  # sqlite3.IntegrityError: username taken
+        raise ServiceError(409, "user_exists", f"user {username!r} exists") from e
+    audit.append(con, matter_id="", actor=username, action="user.signup_requested",
+                 target=uid, inputs_digest=username[:200])
+    return {"user_id": uid, "state": "pending"}
+
+
+def set_password(con, principal: dict | None, password: str) -> dict:
+    """Self-service change; clears the forced-change flag (B default admin/admin)."""
+    from harness.workflow import audit
+    if principal is None:
+        raise ServiceError(401, "unauthenticated", "bearer token required")
+    if not password:
+        raise ServiceError(422, "validation_failed", "password required")
+    con.execute("UPDATE users SET pw_hash=?, must_change_password=0 WHERE user_id=?",
+                (hash_password(password), principal["user_id"]))
+    audit.append(con, matter_id="", actor=principal["username"],
+                 action="user.password_changed", target=principal["user_id"],
+                 inputs_digest="")
+    return {"ok": True}
 
 
 def _issue(con, user_id: str) -> dict:
@@ -68,7 +103,8 @@ def login(con, username: str, password: str) -> dict:
                       (username,)).fetchone()
     if row is None or not verify_password(password, row["pw_hash"]):
         raise ServiceError(401, "invalid_credentials", "bad username or password")
-    return _issue(con, row["user_id"])
+    return {**_issue(con, row["user_id"]),
+            "must_change_password": bool(row["must_change_password"])}
 
 
 def principal_for(con, token: str | None) -> dict | None:
@@ -76,8 +112,8 @@ def principal_for(con, token: str | None) -> dict | None:
     if not token:
         return None
     row = con.execute(
-        "SELECT u.user_id, u.username, u.role_id FROM tokens t JOIN users u"
-        " ON u.user_id = t.user_id WHERE t.token_hash=? AND t.revoked=0"
+        "SELECT u.user_id, u.username, u.role_id, u.must_change_password FROM tokens t"
+        " JOIN users u ON u.user_id = t.user_id WHERE t.token_hash=? AND t.revoked=0"
         " AND t.expires_at > ? AND u.is_active=1", (_sha(token), time.time())).fetchone()
     return dict(row, token=token) if row else None
 
@@ -94,4 +130,5 @@ def me(con, principal: dict | None) -> dict:
         raise ServiceError(401, "unauthenticated", "bearer token required")
     return {"user": {"user_id": principal["user_id"], "username": principal["username"]},
             "roles": [principal["role_id"]],
-            "permissions": sorted(global_perms(con, principal))}
+            "permissions": sorted(global_perms(con, principal)),
+            "must_change_password": bool(principal["must_change_password"])}

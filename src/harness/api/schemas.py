@@ -13,6 +13,15 @@ class LoginIn(BaseModel):
     password: str
 
 
+class SignupIn(BaseModel):
+    username: str
+    password: str
+
+
+class PasswordIn(BaseModel):
+    password: str
+
+
 class MatterIn(BaseModel):
     title: str
     client_ref: str | None = None
@@ -51,6 +60,7 @@ class UserCreateIn(BaseModel):
 class UserPatchIn(BaseModel):
     role_id: str | None = None
     is_active: bool | None = None
+    state: str | None = None
 
 
 class IngestIn(BaseModel):
@@ -137,3 +147,15 @@ class IntakeAnswerIn(BaseModel):
 class DebriefIn(BaseModel):
     answers: dict[str, Any]
     doc_ids: list[str] = []
+
+
+class DeadlineIn(BaseModel):
+    # no `due` field: the kernel computes it (an extra `due` key is ignored)
+    what: str
+    service_date: str
+    kind: str = "filing"
+    days: int | None = None
+    jurisdiction: str = "nz"
+    region: str | None = None
+    missed_consequence: str | None = None
+    kernel_args: dict[str, Any] = {}

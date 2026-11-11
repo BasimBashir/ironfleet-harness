@@ -139,3 +139,51 @@ def test_flag_set_with_approval_stage_parks_then_resume_finishes(tmp_path, monke
         finally:
             con.close()
     asyncio.run(main())
+
+
+def test_named_deliverables_become_pending_drafts(tmp_path, monkeypatch):
+    """A stage whose instruction says "Write memo.md" leaves an artifacts row
+    (pending review) carrying the file text; stages that name nothing add none."""
+    monkeypatch.setenv("HARNESS_DURABLE", "1")
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+
+    class _Writer(_FakeDriver):
+        async def run_turn(self, session_id, matter_ref, agent, prompt, **kw):
+            if agent == "clerk-stage-draft":
+                (self.root / "workspaces" / session_id / agent / "memo.md").write_text(
+                    "# Memo\nbody", encoding="utf-8")
+            return await super().run_turn(session_id, matter_ref, agent, prompt, **kw)
+
+    plan = "```plan\ngather|hunter|find them\ndraft|clerk|Write memo.md for the file\n```"
+    runner = FactoryRunner(_Writer(["a", "b"], root=tmp_path), store=store)
+    asyncio.run(runner.run_task(sid, "m1", "t", plan_text=plan))
+    con = connect(tmp_path / "platform.db")
+    try:
+        arts = [dict(r) for r in con.execute(
+            "SELECT kind, title, content, review_state FROM artifacts")]
+        assert arts == [{"kind": "draft", "title": "memo.md", "content": "# Memo\nbody",
+                         "review_state": "pending"}]
+    finally:
+        con.close()
+
+
+def test_completed_run_advances_the_matter_lifecycle(tmp_path, monkeypatch):
+    """The live gap: a finished run left the matter at INTAKE. Completion walks
+    the §3.1 chain to the furthest state its stages evidence, never backwards."""
+    from harness.lifecycle import statemachine
+    monkeypatch.setenv("HARNESS_DURABLE", "1")
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    runner = FactoryRunner(_FakeDriver(["a"] * 6, root=tmp_path), store=store)
+    plan = "```plan\nintake|clerk|take it\nstrategy|strategist|plan it\n```"
+    asyncio.run(runner.run_task(sid, "m1", "t", plan_text=plan))
+    asyncio.run(runner.run_task(sid, "m1", "t", plan_text="```plan\nintake|clerk|again\n```"))
+    con = connect(tmp_path / "platform.db")
+    try:
+        assert statemachine.state(con, "m1") == "STRATEGY"
+        steps = [r["target"] for r in con.execute(
+            "SELECT target FROM audit_events WHERE action='state.transition' ORDER BY rowid")]
+        assert steps == ["INTAKE", "ASSESS", "STRATEGY"]
+    finally:
+        con.close()

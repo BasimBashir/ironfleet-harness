@@ -19,6 +19,8 @@ WF = [{"stage": "s", "agent": "a", "instruction": "i"}]
 #   audit   — audit.read;  read / write — matter-scoped (membership role perms)
 ROUTES = {
     "POST /api/v1/auth/login": ("public", None, ""),
+    "POST /api/v1/auth/signup": ("public", {"username": "nx", "password": "pw"}, ""),
+    "POST /api/v1/auth/password": ("authed", {"password": "pw2"}, ""),
     "POST /api/v1/auth/refresh": ("authed", None, ""),
     "GET /api/v1/auth/me": ("authed", None, ""),
     "GET /api/v1/matters": ("authed", None, ""),
@@ -86,6 +88,8 @@ ROUTES = {
     "GET /api/v1/matters/{mid}/debrief/questions": ("read", None, ""),
     "POST /api/v1/matters/{mid}/debrief": ("write", {"answers": {"date": "2026-11-01"}}, ""),
     "GET /api/v1/matters/{mid}/deadlines": ("read", None, ""),
+    "POST /api/v1/matters/{mid}/deadlines": ("write", {"what": "defence", "days": 10,
+                                                        "service_date": "2026-11-12"}, ""),
     "GET /api/v1/matters/{mid}/lawyer-now": ("read", None, ""),
     "GET /api/v1/matters/{mid}/tokens": ("read", None, ""),
     "GET /api/v1/matters/{mid}/closure-checklist": ("read", None, ""),

@@ -7,6 +7,7 @@ reads them. One fake-driver run each proves the stages execute end to end.
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 
 from harness.session.factory import FactoryRunner, fallback_plan, load_legal_pipeline
@@ -25,6 +26,9 @@ class _FakeDriver:
 
     async def run_turn(self, session_id, matter_ref, agent, prompt, **kw):
         self.calls.append(agent)
+        # a well-behaved agent writes the deliverable its instruction names
+        for name in re.findall(r"\bWrite ([\w.-]+\.md)", prompt):
+            (self.root / "workspaces" / session_id / agent / name).write_text("x", encoding="utf-8")
         return TurnRow(ts="t", session_id=session_id, matter_ref=matter_ref, display="",
                        agent=agent, tools_used=[], output_summary=f"{agent} done",
                        docs_touched=[], trace_refs=[])
@@ -70,3 +74,27 @@ def test_mock_hearing_runs_end_to_end(tmp_path, monkeypatch):
     rows = asyncio.run(runner.run_task(sid, "m1", "/mock-hearing m1"))
     assert [r.agent for r in rows] == ["hearing-coach"]
     assert driver.calls == ["hearing-coach-stage-rehearsal"]
+
+
+def test_stage_that_writes_nothing_is_nudged_once_then_flagged(tmp_path, monkeypatch):
+    """The live t9 failure: the agent's turn ended on "Now let me read…" with
+    citation-check.md unwritten. One nudge turn; still nothing -> the summary
+    says [NO DELIVERABLE] instead of passing the stray text off as the result."""
+    monkeypatch.delenv("HARNESS_DURABLE", raising=False)
+
+    class _Lazy(_FakeDriver):
+        async def run_turn(self, session_id, matter_ref, agent, prompt, **kw):
+            self.calls.append(agent)
+            return TurnRow(ts="t", session_id=session_id, matter_ref=matter_ref, display="",
+                           agent=agent, tools_used=[], output_summary="Now let me read.",
+                           docs_touched=[], trace_refs=[])
+
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    driver = _Lazy(tmp_path)
+    stage = {"stage": "verify", "agent": "citation",
+             "instruction": "Write citation-check.md listing VERIFIED citations."}
+    row = asyncio.run(FactoryRunner(driver, store=store)._run_stage(
+        sid, "m1", "t", stage, "", ""))
+    assert driver.calls == ["citation-stage-verify"] * 2
+    assert row.output_summary.startswith("[NO DELIVERABLE: citation-check.md not written]")

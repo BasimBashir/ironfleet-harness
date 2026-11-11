@@ -540,6 +540,38 @@ function DeadlineRow({ mid, d }) {
   );
 }
 
+// the kernel computes `due` from the service date; the operator never types a due date
+function AddDeadline({ mid, onAdded }) {
+  const { perms } = useCtx();
+  const [f, setF] = useState({ what: "", kind: "filing", service_date: "", days: "" });
+  const [st, run] = useCommand();
+  const why = allowed(perms, "matter.write") ? "" : "requires matter.write";
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const add = async (e) => {
+    e.preventDefault();
+    const body = { what: f.what, kind: f.kind, service_date: f.service_date };
+    if (f.days !== "") body.days = Number(f.days);
+    if (await run(() => post(`/matters/${mid}/deadlines`, body))) { setF({ ...f, what: "", days: "" }); onAdded(); }
+  };
+  return (
+    <details className="card"><summary>Add a date</summary>
+      <form onSubmit={add} className="stack">
+        <label htmlFor="dl-what">What is due</label>
+        <input id="dl-what" required value={f.what} onChange={set("what")} />
+        <label htmlFor="dl-kind">Kind</label>
+        <select id="dl-kind" value={f.kind} onChange={set("kind")}>
+          <option value="filing">Court filing</option><option value="statutory_demand">Statutory demand</option>
+          <option value="appeal">Appeal</option><option value="settlement">Settlement milestone</option></select>
+        <label htmlFor="dl-svc">Date served</label>
+        <input id="dl-svc" type="date" required value={f.service_date} onChange={set("service_date")} />
+        <label htmlFor="dl-days">Working days (filing / settlement)</label>
+        <input id="dl-days" type="number" min="0" value={f.days} onChange={set("days")} />
+        <p><Btn why={why} type="submit" disabled={st.busy}>Add date</Btn></p>
+        <CommandError error={st.error} />
+      </form></details>
+  );
+}
+
 function Deadlines({ mid }) {
   const dl = useApi(`/matters/${mid}/deadlines`, { matter: mid });
   const rows = dl.data?.items || [];
@@ -547,6 +579,7 @@ function Deadlines({ mid }) {
     <section aria-labelledby="dl-h" className="stack">
       <div className="hdr"><h1 id="dl-h">Your dates</h1></div>
       <ErrorLine error={dl.error} onRetry={dl.reload} />
+      <AddDeadline mid={mid} onAdded={dl.reload} />
       {dl.loading ? <Loading /> : !rows.length ? <Empty>No deadlines yet. They appear when your plan is approved.</Empty> : (
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {rows.map((d) => <DeadlineRow key={d.deadline_id} mid={mid} d={d} />)}</ul>)}

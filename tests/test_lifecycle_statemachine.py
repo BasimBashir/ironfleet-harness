@@ -88,3 +88,25 @@ def test_restart_same_state(con, tmp_path):
 
 def test_state_unknown_matter_is_none(con):
     assert statemachine.state(con, "ghost") is None
+
+
+def _completed_run(con, keys, started_at):
+    con.execute("INSERT INTO executions(execution_id, matter_id, state, started_at)"
+                " VALUES('ex-1', ?, 'completed', ?)", (MATTER, started_at))
+    for n, k in enumerate(keys, 1):
+        con.execute("INSERT INTO tasks(task_id, execution_id, seq, key, state)"
+                    " VALUES(?, 'ex-1', ?, ?, 'completed')", (f"t{n}", n, k))
+    con.commit()
+
+
+def test_completed_run_walks_the_matter_forward(con):
+    _completed_run(con, ["intake", "assess", "strategy"], "2000-01-01T00:00:00+00:00")
+    statemachine.transition(con, MATTER, "INTAKE", actor="workflow")
+    assert statemachine.advance_after_run(con, "ex-1") == "STRATEGY"
+
+
+def test_operator_move_during_the_run_wins(con):
+    _completed_run(con, ["intake", "assess", "strategy", "filings", "moot"],
+                   "2000-01-01T00:00:00+00:00")
+    statemachine.transition(con, MATTER, "INTAKE")     # operator, after dispatch
+    assert statemachine.advance_after_run(con, "ex-1") == "INTAKE"

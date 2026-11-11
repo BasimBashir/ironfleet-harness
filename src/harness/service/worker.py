@@ -15,6 +15,7 @@ import logging
 import uuid
 from pathlib import Path
 
+from harness.lifecycle import statemachine
 from harness.workflow import orchestrator
 
 log = logging.getLogger("harness.worker")
@@ -51,6 +52,37 @@ def demo_body(root):
                     f" completed over {len(names)} case documents ({', '.join(names)}).")
         return body
     return bind
+
+
+def live_body(root):
+    """The production leg: the real crew (opencode driver behind the egress gate)
+    runs each claimed stage through FactoryRunner._run_stage — the body run_task
+    uses — and registers its named deliverables as pending drafts. Returns
+    (bind, driver); the caller holds driver.open_gate() open while serving."""
+    from harness.session.driver import SessionDriver
+    from harness.session.factory import FactoryRunner, register_deliverables
+    from harness.session.store import SessionStore
+    root = Path(root)
+    store = SessionStore(root)
+    driver = SessionDriver(store, base=root / "workspaces")
+    runner = FactoryRunner(driver, store=store, mode="shell-drives")
+
+    def bind(con):
+        async def body(task, prev_summary):
+            eid = task["execution_id"]
+            ex = con.execute("SELECT matter_id, session_id, input_task_text FROM executions"
+                             " WHERE execution_id=?", (eid,)).fetchone()
+            stage = next(s for s in _stages(con, eid) if s["stage"] == task["key"])
+            prev = con.execute("SELECT key FROM tasks WHERE execution_id=? AND seq<?"
+                               " ORDER BY seq DESC LIMIT 1", (eid, task["seq"])).fetchone()
+            row = await runner._run_stage(ex["session_id"], ex["matter_id"],
+                                          ex["input_task_text"], stage,
+                                          prev["key"] if prev else "", prev_summary)
+            register_deliverables(con, ex["matter_id"], eid, stage, driver.workspace_for(
+                ex["session_id"], f"{stage['agent']}-stage-{stage['stage']}", ex["matter_id"]))
+            return row.output_summary
+        return body
+    return bind, driver
 
 
 def _demo_moot(con, root: Path, eid: str) -> str:
@@ -100,6 +132,7 @@ async def drain_async(root, body_factory) -> None:
         while (eid := _first_claimable(con)) is not None:
             before = _done(con)
             await orchestrator.run(con, eid, body_factory(con), owner=owner)
+            statemachine.advance_after_run(con, eid)
             if _done(con) == before:       # nothing claimable here (leased elsewhere)
                 return
     finally:

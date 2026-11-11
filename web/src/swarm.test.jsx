@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToString } from "react-dom/server";
-import { SwarmView, durations, nodeView, parkedTask, stageOf, swarmLanes } from "./screens/RunPage.jsx";
+import { StageList, SwarmView, currentTask, durations, nodeView, parkedTask, stageOf, swarmLanes } from "./screens/RunPage.jsx";
 
 // the real 10-stage legal pipeline (data/module-e/legal_pipeline.yaml), as GET /executions/{eid}/tasks returns it
 const KEYS = [["intake", "ingestor"], ["research", "hunter"], ["strategy", "strategist"], ["attack", "adversary"],
@@ -83,5 +83,27 @@ describe("SwarmView render", () => {
     const done = view({ run: { ...run, state: "completed" }, tasks: plan(10) });
     expect(done).not.toContain(">Pause<");
     expect(done).not.toContain(">Cancel<");
+  });
+});
+
+describe("drawer stage list (A: collapsible stages)", () => {
+  const list = (over = {}) => renderToString(<StageList tasks={plan(5, 5)} runState="executing" byAgent={{}}
+    canAct live onRedirect={() => {}} force={null} {...over} />);
+  const opens = (h) => (h.match(/<details open=""/g) || []).length;
+  it("opens only the current stage: the parked approval stage, else the first unfinished", () => {
+    expect(currentTask(plan(5, 5), "executing")).toBe("t5");
+    expect(currentTask(plan(7), "waiting_human")).toBe("t6");
+    expect(currentTask(plan(10), "completed")).toBe(null);
+    expect(opens(list())).toBe(1);
+    expect(list()).toContain('<details open=""><summary><b>filings</b>');
+  });
+  it("Expand all / Collapse all override the default", () => {
+    expect(opens(list({ force: { open: true, n: 1 } }))).toBe(10);
+    expect(opens(list({ force: { open: false, n: 2 } }))).toBe(0);
+  });
+  it("keeps finished output in the DOM and Redirect gated by matter.dispatch", () => {
+    expect(list()).toContain("intake done");
+    expect(list()).toContain(">Redirect<");
+    expect(list({ canAct: false })).not.toContain(">Redirect<");
   });
 });

@@ -24,10 +24,18 @@ def bearer(request: Request) -> str | None:
     return (h[7:].strip() or None) if h.lower().startswith("bearer ") else None
 
 
+# B: with the forced-change flag set, only these may be called (fix the password
+# and learn the state); everything else 403s until it is cleared.
+_PASSWORD_OK = {"/api/v1/auth/refresh", "/api/v1/auth/me", "/api/v1/auth/password"}
+
+
 def get_principal(request: Request, con=Depends(get_con)) -> dict:
     p = auth.principal_for(con, bearer(request))
     if p is None:
         raise ServiceError(401, "unauthenticated", "bearer token required")
+    if p["must_change_password"] and request.url.path not in _PASSWORD_OK:
+        raise ServiceError(403, "password_change_required",
+                           "set a new password before using the API")
     return p
 
 

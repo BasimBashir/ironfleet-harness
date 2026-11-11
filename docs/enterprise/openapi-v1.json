@@ -127,6 +127,73 @@
         "title": "ConversationIn",
         "type": "object"
       },
+      "DeadlineIn": {
+        "properties": {
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "jurisdiction": {
+            "default": "nz",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "kernel_args": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Kernel Args",
+            "type": "object"
+          },
+          "kind": {
+            "default": "filing",
+            "title": "Kind",
+            "type": "string"
+          },
+          "missed_consequence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missed Consequence"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "service_date": {
+            "title": "Service Date",
+            "type": "string"
+          },
+          "what": {
+            "title": "What",
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "service_date"
+        ],
+        "title": "DeadlineIn",
+        "type": "object"
+      },
       "DebriefIn": {
         "properties": {
           "answers": {
@@ -474,6 +541,19 @@
         "title": "NoteIn",
         "type": "object"
       },
+      "PasswordIn": {
+        "properties": {
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "PasswordIn",
+        "type": "object"
+      },
       "ReasonIn": {
         "properties": {
           "reason": {
@@ -548,6 +628,24 @@
           "decision"
         ],
         "title": "ReviewIn",
+        "type": "object"
+      },
+      "SignupIn": {
+        "properties": {
+          "password": {
+            "title": "Password",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "SignupIn",
         "type": "object"
       },
       "TextIn": {
@@ -627,6 +725,17 @@
               }
             ],
             "title": "Role Id"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
           }
         },
         "title": "UserPatchIn",
@@ -1170,6 +1279,42 @@
         "summary": "Me"
       }
     },
+    "/api/v1/auth/password": {
+      "post": {
+        "operationId": "set_password_api_v1_auth_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Password"
+      }
+    },
     "/api/v1/auth/refresh": {
       "post": {
         "operationId": "refresh_api_v1_auth_refresh_post",
@@ -1184,6 +1329,42 @@
           }
         },
         "summary": "Refresh"
+      }
+    },
+    "/api/v1/auth/signup": {
+      "post": {
+        "operationId": "signup_api_v1_auth_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Signup"
       }
     },
     "/api/v1/conversations/{cid}/messages": {
@@ -2188,6 +2369,51 @@
           }
         },
         "summary": "Deadlines"
+      },
+      "post": {
+        "operationId": "register_deadline_api_v1_matters__mid__deadlines_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mid",
+            "required": true,
+            "schema": {
+              "title": "Mid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeadlineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Deadline"
       }
     },
     "/api/v1/matters/{mid}/debrief": {

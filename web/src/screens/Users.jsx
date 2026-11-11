@@ -11,6 +11,8 @@ export function UsersView({ users, roles, canAdmin, st, onCreate, onPatch }) {
   const [f, setF] = useState({ username: "", password: "", role_id: "reader" });
   if (!canAdmin) return <p className="table__empty">🔒 User administration requires the user.admin permission.</p>;
   const roleIds = (roles || []).map((r) => r.role_id);
+  const stateLabel = (u) => u.state === "pending" ? "Pending" : u.state === "rejected" ? "Rejected"
+    : u.must_change_password ? "Must set password" : u.is_active ? "Active" : "Deactivated";
   const submit = async (e) => {
     e.preventDefault();
     if (await onCreate(f)) setF({ username: "", password: "", role_id: f.role_id });
@@ -19,16 +21,25 @@ export function UsersView({ users, roles, canAdmin, st, onCreate, onPatch }) {
     <div className="stack">
       <CommandError error={st.error} />
       <table className="table" aria-label="Users">
-        <thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">State</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
         <tbody>{(users || []).map((u) => (
           <tr key={u.user_id}>
             <td>{u.username} <span className="id">{u.user_id}</span></td>
-            <td><select aria-label={`Role for ${u.username}`} value={u.role_id} disabled={st.busy}
+            <td>{u.state === "pending" ? "reader" : <select aria-label={`Role for ${u.username}`} value={u.role_id} disabled={st.busy}
               onChange={(e) => onPatch(u.user_id, { role_id: e.target.value })}>
-              {roleIds.map((r) => <option key={r} value={r}>{r}</option>)}</select></td>
-            <td>{u.is_active ? "Active" : "Deactivated"}</td>
-            <td><button type="button" className="btn" disabled={st.busy}
-              onClick={() => onPatch(u.user_id, { is_active: !u.is_active })}>{u.is_active ? "Deactivate" : "Reactivate"}</button></td>
+              {roleIds.map((r) => <option key={r} value={r}>{r}</option>)}</select>}</td>
+            <td>{stateLabel(u)}</td>
+            <td>{u.state === "pending" ? (
+              <>
+                <button type="button" className="btn" disabled={st.busy}
+                  onClick={() => onPatch(u.user_id, { state: "active" })}>Approve</button>{" "}
+                <button type="button" className="btn" disabled={st.busy}
+                  onClick={() => onPatch(u.user_id, { state: "rejected" })}>Reject</button>
+              </>
+            ) : (
+              <button type="button" className="btn" disabled={st.busy}
+                onClick={() => onPatch(u.user_id, { is_active: !u.is_active })}>{u.is_active ? "Deactivate" : "Reactivate"}</button>
+            )}</td>
           </tr>))}</tbody>
       </table>
       <form className="card qcard" onSubmit={submit}>

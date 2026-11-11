@@ -34,7 +34,8 @@ function useRoute() {
   return route;
 }
 
-function Login({ onDone }) {
+export function Login({ onDone, initialView = "signin" }) {
+  const [view, setView] = useState(initialView); // signin | signup | sent
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [err, setErr] = useState(null);
@@ -42,11 +43,40 @@ function Login({ onDone }) {
     e.preventDefault();
     setErr(null);
     try {
+      if (view === "signup") {
+        await post("/auth/signup", { username: u, password: p });
+        setView("sent");
+        return;
+      }
       const r = await post("/auth/login", { username: u, password: p });
       setToken(r.data.token);
       onDone();
     } catch (x) { setErr(x); }
   };
+  if (view !== "signin") return (
+    <main>
+      <form className="card login" onSubmit={submit} aria-labelledby="login-h">
+        {view === "signup" ? (
+          <>
+            <h1 id="login-h">Request an account</h1>
+            <label htmlFor="u">Username</label>
+            <input id="u" type="text" autoComplete="username" value={u} onChange={(e) => setU(e.target.value)} required />
+            <label htmlFor="p">Password</label>
+            <input id="p" type="password" autoComplete="new-password" value={p}
+              onChange={(e) => setP(e.target.value)} required aria-describedby={err ? "login-err" : undefined} />
+            {err ? <p className="field-error" id="login-err" role="alert">{err.message}</p> : null}
+            <p><button className="btn btn--primary" type="submit">Send request</button></p>
+          </>
+        ) : (
+          <>
+            <h1 id="login-h">Request sent</h1>
+            <p role="status">✓ Request sent. An administrator must approve it before you can sign in.</p>
+          </>
+        )}
+        <p><button type="button" className="btn" onClick={() => { setView("signin"); setErr(null); }}>← Back to sign in</button></p>
+      </form>
+    </main>
+  );
   return (
     <main>
       <form className="card login" onSubmit={submit} aria-labelledby="login-h">
@@ -58,6 +88,38 @@ function Login({ onDone }) {
           onChange={(e) => setP(e.target.value)} required aria-describedby={err ? "login-err" : undefined} />
         {err ? <p className="field-error" id="login-err" role="alert">{err.message}</p> : null}
         <p><button className="btn btn--primary" type="submit">Sign in</button></p>
+        <p><button type="button" className="btn" onClick={() => { setView("signup"); setErr(null); }}>Request an account →</button></p>
+      </form>
+    </main>
+  );
+}
+
+export function ChangePassword({ onDone }) {
+  const [p1, setP1] = useState("");
+  const [p2, setP2] = useState("");
+  const [err, setErr] = useState(null);
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr(null);
+    if (p1 !== p2) { setErr({ message: "Passwords do not match" }); return; }
+    try {
+      await post("/auth/password", { password: p1 });
+      onDone();
+    } catch (x) { setErr(x); }
+  };
+  return (
+    <main>
+      <form className="card login" onSubmit={submit} aria-labelledby="cp-h">
+        <h1 id="cp-h">Set a new password</h1>
+        <p>This account still uses its default password — choose a new one to continue.</p>
+        <label htmlFor="cp1">New password</label>
+        <input id="cp1" type="password" autoComplete="new-password" value={p1}
+          onChange={(e) => setP1(e.target.value)} required />
+        <label htmlFor="cp2">Repeat new password</label>
+        <input id="cp2" type="password" autoComplete="new-password" value={p2}
+          onChange={(e) => setP2(e.target.value)} required aria-describedby={err ? "cp-err" : undefined} />
+        {err ? <p className="field-error" id="cp-err" role="alert">{err.message}</p> : null}
+        <p><button className="btn btn--primary" type="submit">Save and continue</button></p>
       </form>
     </main>
   );
@@ -219,5 +281,6 @@ export default function App() {
   }, [logout]);
   if (!authed) return <Login onDone={() => setAuthed(true)} />;
   if (!me.data) return me.error ? <Login onDone={() => { setAuthed(true); me.reload(); }} /> : null;
+  if (me.data.must_change_password) return <ChangePassword onDone={me.reload} />;
   return <Shell me={me.data} onLogout={logout} />;
 }

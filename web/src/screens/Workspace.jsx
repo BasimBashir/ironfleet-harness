@@ -68,13 +68,15 @@ function Overview({ mid, m }) {
   const lc = useApi(`/matters/${mid}/lifecycle`, { matter: mid });
   const runs = useApi(`/matters/${mid}/runs`, { matter: mid });
   const [task, setTask] = useState("");
-  const [st, run] = useCommand();
+  const [st, run, reset] = useCommand();
   const canDispatch = allowed(perms, "matter.dispatch");
   const canWrite = allowed(perms, "matter.write");
+  // the execution list moving on is the confirmation; until now nothing ever cleared "Pending…"
+  useEffect(() => { if (st.pending) reset(); }, [runs.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const move = async (to) => { if (await run(() => post(`/matters/${mid}/lifecycle`, { to }))) lc.reload(); };
   const dispatch = async (e) => {
     e.preventDefault();
-    if (await run(() => post(`/matters/${mid}/executions`, { task_text: task }))) setTask("");
+    if (await run(() => post(`/matters/${mid}/executions`, { task_text: task }))) { setTask(""); runs.reload(); }
   };
   const archive = async () => { if (await run(() => post(`/matters/${mid}/state`, { to: m.archived ? "active" : "archived" }))) location.reload(); };
   return (

@@ -1,6 +1,6 @@
 /* Layout only, ported from mockup B (design/mockups/b-chambers.html). Colours, type and
    components come from design/system/tokens.css + components.css; nothing raw here. */
-.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sr-only{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .skip{position:absolute;left:-999px} .skip:focus{left:8px;top:8px;z-index:20;background:var(--raise);padding:var(--sp-2)}
 
 .top{display:flex;align-items:center;gap:18px;height:52px;padding:0 20px;background:var(--raise);border-bottom:1px solid var(--rule)}
@@ -123,3 +123,15 @@ fieldset.qcard legend + *{clear:both}
 .bar2{height:5px;border-radius:999px;background:var(--rule);overflow:hidden;margin:6px 0 2px} .bar2 i{display:block;height:100%;background:var(--accent)}
 ul.links{margin:4px 0 0;padding-left:18px} ul.links li{margin:3px 0}
 @media (max-width:1024px){.bottom{grid-template-columns:1fr}}
+/* 320px reflow: the 232px rail leaves main ~32px wide, the top bar cannot wrap, tables
+   push the document to 704px — all three below. Rail stacks on top so firm nav survives. */
+@media (max-width:700px){
+  .shell{grid-template-columns:1fr}
+  .rail{display:flex;flex-wrap:wrap;gap:2px 8px;border-right:0;border-bottom:1px solid var(--rule);padding:8px 12px}
+  .rail h2{display:none}
+  .top{flex-wrap:wrap;height:auto;min-height:52px;padding:8px 12px;gap:8px 10px}
+  .search{order:9;flex-basis:100%;max-width:none}
+  main{padding:14px 12px}
+  .table{display:block;overflow-x:auto}   /* scroll inside the table, never the document */
+  .facts div{grid-template-columns:1fr}
+}

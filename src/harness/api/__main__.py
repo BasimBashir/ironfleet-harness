@@ -1,11 +1,11 @@
 # src/harness/api/__main__.py — python -m harness.api seed-operator|serve (M7 plan §2)
-"""seed-operator: create the single admin (password from HARNESS_OPERATOR_PASSWORD
-or a prompt — never an argv flag, so it stays out of shell history).
-serve: uvicorn on 127.0.0.1 only (02 §12: loopback bind, no TLS)."""
+"""seed-operator: create the admin. With HARNESS_OPERATOR_PASSWORD set that is
+the password; without it the account is admin/admin and must set a real password
+at first sign-in (B, ask #8). serve: uvicorn on 127.0.0.1 only (02 §12: loopback
+bind, no TLS)."""
 from __future__ import annotations
 
 import argparse
-import getpass
 import os
 import sys
 from pathlib import Path
@@ -17,24 +17,30 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m harness.api")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("seed-operator")
-    s.add_argument("--username", required=True)
+    s.add_argument("--username", default="admin")
     v = sub.add_parser("serve")
     v.add_argument("--port", type=int, default=8765)
-    v.add_argument("--worker", choices=["demo"], default=None,
-                   help="run executions in-process with the named demo body (M8)")
+    v.add_argument("--worker", choices=["demo", "live"], default=None,
+                   help="run executions in-process: demo body (M8) or the live opencode crew")
     v.add_argument("--web-dist", default=str(Path(__file__).resolve().parents[3] / "web" / "dist"),
                    help="built React client to serve at / (skipped if missing)")
     args = ap.parse_args(argv)
     root = resolve_store_root()[0]
     if args.cmd == "seed-operator":
         from harness.service import auth, system
-        pw = os.environ.get("HARNESS_OPERATOR_PASSWORD") or getpass.getpass("password: ")
+        pw = os.environ.get("HARNESS_OPERATOR_PASSWORD")
         con = system.open_db(root)
         try:
-            uid = auth.create_user(con, args.username, pw, role_id="admin")
+            if pw:
+                uid = auth.create_user(con, args.username, pw, role_id="admin")
+                print(f"operator {args.username} created ({uid}) in {root}")
+            else:
+                uid = auth.create_user(con, args.username, "admin", role_id="admin",
+                                       must_change_password=True)
+                print(f"operator {args.username} created ({uid}) in {root} —"
+                      " password 'admin'; a new password is required at first sign-in")
         finally:
             con.close()
-        print(f"operator {args.username} created ({uid}) in {root}")
         return 0
     import uvicorn
     from harness.api.app import create_app

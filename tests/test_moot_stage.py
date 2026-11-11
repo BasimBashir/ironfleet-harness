@@ -171,6 +171,38 @@ def test_moot_stage_capped_raises_and_no_verdict_passed(tmp_path, monkeypatch):
         con.close()
 
 
+def test_moot_stage_supersedes_fixed_and_stale_rows(tmp_path, monkeypatch):
+    """A stale blocking row from an earlier run and a round-1 attack the clerk
+    fixed (not re-raised in round 2) both close as `fixed`: the run PASSES
+    instead of every once-filed flaw blocking forever."""
+    monkeypatch.setenv("HARNESS_DURABLE", "1")
+    store = SessionStore(tmp_path)
+    sid = store.new_session(MATTER)
+    attack = "[CRITICAL] fabricated_case: invented court"
+    driver = _MootDriver([attack, "", "", "revised"] + [""] * 12, tmp_path)
+    runner = FactoryRunner(driver, store=store)
+    stage = {"stage": "moot", "agent": "clerk", "gate": "moot",
+             "approval": "filing", "instruction": "moot"}
+    ws = tmp_path / "workspaces" / sid / "clerk-stage-moot"
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / DOC).write_text(_clean_draft(), encoding="utf-8")
+    _store(tmp_path)
+    con = connect(tmp_path / "platform.db")
+    eid = orchestrator.create_execution(con, MATTER, sid, "t", [stage])
+    dossier.append(con, MATTER, "flaws", {
+        "flaw_id": f"F-moot-{MATTER}-old-r0-0", "class": "wrong_deadline",
+        "severity": "critical", "doc": DOC, "status": "open", "detector": "moot-check",
+        "detail": "stale"})
+    con.close()
+    asyncio.run(runner._run_stage(sid, MATTER, "t", stage, "filings", "drafted"))
+    con = connect(tmp_path / "platform.db")
+    try:
+        assert moot_gate.last_verdict(con, MATTER, eid)["verdict"] == "PASSED"
+        assert dossier.read(con, MATTER, "flaws")["open"] == []
+    finally:
+        con.close()
+
+
 def test_moot_stage_pipeline_yaml_has_gate_after_filings():
     """The legal pipeline data: filings no longer carries the approval; the moot
     stage does, with gate: moot, and sits between filings and advice."""

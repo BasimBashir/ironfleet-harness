@@ -111,21 +111,28 @@ def create_app(store_root, *, sse_heartbeat_s: float = 15.0, sse_poll_s: float =
     demo body as one lifespan task (harness.service.worker)."""
     lifespan = None
     if worker is not None:
-        if worker != "demo":
+        if worker not in ("demo", "live"):
             raise ValueError(f"unknown worker body: {worker!r}")
         import asyncio
-        from contextlib import asynccontextmanager
+        from contextlib import asynccontextmanager, nullcontext
 
         from harness.service import worker as _worker
 
         @asynccontextmanager
         async def lifespan(_app):
-            task = asyncio.create_task(_worker.loop(
-                store_root, _worker.demo_body(store_root), poll_s=worker_poll_s))
+            if worker == "live":             # real crew: the egress gate stays bound while serving
+                bind, driver = _worker.live_body(store_root)
+                gate = driver.open_gate()
+            else:
+                bind, gate = _worker.demo_body(store_root), nullcontext()
+            # build_gate probes providers with asyncio.run, illegal on this loop: enter off-loop
+            await asyncio.to_thread(gate.__enter__)
+            task = asyncio.create_task(_worker.loop(store_root, bind, poll_s=worker_poll_s))
             try:
                 yield
             finally:
                 task.cancel()
+                await asyncio.to_thread(gate.__exit__, None, None, None)
 
     app = FastAPI(title="IronFleet harness API", version="1", lifespan=lifespan)
     app.state.store_root = Path(store_root)

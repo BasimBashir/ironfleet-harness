@@ -7,12 +7,13 @@ from harness.service import auth, authz
 from harness.workflow import audit
 
 PERM = "user.admin"
-_COLS = "user_id, username, role_id, is_active, created_at"  # never pw_hash
+_COLS = "user_id, username, role_id, is_active, created_at, state, must_change_password"  # never pw_hash
 
 
 def _row(con, uid: str) -> dict | None:
     r = con.execute(f"SELECT {_COLS} FROM users WHERE user_id=?", (uid,)).fetchone()
-    return None if r is None else {**dict(r), "is_active": bool(r["is_active"])}
+    return None if r is None else {**dict(r), "is_active": bool(r["is_active"]),
+                                   "must_change_password": bool(r["must_change_password"])}
 
 
 def _check_role(con, role_id) -> None:
@@ -56,12 +57,21 @@ def patch(con, principal: dict | None, user_id: str, body: dict) -> dict:
         if body.get("is_active") is not None:
             con.execute("UPDATE users SET is_active=? WHERE user_id=?",
                         (int(bool(body["is_active"])), user_id))
+        if body.get("state") is not None:   # B: the admin's signup decision
+            if body["state"] not in ("active", "rejected"):
+                raise authz.ServiceError(422, "validation_failed",
+                                         "state must be 'active' or 'rejected'")
+            con.execute("UPDATE users SET state=?, is_active=? WHERE user_id=?",
+                        (body["state"], int(body["state"] == "active"), user_id))
         # nobody left to administer users is unrecoverable from the UI
         if not con.execute("SELECT 1 FROM users u JOIN role_permissions rp ON rp.role_id=u.role_id"
                            " WHERE u.is_active=1 AND rp.perm=?", (PERM,)).fetchone():
             raise authz.ServiceError(409, "invalid_transition",
                                      "this change would leave no active user administrator")
-        audit.append(con, matter_id="", actor=principal["username"], action="user.updated",
+        action = ("user.approved" if body.get("state") == "active"
+                  else "user.rejected" if body.get("state") == "rejected"
+                  else "user.updated")
+        audit.append(con, matter_id="", actor=principal["username"], action=action,
                      target=user_id, inputs_digest=str(sorted(body.items()))[:200])
         con.execute("COMMIT")
     except Exception:

@@ -264,6 +264,20 @@ def deadline_list(con, principal: dict, mid: str, *, limit: int = 50,
     return _page(dossier.read(con, mid, "deadlines")["deadlines"], limit, cursor)
 
 
+def deadline_register(con, principal: dict, mid: str, body: dict) -> dict:
+    """The operator's way to put a kernel row in the register (the plugin's
+    ironfleet_deadline_register) — the moot objection needs one for any draft
+    that raises a statutory demand, and no agent stage can write it."""
+    authz.require(con, principal, WRITE, mid)
+    b = dict(body)
+    kernel_args = b.pop("kernel_args", None) or {}
+    try:
+        return deadlines.register(con, mid, b.pop("what"), b.pop("service_date"),
+                                  actor=principal["username"], **b, **kernel_args)
+    except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+        raise _bad(exc) from None
+
+
 def lawyer_now_read(con, principal: dict, mid: str) -> dict:
     authz.require(con, principal, authz.READ, mid)
     res = lawyer_now.evaluate(con, mid, actor="safety")

@@ -6,7 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 
 from harness.api.deps import get_con, get_principal, page, paged
-from harness.api.schemas import DebriefIn, FactsIn, IntakeAnswerIn, NoteIn, ToIn
+from harness.api.schemas import DeadlineIn, DebriefIn, FactsIn, IntakeAnswerIn, NoteIn, ToIn
 from harness.service import lifecycle_api as lc
 
 router = APIRouter(prefix="/api/v1/matters/{mid}")
@@ -97,6 +97,11 @@ def debrief(mid: str, body: DebriefIn, p=P, con=C):
 @router.get("/deadlines")
 def deadlines(mid: str, pg=Depends(page), p=P, con=C):
     return paged(lc.deadline_list(con, p, mid, **pg))
+
+
+@router.post("/deadlines", status_code=201)
+def register_deadline(mid: str, body: DeadlineIn, p=P, con=C):
+    return lc.deadline_register(con, p, mid, body.model_dump())
 
 
 @router.get("/lawyer-now")

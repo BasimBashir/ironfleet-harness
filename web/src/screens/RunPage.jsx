@@ -18,6 +18,7 @@ export function RunDrawer({ rid, mid, onClose }) {
   const tk = useApi(matter ? `/matters/${matter}/tokens` : null, { matter });
   const [text, setText] = useState("");
   const [st, cmd] = useCommand();
+  const [force, setForce] = useState(null);             // Expand/Collapse all; n re-applies a repeat press
   const canAct = allowed(perms, "matter.dispatch");     // 05 §12: hidden, not disabled
   if (run.error) return <ErrorLine error={run.error} onRetry={run.reload} />;
   if (!run.data) return <Loading />;
@@ -36,27 +37,19 @@ export function RunDrawer({ rid, mid, onClose }) {
         <dt>Started</dt><dd>{fmtAgo(r.started_at)}</dd>
         <dt>Tokens</dt><dd className="tokens">matter total {fmtTokens(tk.data?.total?.all)} · in {fmtTokens(tk.data?.total?.in)} · out {fmtTokens(tk.data?.total?.out)} · thinking {fmtTokens(tk.data?.total?.thinking)}</dd>
       </dl>
-      <h3 style={{ fontSize: "var(--fs-sm)" }}>Stages</h3>
+      <div className="hdr">
+        <h3 style={{ fontSize: "var(--fs-sm)" }}>Stages</h3>
+        <span className="act">
+          <button type="button" className="btn" onClick={() => setForce((f) => ({ open: true, n: (f?.n || 0) + 1 }))}>Expand all</button>{" "}
+          <button type="button" className="btn" onClick={() => setForce((f) => ({ open: false, n: (f?.n || 0) + 1 }))}>Collapse all</button>
+        </span>
+      </div>
       {tasks.loading ? <Loading rows={2} /> : (
-        <ol className="timeline timeline--activity">
-          {(tasks.data || []).map((t) => {
-            const a = byAgent[t.agent_id];
-            const parked = r.state === "waiting_human" && t.approval_kind && t.state === "completed";
-            return (
-              <li key={t.task_id} data-state={t.state === "completed" ? "done" : undefined}>
-                <b>{t.key}</b> <span className="muted">· {t.agent_id || "agent"}</span>{" "}
-                <StatusChip kind="agent" state={parked ? "waiting_human" : t.state} />
-                {a ? <div className="tokens">{fmtTokens(a.all)} · in {fmtTokens(a.in)} · out {fmtTokens(a.out)} · think {fmtTokens(a.thinking)}</div> : null}
-                {t.result_summary ? <p style={{ margin: "4px 0", whiteSpace: "pre-wrap" }}>{t.result_summary}</p> : null}
-                {t.attempts > 1 ? <p className="muted">attempt {t.attempts} of {t.max_attempts}</p> : null}
-                {canAct && t.state === "pending" && live ? (
-                  <button type="button" className="btn" onClick={() => {
-                    const instruction = prompt(`New instruction for stage "${t.key}"`);
-                    if (instruction) cmd(() => post(`/executions/${rid}/redirect`, { task_id: t.task_id, instruction }));
-                  }}>Redirect</button>) : null}
-              </li>);
-          })}
-        </ol>)}
+        <StageList tasks={tasks.data} runState={r.state} byAgent={byAgent} canAct={canAct} live={live} force={force}
+          onRedirect={(t) => {
+            const instruction = prompt(`New instruction for stage "${t.key}"`);
+            if (instruction) cmd(() => post(`/executions/${rid}/redirect`, { task_id: t.task_id, instruction }));
+          }} />)}
       <CommandError error={st.error} />
       {st.pending ? <p className="muted" role="status">Pending… waiting for the worker to confirm.</p> : null}
       {canAct && live ? (
@@ -110,6 +103,41 @@ export function parkedTask(tasks, runState) {
   if (runState !== "waiting_human") return null;
   const last = [...(tasks || [])].sort((a, b) => a.seq - b.seq).filter((t) => t.state === "completed").at(-1);
   return last?.approval_kind ? last.task_id : null;
+}
+
+// the stage that needs attention: the parked approval stage, else the first unfinished one
+export function currentTask(tasks, runState) {
+  return parkedTask(tasks, runState)
+    ?? [...(tasks || [])].sort((a, b) => a.seq - b.seq).find((t) => t.state !== "completed")?.task_id ?? null;
+}
+
+// drawer stage list (A): each stage collapses; only the current one opens by default.
+// The key folds in force.n and isCur so a row re-takes its default only on a button press or a
+// change of current stage — a manual toggle survives the polling re-renders.
+export function StageList({ tasks, runState, byAgent, canAct, live, onRedirect, force }) {
+  const cur = currentTask(tasks, runState);
+  return (
+    <ol className="timeline timeline--activity">
+      {(tasks || []).map((t) => {
+        const a = byAgent[t.agent_id];
+        const parked = runState === "waiting_human" && t.approval_kind && t.state === "completed";
+        const isCur = t.task_id === cur;
+        return (
+          <li key={`${t.task_id}-${force?.n ?? 0}-${isCur}`} data-state={t.state === "completed" ? "done" : undefined}>
+            <details open={force ? force.open : isCur}>
+              <summary><b>{t.key}</b> <span className="muted">· {t.agent_id || "agent"}</span>{" "}
+                <StatusChip kind="agent" state={parked ? "waiting_human" : t.state} />
+                {a ? <span className="tokens"> · {fmtTokens(a.all)}</span> : null}</summary>
+              {a ? <div className="tokens">in {fmtTokens(a.in)} · out {fmtTokens(a.out)} · think {fmtTokens(a.thinking)}</div> : null}
+              {t.result_summary ? <p style={{ margin: "4px 0", whiteSpace: "pre-wrap" }}>{t.result_summary}</p> : null}
+              {t.attempts > 1 ? <p className="muted">attempt {t.attempts} of {t.max_attempts}</p> : null}
+              {canAct && t.state === "pending" && live ? (
+                <button type="button" className="btn" onClick={() => onRedirect(t)}>Redirect</button>) : null}
+            </details>
+          </li>);
+      })}
+    </ol>
+  );
 }
 
 export function stageOf(tasks) {

@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS evidence(
 -- M7 API tables (enterprise 03 §2, 04): additive only.
 CREATE TABLE IF NOT EXISTS users(
   user_id TEXT PRIMARY KEY, username TEXT UNIQUE, pw_hash TEXT, role_id TEXT,
-  is_active INTEGER DEFAULT 1, created_at TEXT);
+  is_active INTEGER DEFAULT 1, created_at TEXT,
+  state TEXT DEFAULT 'active', must_change_password INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS tokens(
   token_hash TEXT PRIMARY KEY, user_id TEXT, kind TEXT, expires_at REAL,
   revoked INTEGER DEFAULT 0, created_at TEXT);
@@ -135,4 +136,9 @@ def connect(path: Path) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.executescript(SCHEMA)
+    have = {r["name"] for r in con.execute("PRAGMA table_info(users)")}
+    if "state" not in have:      # pre-B databases: additive migration (2026-11-11)
+        con.execute("ALTER TABLE users ADD COLUMN state TEXT DEFAULT 'active'")
+    if "must_change_password" not in have:
+        con.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0")
     return con

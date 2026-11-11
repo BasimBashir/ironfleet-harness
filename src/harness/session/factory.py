@@ -231,6 +231,19 @@ def _open_rows(con, matter_ref: str) -> list[dict]:
     return dossier.read(con, matter_ref, "flaws")["open"]
 
 
+def _supersede(con, matter_ref: str, prefix: str, why: str) -> None:
+    """Mark open moot rows whose flaw_id starts with `prefix` fixed (same flaw_id,
+    status fixed — dossier.read keeps the latest event). Without this a flaw
+    filed once stayed open forever and no later round could ever be clean."""
+    from harness.lifecycle import dossier
+    for r in _open_rows(con, matter_ref):
+        if str(r.get("flaw_id", "")).startswith(prefix):
+            dossier.append(con, matter_ref, "flaws", {
+                **{k: r.get(k) for k in ("flaw_id", "matter_id", "class", "severity",
+                                         "doc", "detector")},
+                "status": "fixed", "detail": f"superseded: {why}"}, actor="moot-gate")
+
+
 def _ledger_append(con, matter_ref: str, result: dict, run_id: str, *,
                    round_no: int) -> None:
     """Every mechanical flaw row lands in the flaws register (the ledger), with
@@ -243,6 +256,27 @@ def _ledger_append(con, matter_ref: str, result: dict, run_id: str, *,
             "doc": result.get("path", ""), "status": "open",
             "detector": f.get("detector", "moot-check"),
             "detail": (f.get("detail") or "")[:400]})
+
+
+def register_deliverables(con, matter_id: str, execution_id: str, stage: dict, ws) -> int:
+    """The files a stage's instruction names ("Write X.md") become reviewable
+    drafts: one `artifacts` row each, review_state pending. A re-run of the stage
+    replaces its row (new content goes back to pending review)."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    n = 0
+    for name in re.findall(r"\bWrite ([\w.-]+\.md)", stage.get("instruction", "")):
+        p = Path(ws) / name
+        if not p.is_file():
+            continue
+        con.execute(
+            "INSERT OR REPLACE INTO artifacts(artifact_id, matter_id, execution_id, kind,"
+            " title, content, review_state, created_at, updated_at)"
+            " VALUES(?,?,?,?,?,?,'pending',?,?)",
+            (f"art-{execution_id}-{stage['stage']}-{p.stem}", matter_id, execution_id,
+             stage["stage"], name, p.read_text(encoding="utf-8", errors="replace"), now, now))
+        n += 1
+    return n
 
 
 class FactoryRunner:
@@ -388,7 +422,8 @@ class FactoryRunner:
         # at that path" + denied reads) — in-cwd reads are the path that works.
         if self.store:
             for src in (Path(self.store.root) / "workspaces" / session_id).glob("*/*.md"):
-                if ".opencode" in src.parts or src.parent == ws:
+                # from-* are earlier forwards: re-forwarding them nests the names past MAX_PATH
+                if ".opencode" in src.parts or src.parent == ws or src.name.startswith("from-"):
                     continue
                 dest = ws / f"from-{src.parent.name}--{src.name}"
                 if not dest.exists():
@@ -403,6 +438,17 @@ class FactoryRunner:
         # the spawn needed: the JSONL row and the acceptance checks read `agent`
         # by name, and "hunter-stage-gather" is an implementation detail.
         row.agent = agent
+        # A turn that ends on "Now let me read…" with the named deliverable unwritten
+        # is not done: one nudge turn, then the summary says so instead of looking done.
+        want = re.findall(r"\bWrite ([\w.-]+\.md)", instruction)
+        if want and not any((ws / f).exists() for f in want):
+            row = await self.driver.run_turn(
+                session_id, matter_ref, fname,
+                f"Your last turn ended before you wrote {want[0]}. Do the work and write "
+                f"it now.\n\n{prompt}", classification=classification, model=STAGE_MODEL)
+            row.agent = agent
+            if not any((ws / f).exists() for f in want):
+                row.output_summary = f"[NO DELIVERABLE: {want[0]} not written] {row.output_summary}"
         for text in self._drain_injections(agent):
             # P7's interjection: continue the stage's OWN opencode session by id
             # when we have it, else a fresh turn in the same workspace.
@@ -461,6 +507,8 @@ class FactoryRunner:
             # pre-pass: the mechanical floor over the drafted document
             result = moot_gate.moot_check(con, matter_ref, str(doc), store=store)
             baseline = _sev_counts(result)
+            # this run re-checks the document: earlier runs' rows are stale
+            _supersede(con, matter_ref, f"F-moot-{matter_ref}-", f"re-checked by {run_id}")
             _ledger_append(con, matter_ref, result, run_id, round_no=0)
             clean = 0
             rounds = 0
@@ -481,9 +529,11 @@ class FactoryRunner:
                                                       classification=classification,
                                                       model=STAGE_MODEL)
                     attacks.extend(_parse_attack_rows(arow.output_summary))
+                # attackers saw the open rows and re-raise what still stands
+                _supersede(con, matter_ref, f"F-{run_id}-a", f"not re-raised in round {rounds}")
                 for j, a in enumerate(attacks):
                     dossier.append(con, matter_ref, "flaws", {
-                        "flaw_id": f"F-{run_id}-a{j}", "class": a["class"],
+                        "flaw_id": f"F-{run_id}-a{rounds}-{j}", "class": a["class"],
                         "severity": a["severity"], "doc": self._MOOT_DOC,
                         "status": "open", "detector": "moot-round",
                         "detail": a["detail"]}, actor=attacker)
@@ -503,6 +553,7 @@ class FactoryRunner:
                     revise_prompt, classification=classification, model=STAGE_MODEL)
                 result = moot_gate.moot_check(con, matter_ref, str(doc), store=store)
                 cand = _sev_counts(result)
+                _supersede(con, matter_ref, f"F-{run_id}-r", f"re-checked in round {rounds}")
                 _ledger_append(con, matter_ref, result, run_id, round_no=rounds)
                 cmp = moot_gate.compare(baseline, cand)
                 if cmp["keep"]:
@@ -562,9 +613,14 @@ class FactoryRunner:
                                             prev_stage, prev_summary,
                                             classification=classification)
                 rows.append(row)
+                register_deliverables(con, matter_ref, eid, stage, self.driver.workspace_for(
+                    session_id, f"{stage['agent']}-stage-{stage['stage']}", matter_ref,
+                    classification))
                 return row.output_summary
 
             await orchestrator.run(con, eid, body, owner=orchestrator.new_owner())
+            from harness.lifecycle import statemachine
+            statemachine.advance_after_run(con, eid)
             return rows
         finally:
             con.close()

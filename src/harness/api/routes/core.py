@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 
 from harness.api.deps import get_con, get_principal, page, paged
 from harness.api.schemas import (IngestIn, LoginIn, MatterIn, MatterPatch, MemberIn,
-                                 ReviewIn, ToIn, UserCreateIn, UserPatchIn)
+                                 PasswordIn, ReviewIn, SignupIn, ToIn, UserCreateIn,
+                                 UserPatchIn)
 from harness.service import auth, conversations, documents, matters, usage, users
 
 router = APIRouter(prefix="/api/v1")
@@ -17,6 +18,16 @@ C = Depends(get_con)
 
 
 # -- 5.1 auth --------------------------------------------------------------------
+
+@router.post("/auth/signup", status_code=201)
+def signup(body: SignupIn, con=C):
+    return auth.signup(con, body.username, body.password)
+
+
+@router.post("/auth/password")
+def set_password(body: PasswordIn, p=P, con=C):
+    return auth.set_password(con, p, body.password)
+
 
 @router.post("/auth/login")
 def login(body: LoginIn, con=C):

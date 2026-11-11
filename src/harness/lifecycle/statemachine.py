@@ -83,3 +83,35 @@ def transition(con, matter: str, to: str, *, actor: str = "operator",
             pass
         raise
     return to
+
+
+# pipeline stage key -> the §3.1 state its completion evidences (moot completes
+# only once its filing approval is granted, hence APPROVE)
+_STAGE_STATE = {"intake": "INTAKE", "assess": "ASSESS", "strategy": "STRATEGY",
+                "filings": "DRAFT", "moot": "APPROVE"}
+
+
+def advance_after_run(con, execution_id: str, *, actor: str = "workflow") -> str | None:
+    """A completed execution walks its matter forward along the chain, one legal
+    step at a time, to the furthest state its stages evidence. Never backwards,
+    never off-chain (SETTLE/CLOSED stay put); returns the resulting state."""
+    ex = con.execute("SELECT matter_id, state, started_at FROM executions"
+                     " WHERE execution_id=?", (execution_id,)).fetchone()
+    if not ex or ex["state"] != "completed":
+        return None
+    # someone else moved the case while this run was in flight: they are driving
+    # the lifecycle, so the run's evidence must not overrule them
+    if con.execute("SELECT 1 FROM audit_events WHERE matter_id=? AND action="
+                   "'state.transition' AND actor<>? AND ts>?",
+                   (ex["matter_id"], actor, ex["started_at"] or "")).fetchone():
+        return state(con, ex["matter_id"])
+    keys = [r["key"] for r in con.execute(
+        "SELECT key FROM tasks WHERE execution_id=? AND state='completed'", (execution_id,))]
+    targets = [STATES.index(_STAGE_STATE[k]) for k in keys if k in _STAGE_STATE]
+    cur = state(con, ex["matter_id"])
+    if not targets or (cur and cur not in _CHAIN):
+        return cur
+    i = _CHAIN.index(cur) if cur else -1
+    for s in _CHAIN[i + 1:max(targets) + 1]:
+        transition(con, ex["matter_id"], s, actor=actor, note=f"run {execution_id}")
+    return state(con, ex["matter_id"])
