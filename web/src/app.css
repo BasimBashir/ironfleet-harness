@@ -137,6 +137,17 @@ fieldset.qcard legend + *{clear:both}
 .st{font-weight:600} .st.run{color:var(--s-running)} .st.wait{color:var(--s-waiting)} .st.done{color:var(--s-done)}
 .bar2{height:5px;border-radius:999px;background:var(--rule);overflow:hidden;margin:6px 0 2px} .bar2 i{display:block;height:100%;background:var(--accent)}
 ul.links{margin:4px 0 0;padding-left:18px} ul.links li{margin:3px 0}
+/* UX-2 run overview: the next-action banner (tone = word + icon in the text, colour is extra) and
+   the current stage marked by a filled dot — static, no pulse (§9B.2) */
+.nextact{border-left-width:4px} .nextact--wait{border-left-color:var(--s-waiting);background:var(--s-waiting-bg)}
+.nextact--bad{border-left-color:var(--s-failed)} .nextact--done{border-left-color:var(--s-done)} .nextact--idle{border-left-color:var(--accent)}
+.nextact .approval{margin-top:var(--sp-3)}
+.runov .timeline--activity li[aria-current="step"]{color:var(--text);font-weight:inherit}
+.runov .timeline--activity li[aria-current="step"]::before{content:"";background:var(--accent);border-color:var(--accent)}
+.runov .timeline--activity li[data-state="failed"]::before{border-color:var(--s-failed)}
+.runov summary{cursor:pointer}
+/* the 380px drawer: the agent table wraps instead of overflowing; its rows are not clickable */
+.runov .table th,.runov .table td{white-space:normal;height:auto;padding:6px var(--sp-2)} .runov .table tbody tr{cursor:default}
 @media (max-width:1024px){.bottom{grid-template-columns:1fr}}
 /* 320px reflow: the 232px rail leaves main ~32px wide, the top bar cannot wrap, tables
    push the document to 704px — all three below. Rail stacks on top so firm nav survives. */

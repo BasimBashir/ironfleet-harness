@@ -95,7 +95,7 @@ describe("drawer stage list (A: collapsible stages)", () => {
     expect(currentTask(plan(7), "waiting_human")).toBe("t6");
     expect(currentTask(plan(10), "completed")).toBe(null);
     expect(opens(list())).toBe(1);
-    expect(list()).toContain('<details open=""><summary><b>filings</b>');
+    expect(list()).toMatch(/<li aria-current="step"><details open=""><summary>.*?<b>filings<\/b>/);
   });
   it("Expand all / Collapse all override the default", () => {
     expect(opens(list({ force: { open: true, n: 1 } }))).toBe(10);

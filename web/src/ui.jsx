@@ -26,6 +26,9 @@ export const AGENT_STATES = {
   failed: ["failed", "✕", "Failed"],
   timed_out: ["failed", "⏱", "Timed out"],
   cancelled: ["idle", "⊘", "Cancelled"],
+  // UX-2 run overview, derived from persisted state only (see RunPage stageState)
+  interrupted: ["blocked", "↻", "Interrupted"],
+  not_run: ["idle", "—", "Not run"],
 };
 
 export function StatusChip({ state, kind = "matter" }) {

@@ -52,6 +52,9 @@ describe("ChatDock render", () => {
   it("inline approval reuses the Approval Center card (decide self-gates)", () => {
     expect(view()).toMatch(/class="approval__kind">⚑ (<!-- -->)?filing/);   // SSR splits JSX text nodes
     expect(view({ approvals: [] })).not.toContain("approval__kind");
+    // UX-2: on the run page the overview carries the decision, so the dock does not repeat it
+    expect(view({ inlineApproval: false })).not.toContain("approval__kind");
+    expect(view({ inlineApproval: false })).toContain("1 ⚑ pending");
   });
   it("rail: execution progress, latest 3 artifacts newest first, open approvals, honest interjections", () => {
     const h = view();
