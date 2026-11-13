@@ -201,16 +201,17 @@ def _reply_in_thread(con, eid: str) -> None:
 
 
 def matter_state(con, matter_id: str) -> str:
-    """Derived, never stored (02 §4): waiting_human -> waiting_on_you; else any
-    executing -> running; else latest failed -> blocked; else latest completed
-    -> review_required; no executions -> draft."""
+    """Derived, never stored (02 §4): any waiting (waiting_human, or paused —
+    a person must resume it) -> waiting_on_you; else any executing -> running;
+    else latest failed -> blocked; else latest completed -> review_required;
+    no executions -> draft."""
     rows = con.execute(
         "SELECT state, started_at FROM executions WHERE matter_id=?"
         " ORDER BY started_at DESC", (matter_id,)).fetchall()
     if not rows:
         return "draft"
     states = {r["state"] for r in rows}
-    if "waiting_human" in states:
+    if states & {"waiting_human", "paused"}:
         return "waiting_on_you"
     if "executing" in states:
         return "running"

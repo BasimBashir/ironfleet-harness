@@ -108,6 +108,16 @@ def test_document_ingest_without_source_targets_the_matter_uploads(api_world):  
                         headers=h).json()["items"][0]["ingest_status"] == "ingested"
 
 
+def test_matter_rows_carry_last_activity_from_the_event_log(api_world):  # UX-1 gap
+    w = api_world
+    h = w.h("admin")
+    m = w.client.post("/api/v1/matters", json={"title": "activity"}, headers=h).json()
+    assert m["last_activity_at"]                      # matter.created is itself an event
+    w.client.post(f"/api/v1/matters/{m['matter_id']}/lifecycle", json={"to": "INTAKE"}, headers=h)
+    later = w.client.get(f"/api/v1/matters/{m['matter_id']}", headers=h).json()["last_activity_at"]
+    assert later > m["last_activity_at"]              # ISO-8601 UTC strings order by time
+
+
 def test_document_ingest_without_documents_is_a_422(api_world):  # M13.8
     w = api_world
     mid = w.client.post("/api/v1/matters", json={"title": "no docs"},

@@ -212,7 +212,7 @@ function Shell({ me, onLogout }) {
   const tokens = useApi(mid ? `/matters/${mid}/tokens` : null, { matter: mid });
   const nPending = pending.data?.items?.length ?? 0;
   const perms = me.permissions || [];
-  const ctx = { me, perms, mode, setMode, theme, plain: plainOn, route };
+  const ctx = { me, perms, mode, setMode, theme, plain: plainOn, route, live };
   const name = me.user?.username || "";
   const nav = (name2, label, extra) => (
     <a href={href(name2)} aria-current={route.name === name2 ? "page" : undefined}><span>{label}</span>{extra}</a>);

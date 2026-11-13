@@ -176,6 +176,7 @@ async def test_run_halts_on_body_exception(con):
 
 @pytest.mark.parametrize("exec_state,task_state,expected", [
     ("waiting_human", "completed", "waiting_on_you"),
+    ("paused", "pending", "waiting_on_you"),     # a person must resume it (02 §4: any waiting)
     ("executing", "running", "running"),
     ("failed", "failed", "blocked"),
     ("completed", "completed", "review_required"),

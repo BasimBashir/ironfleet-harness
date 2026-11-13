@@ -572,13 +572,15 @@ function AddDeadline({ mid, onAdded }) {
   );
 }
 
-function Deadlines({ mid }) {
+// N8 — also the firm workspace's Deadlines tab (there the matter header owns the h1)
+export function Deadlines({ mid }) {
+  const { mode } = useCtx();
   const dl = useApi(`/matters/${mid}/deadlines`, { matter: mid });
   const rows = dl.data?.items || [];
   return (
     <section aria-labelledby="dl-h" className="stack">
-      <div className="hdr"><h1 id="dl-h">Your dates</h1></div>
-      <ErrorLine error={dl.error} onRetry={dl.reload} />
+      {mode === "self-rep" ? <div className="hdr"><h1 id="dl-h">Your dates</h1></div> : <h2 id="dl-h">Deadlines</h2>}
+      <ErrorLine error={dl.error} onRetry={dl.reload} stale={dl.stale} />
       <AddDeadline mid={mid} onAdded={dl.reload} />
       {dl.loading ? <Loading /> : !rows.length ? <Empty>No deadlines yet. They appear when your plan is approved.</Empty> : (
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>

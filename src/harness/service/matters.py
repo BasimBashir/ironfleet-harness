@@ -26,6 +26,10 @@ def _matter_dict(con, r) -> dict:
         (d["matter_id"],)).fetchone()["c"]
     from harness.service.usage import matter_tokens
     d["tokens_total"] = matter_tokens(con, d["matter_id"])["total"]["all"]
+    # every audited write and every run/stage event lands in workflow_events (audit.emit)
+    d["last_activity_at"] = con.execute(
+        "SELECT MAX(ts) AS t FROM workflow_events WHERE matter_id=?",
+        (d["matter_id"],)).fetchone()["t"]
     return d
 
 

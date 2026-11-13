@@ -6,14 +6,25 @@ import { useCtx } from "../App.jsx";
 import { href } from "../router.js";
 import { subscribe } from "../sse.js";
 import { useApi } from "../useApi.js";
-import { BulkBar, Btn, Empty, ErrorLine, Loading, SelectAll, SelectCell, StatusChip, allowed, confirmDelete,
+import { BulkBar, Btn, Empty, ErrorLine, LiveNote, Loading, SelectAll, SelectCell, StatusChip, allowed, confirmDelete,
   fmtAgo, fmtDate, fmtDue, fmtTokens, useSelect } from "../ui.jsx";
+import { ApprovalCard, plainKind } from "./Approvals.jsx";
+import { DEADLINE_WORD, Deadlines, JOURNEY_STRIP, LawyerNowBanner, STAGE_PLAIN, stripIndex } from "./CaseScreens.jsx";
 import { RunDrawer } from "./RunPage.jsx";
 import { Members } from "./Users.jsx";
 
+export const stageName = (s) => s.toLowerCase().replace(/_/g, " ");
+// the soonest open deadline; "met" ones are history
+export const nextDeadline = (items = []) => items.filter((d) => d.status !== "met")
+  .sort((a, b) => (a.due || "").localeCompare(b.due || ""))[0];
+// a value the API returned, else an honest gap: unavailable (read failed) / loading / none recorded
+export const orGap = (r, value, none = "—") => value ?? (r.error
+  ? <span className="muted" title={r.error.message}>unavailable</span>
+  : r.loading ? <span className="muted">loading…</span> : none);
+
 const TABS = [["overview", "Overview"], ["documents", "Documents"], ["evidence", "Evidence"],
   ["workplan", "Work plan"], ["agents", "Agents"], ["drafts", "Drafts"], ["decisions", "Decisions"],
-  ["activity", "Activity"], ["audit", "Audit"]];
+  ["deadlines", "Deadlines"], ["activity", "Activity"], ["audit", "Audit"]];
 
 export function CommandError({ error }) {
   return error ? <p className="field-error" role="alert">{error.message}
@@ -39,28 +50,135 @@ export function useCommand() {
   return [st, run, reset];
 }
 
-function MatterHeader({ m, mid }) {
-  const lc = useApi(`/matters/${mid}/lifecycle`, { matter: mid });
-  const dl = useApi(`/matters/${mid}/deadlines`, { matter: mid });
-  const ln = useApi(`/matters/${mid}/lawyer-now`, { matter: mid });
-  const next = (dl.data?.items || []).filter((d) => d.status !== "met")
-    .sort((a, b) => (a.due || "").localeCompare(b.due || ""))[0];
+// Persistent identity + the four answers a lawyer needs before any tab: where the case is,
+// what is due next, what waits on them, how fresh it is. Only fields the API returned.
+export function MatterContext({ m, mid, lc, dl }) {
+  const next = nextDeadline(dl.data?.items);
+  const nPend = m.outstanding_approvals || 0;
+  const stage = lc.data?.stage;
   return (
     <>
-      {ln.data && ln.data.state !== "clear" ? (
-        <div className="banner banner--flag" role="status">
-          <p className="banner__title">⛔ Lawyer-now flag</p> — {ln.data.triggers.join(", ")}. You decide; nothing is gated in firm mode.
-        </div>) : null}
       <div className="hdr">
         <h1 id="ws-h">{m.title || mid}</h1>
         <span className="sub"><span className="id">{mid}</span>
-          {m.client_ref ? ` · ${m.client_ref}` : ""}{m.jurisdiction ? ` · ${m.jurisdiction}` : ""}
-          {m.confidentiality ? ` · ${m.confidentiality}` : ""}
-          {lc.data?.stage ? ` · ${lc.data.stage.toLowerCase().replace(/_/g, " ")}` : ""}
-          {next ? ` · next date ${fmtDue(next.due)}` : ""}</span>
-        <span className="act">{m.archived ? <StatusChip state="archived" /> : <StatusChip state={m.state} />}</span>
+          {m.client_ref ? ` · ${m.client_ref}` : ""}{m.matter_type ? ` · ${m.matter_type}` : ""}
+          {m.jurisdiction ? ` · ${m.jurisdiction}` : ""}</span>
+        <span className="act">
+          {m.confidentiality ? <span className="chip" data-icon="▣">{m.confidentiality}</span> : null}
+          {m.archived ? <StatusChip state="archived" /> : <StatusChip state={m.state} />}</span>
       </div>
+      <dl className="ctxbar" aria-label="Matter at a glance">
+        <div><dt>Lifecycle stage</dt><dd>{orGap(lc, stage ? <>{stageName(stage)}
+          {lc.data.entered_at ? <span className="muted"> · since {fmtDate(lc.data.entered_at)}</span> : null}</> : null, "Not started")}</dd></div>
+        <div><dt>Next deadline</dt><dd className={next?.status === "overdue" ? "due-late" : undefined}>
+          {orGap(dl, next ? <a href={href("workspace", { mid, tab: "deadlines" })}>
+            {`${next.status === "overdue" ? "⚠ overdue · " : ""}${next.what} — ${fmtDue(next.due)}`}</a> : null, "None recorded")}</dd></div>
+        <div><dt>Waiting on you</dt><dd>{nPend
+          ? <a className="chip chip--waiting" data-icon="⚑" href={href("workspace", { mid, tab: "decisions" })}>{nPend} pending</a>
+          : m.state === "waiting_on_you"  /* no approval row: a run (e.g. paused) waits for a person */
+            ? <a className="chip chip--waiting" data-icon="⏸" href={href("workspace", { mid, tab: "workplan" })}>A run is waiting — Work plan</a>
+            : "Nothing pending"}</dd></div>
+        <div><dt>Last activity</dt><dd>{fmtAgo(m.last_activity_at || m.updated_at || m.created_at)}</dd></div>
+      </dl>
     </>
+  );
+}
+
+function MatterHeader({ m, mid }) {
+  const lc = useApi(`/matters/${mid}/lifecycle`, { matter: mid });
+  const dl = useApi(`/matters/${mid}/deadlines`, { matter: mid });
+  return (<><LawyerNowBanner mid={mid} /><MatterContext m={m} mid={mid} lc={lc} dl={dl} /></>);
+}
+
+const clip = (s, n = 120) => (s && s.length > n ? `${s.slice(0, n - 1)}…` : s || "");
+
+// a summary card: its own loading / error / empty line, never a blank panel (05 §10)
+function Block({ id, title, r, empty, children, more }) {
+  return (
+    <section className="card qcard" aria-labelledby={id}>
+      <h2 id={id}>{title}</h2>
+      <ErrorLine error={r.error} onRetry={r.reload} stale={r.stale} />
+      {r.loading ? <Loading rows={1} /> : r.error && !r.stale ? null : children || <p className="muted">{empty}</p>}
+      {more}
+    </section>
+  );
+}
+
+// The overview: the matter's operational state at a glance, each line linking to where it lives.
+// Every read is a hook result {data, error, loading, stale} so the states render honestly.
+export function OverviewSummary({ mid, m, pend, na, lc, dl, runs, docs, facts, nextAction = null, stageActions = null }) {
+  const wait = pend.data || [];
+  const paused = (runs.data || []).filter((r) => r.state === "paused");  // a person must resume these
+  const open =(dl.data?.items || []).filter((d) => d.status !== "met")
+    .sort((a, b) => (a.due || "").localeCompare(b.due || ""));
+  const stage = lc.data?.stage;
+  const at = stripIndex(stage);
+  const recent = (lc.data?.history || []).slice(-3).reverse();
+  const work = (runs.data || []).slice(0, 4);
+  const files = [...(docs.data?.items || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 4);
+  const other = facts.data?.fields?.other_party;
+  const tab = (t) => href("workspace", { mid, tab: t });
+  return (
+    <div className="ovgrid">
+      <div className="stack">
+        <Block id="ov-wait" title={`⚑ Waiting on you${pend.data ? ` · ${wait.length + paused.length}` : ""}`} r={pend}
+          empty="Nothing is waiting on you on this matter."
+          more={wait.length ? <p><a href={tab("decisions")}>Decide in Decisions →</a></p> : null}>
+          {wait.length || paused.length ? <ul className="rows">{paused.map((r) => (
+            <li key={r.execution_id}><a href={href("run", { rid: r.execution_id })}><b>Paused run — resume or cancel</b></a>
+              <p className="muted">{clip(r.input_task_text) || r.execution_id}</p></li>))}
+            {wait.slice(0, 4).map((a) => (
+            <li key={a.approval_id}><a href={tab("decisions")}><b>{plainKind(a.kind, false)}</b></a>
+              <span className="muted"> · requested {fmtAgo(a.requested_at)}</span>
+              {clip(a.request_payload?.question || a.request_payload?.summary || a.request_payload?.result_summary)
+                ? <p className="muted">{clip(a.request_payload?.question || a.request_payload?.summary || a.request_payload?.result_summary)}</p> : null}
+            </li>))}</ul> : null}
+        </Block>
+        <Block id="ov-next" title="Next action" r={na} empty="No open next action recorded.">
+          {nextAction}
+        </Block>
+        <Block id="ov-pos" title="Case position" r={lc} empty="">
+          <p>{stage ? <><b>{stageName(stage)}</b> <span className="muted">({STAGE_PLAIN[stage] || stage})</span>
+            {lc.data.entered_at ? <span className="muted"> · since {fmtDate(lc.data.entered_at)}</span> : null}</>
+            : "Not started — no lifecycle stage recorded yet."}</p>
+          <ol className="timeline" aria-label="Case lifecycle">
+            {JOURNEY_STRIP.map(([label], i) => (
+              <li key={label} data-state={i < at ? "done" : undefined} aria-current={i === at ? "step" : undefined}>{label}</li>))}
+          </ol>
+          {recent.length ? <ul className="rows" aria-label="Recent stage changes">{recent.map((h, i) => (
+            <li key={i}>Moved to <b>{stageName(h.to)}</b><span className="muted"> by {h.actor} · {fmtAgo(h.ts)}</span></li>))}</ul> : null}
+          {stageActions}
+          {m.objectives ? <p><b>Objectives:</b> {m.objectives}</p> : null}
+        </Block>
+        <Block id="ov-dl" title={`Deadlines${dl.data ? ` · ${open.length} open` : ""}`} r={dl} empty="No deadlines recorded."
+          more={<p><a href={tab("deadlines")}>{open.length ? "All deadlines →" : "Add a deadline →"}</a></p>}>
+          {open.length ? <ul className="rows">{open.slice(0, 5).map((d) => (
+            <li key={d.deadline_id || d.what} className={d.status === "overdue" ? "due-late" : undefined}>
+              <a href={tab("deadlines")}><b>{d.what}</b></a> — {fmtDue(d.due)} · {DEADLINE_WORD[d.status] || d.status}</li>))}</ul> : null}
+        </Block>
+      </div>
+      <div className="stack">
+        <Block id="ov-work" title="Recent work" r={runs} empty="No executions yet."
+          more={work.length ? <p><a href={tab("workplan")}>All in Work plan →</a></p> : null}>
+          {work.length ? <ul className="rows">{work.map((r) => (
+            <li key={r.execution_id}><StatusChip kind="agent" state={r.state} />{" "}
+              <a href={tab("workplan")}>{clip(r.input_task_text, 70) || r.execution_id}</a>
+              <span className="muted"> · {fmtAgo(r.started_at)}</span></li>))}</ul> : null}
+        </Block>
+        <Block id="ov-docs" title="Latest documents" r={docs} empty="No documents yet."
+          more={<p><a href={tab("documents")}>{files.length ? "All documents →" : "Upload in Documents →"}</a></p>}>
+          {files.length ? <ul className="rows">{files.map((d) => (
+            <li key={d.doc_id}><a href={tab("documents")}>{d.filename}</a>
+              <span className="muted"> · {d.ingest_status === "ingested" ? "ingested" : "not ingested"} · {fmtDate(d.created_at)}</span></li>))}</ul> : null}
+        </Block>
+        <Block id="ov-parties" title="Parties" r={facts} empty="">
+          <dl className="kv">
+            <dt>Client</dt><dd>{m.client_ref || <span className="muted">Not recorded</span>}</dd>
+            <dt>Other side</dt><dd>{other ? String(other) : <span className="muted">Not recorded</span>}</dd>
+          </dl>
+        </Block>
+      </div>
+    </div>
   );
 }
 
@@ -68,6 +186,11 @@ function Overview({ mid, m }) {
   const { perms } = useCtx();
   const lc = useApi(`/matters/${mid}/lifecycle`, { matter: mid });
   const runs = useApi(`/matters/${mid}/runs`, { matter: mid });
+  const pend = useApi(`/matters/${mid}/approvals?state=pending`, { matter: mid });
+  const na = useApi(`/matters/${mid}/next-actions`, { matter: mid });
+  const dl = useApi(`/matters/${mid}/deadlines`, { matter: mid });
+  const docs = useApi(`/matters/${mid}/documents`, { matter: mid });
+  const facts = useApi(`/matters/${mid}/dossier/facts`, { matter: mid });
   const [task, setTask] = useState("");
   const [st, run, reset] = useCommand();
   const canDispatch = allowed(perms, "matter.dispatch");
@@ -80,18 +203,22 @@ function Overview({ mid, m }) {
     if (await run(() => post(`/matters/${mid}/executions`, { task_text: task }))) { setTask(""); runs.reload(); }
   };
   const archive = async () => { if (await run(() => post(`/matters/${mid}/state`, { to: m.archived ? "active" : "archived" }))) location.reload(); };
+  const first = na.data?.items?.[0];
+  const complete = async () => { if (await run(() => post(`/matters/${mid}/next-actions/${first.proposal_id}/complete`, {}))) na.reload(); };
   return (
     <div className="stack">
-      <div className="card qcard">
-        <h2>Case stage</h2>
-        <p>{lc.data?.stage ? <b>{lc.data.stage.replace(/_/g, " ")}</b> : "Not started"}
-          {lc.data?.entered_at ? <span className="muted"> · since {fmtDate(lc.data.entered_at)}</span> : null}</p>
-        {canWrite ? <p>{(lc.data?.next_allowed || []).map((to) => (
+      <OverviewSummary mid={mid} m={m} pend={pend} na={na} lc={lc} dl={dl} runs={runs} docs={docs} facts={facts}
+        nextAction={first ? (<>
+          <p><b>{first.what}</b>{first.due ? <span className="muted"> · by {fmtDue(first.due)}</span> : null}</p>
+          {first.why ? <p className="muted">{first.why}</p> : null}
+          {first.missed_consequence ? <p className="small">If missed: {first.missed_consequence}</p> : null}
+          <Btn why={canWrite ? "" : "requires matter.write"} disabled={st.busy} onClick={complete}>Mark done</Btn>
+          {(na.data.items.length > 1) ? <p className="muted">{na.data.items.length - 1} more open</p> : null}
+        </>) : null}
+        stageActions={canWrite && (lc.data?.next_allowed || []).length ? <p>{lc.data.next_allowed.map((to) => (
           <button key={to} type="button" className="btn" disabled={st.busy} onClick={() => move(to)}
-            style={{ marginRight: 8 }}>Move to {to.toLowerCase().replace(/_/g, " ")}</button>))}</p> : null}
-        <CommandError error={st.error} />
-        {m.objectives ? <p><b>Objectives:</b> {m.objectives}</p> : null}
-      </div>
+            style={{ marginRight: 8 }}>Move to {stageName(to)}</button>))}</p> : null} />
+      <CommandError error={st.error} />
       {canDispatch ? (
         <form className="card qcard" onSubmit={dispatch} aria-labelledby="disp-h">
           <h2 id="disp-h">Dispatch work</h2>
@@ -100,14 +227,6 @@ function Overview({ mid, m }) {
           <p><button className="btn btn--primary" type="submit" disabled={st.busy}>Dispatch</button>
             {st.pending ? <span className="muted" role="status"> Pending… waiting for the worker to confirm.</span> : null}</p>
         </form>) : null}
-      <div className="card qcard">
-        <h2>Current executions</h2>
-        {runs.loading ? <Loading rows={1} /> : (runs.data || []).length === 0
-          ? <Empty>No executions yet.</Empty>
-          : <ul>{runs.data.map((r) => <li key={r.execution_id}>
-            <a href={href("workspace", { mid, tab: "workplan" })} className="mono">{r.execution_id}</a> <StatusChip kind="agent" state={r.state} />
-            <span className="muted"> {fmtAgo(r.started_at)}</span></li>)}</ul>}
-      </div>
       <section className="card qcard" aria-labelledby="mem-h">
         <h2 id="mem-h">Members</h2>
         <Members mid={mid} />
@@ -421,13 +540,15 @@ function Decisions({ mid }) {
   const done = useApi(`/matters/${mid}/approvals?state=approved`, { matter: mid });
   const rej = useApi(`/matters/${mid}/approvals?state=rejected`, { matter: mid });
   const decided = [...(done.data || []), ...(rej.data || [])];
+  const reload = () => { pend.reload(); done.reload(); rej.reload(); };
   return (
     <div className="stack">
-      <h2>Waiting on you ({(pend.data || []).length})</h2>
-      {(pend.data || []).length === 0 ? <Empty>Nothing waiting.</Empty>
-        : <p><a href={href("approvals")}>Decide these in the Approval Center</a></p>}
-      <ul>{(pend.data || []).map((a) => <li key={a.approval_id}>⚑ {a.kind} · <span className="id">{a.approval_id}</span> · requested {fmtAgo(a.requested_at)}</li>)}</ul>
+      <h2>Waiting on you{pend.data ? ` (${pend.data.length})` : ""}</h2>
+      <ErrorLine error={pend.error} onRetry={pend.reload} stale={pend.stale} />
+      {pend.loading ? <Loading rows={2} /> : !pend.data ? null : pend.data.length === 0 ? <Empty>Nothing waiting.</Empty>
+        : pend.data.map((a) => <ApprovalCard key={a.approval_id} a={a} onDone={reload} />)}
       <h2>Decided</h2>
+      <ErrorLine error={done.error || rej.error} onRetry={reload} />
       {decided.length === 0 ? <Empty>No decisions yet.</Empty> : (
         <table className="table" aria-label="Decided approvals">
           <thead><tr><th scope="col">Kind</th><th scope="col">Decision</th><th scope="col">By</th><th scope="col">Note</th><th scope="col">When</th></tr></thead>
@@ -512,23 +633,41 @@ export function Audit({ mid }) {
   );
 }
 
+// the API answers 404 for both "no such matter" and "not a member" — say neither
+export function MatterUnavailable() {
+  return (
+    <section aria-labelledby="ws-h" className="only-note">
+      <h1 id="ws-h">Matter not available</h1>
+      <p>It does not exist, or you are not a member of it. Ask the matter's owner for access.</p>
+      <p><a href={href("board")}>Back to Matters</a></p>
+    </section>);
+}
+
 export default function Workspace({ mid, tab }) {
   const m = useApi(`/matters/${mid}`, { matter: mid });
   const panes = { overview: Overview, documents: Documents, evidence: Evidence, workplan: WorkPlan,
-    agents: Agents, drafts: Drafts, decisions: Decisions, activity: Activity, audit: Audit };
+    agents: Agents, drafts: Drafts, decisions: Decisions, deadlines: Deadlines, activity: Activity, audit: Audit };
+  const { live } = useCtx();
   const Pane = panes[tab] || Overview;
-  if (m.error) return <ErrorLine error={m.error} onRetry={m.reload} />;
+  // even with data on screen: access revoked mid-view must drop the matter, not keep it as "stale"
+  if (m.error && [403, 404].includes(m.error.status)) return <MatterUnavailable />;
+  if (m.error && !m.data) return <ErrorLine error={m.error} onRetry={m.reload} />;
   if (!m.data) return <Loading />;
+  const nPend = m.data.outstanding_approvals || 0;
   return (
     <section aria-labelledby="ws-h">
+      <ErrorLine error={m.error} onRetry={m.reload} stale={m.stale} />
+      <LiveNote live={live} />
       <MatterHeader m={m.data} mid={mid} />
       <nav className="filters" aria-label="Matter sections">
         {TABS.map(([k, label]) => (
           <a key={k} className={`filter${tab === k ? " filter--on" : ""}`} href={href("workspace", { mid, tab: k })}
-            aria-current={tab === k ? "page" : undefined}>{label}</a>))}
+            aria-current={tab === k ? "page" : undefined}>{label}
+            {k === "decisions" && nPend ?  <span className="pill">{nPend}<span className="sr-only"> waiting on you</span></span> : null}</a>))}
         <a className="filter" href={href("case", { mid })}>Guided view →</a>
       </nav>
-      <Pane mid={mid} m={m.data} />
+      {/* key: a pane's local state (open document, open draft) never follows you into another matter */}
+      <Pane key={mid} mid={mid} m={m.data} />
     </section>
   );
 }

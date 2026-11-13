@@ -5,16 +5,19 @@ import { get } from "./api.js";
 
 export const EVENT = "ironfleet:event";
 
+// State is keyed by path: switching matter (or filter) never shows the previous path's
+// data under the new identity — no cross-matter bleed while the new read is in flight.
 export function useApi(path, { matter } = {}) {
-  const [state, set] = useState({ data: undefined, error: null, loading: !!path });
+  const [state, set] = useState({ path, data: undefined, error: null, loading: !!path });
   const seq = useRef(0);
   const load = useCallback(() => {
     if (!path) return;
     const n = ++seq.current;
-    set((s) => ({ ...s, loading: s.data === undefined }));
+    set((s) => (s.path === path ? { ...s, loading: s.data === undefined }
+      : { path, data: undefined, error: null, loading: true }));
     get(path).then(
-      (data) => n === seq.current && set({ data, error: null, loading: false }),
-      (error) => n === seq.current && set((s) => ({ ...s, error, loading: false })));
+      (data) => n === seq.current && set({ path, data, error: null, loading: false }),
+      (error) => n === seq.current && set((s) => ({ ...(s.path === path ? s : { data: undefined }), path, error, loading: false })));
   }, [path]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -27,5 +30,12 @@ export function useApi(path, { matter } = {}) {
     addEventListener(EVENT, on);
     return () => { removeEventListener(EVENT, on); clearTimeout(t); };
   }, [load, matter]);
-  return { ...state, reload: load };
+  return { ...forPath(state, path), reload: load };
+}
+
+// what a caller of `path` may see: only data loaded for that same path.
+// stale = a refetch failed but the last good values are still on screen.
+export function forPath(state, path) {
+  const cur = state.path === path ? state : { data: undefined, error: null, loading: !!path };
+  return { data: cur.data, error: cur.error, loading: cur.loading, stale: !!cur.error && cur.data !== undefined };
 }

@@ -120,15 +120,22 @@ export function Loading({ rows = 3 }) {
     <p key={i}><span className="skeleton" /></p>)}</div>;
 }
 
-export function ErrorLine({ error, onRetry }) {
+// stale: the last good values stay on screen beneath this line (05 §10)
+export function ErrorLine({ error, onRetry, stale = false }) {
   if (!error) return null;
   return (
     <div className="banner banner--flag" role="alert">
-      <p className="banner__title">Couldn't load this</p>{" "}
+      <p className="banner__title">{stale ? "Couldn't refresh — showing the last loaded values" : "Couldn't load this"}</p>{" "}
       <span>{error.message}{error.code ? <span className="id"> ({error.code})</span> : null}</span>{" "}
       {onRetry ? <button type="button" className="btn" onClick={onRetry}>Try again</button> : null}
     </div>
   );
+}
+
+// 05 §10: SSE dropped → values on screen may be behind the server; say so, keep them
+export function LiveNote({ live }) {
+  return live === "reconnecting"
+    ? <p className="stale" role="status">◐ Live updates paused — values may be out of date. Reconnecting…</p> : null;
 }
 
 export function Empty({ children, action }) {

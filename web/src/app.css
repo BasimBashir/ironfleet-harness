@@ -77,6 +77,20 @@ fieldset.qcard legend + *{clear:both}
 .drop{border:2px dashed var(--control-border);border-radius:var(--radius);padding:16px;text-align:center}
 .diff{padding:18px 22px;border-left:5px solid var(--accent)} .diff h2{margin:0 0 10px;font-size:var(--fs-md)}
 .table td.wrap{white-space:normal}  /* the lawyer-now flag must read in full, never ellipsised */
+/* UX-1 command centre: "Waiting on you" (approval-card accent), matter context bar, overview grid */
+.waiting{padding:14px 18px;margin-bottom:14px;border-top:4px solid var(--s-waiting)}
+.waiting h2{margin:0 0 6px;font-size:var(--fs-md)}
+.rows{list-style:none;margin:6px 0 0;padding:0}
+.rows li{padding:6px 0;border-top:1px solid var(--rule)} .rows li:first-child{border-top:0}
+.rows p{margin:2px 0 0;font-size:var(--fs-sm)}
+.waitlist a{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;color:var(--text);text-decoration:none}
+.waitlist a b{color:var(--s-waiting)} .waitlist a:hover b,.waitlist a:focus-visible b{text-decoration:underline}
+.ctxbar{display:flex;flex-wrap:wrap;gap:8px 32px;margin:0 0 14px;padding:10px 16px;background:var(--raise);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--radius)}
+.ctxbar dt{font-size:var(--fs-xs);color:var(--muted)} .ctxbar dd{margin:0;font-weight:var(--fw-medium)}
+.ovgrid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+.ovgrid .qcard{margin-bottom:0}
+.stale{margin:0 0 10px;color:var(--s-waiting);font-size:var(--fs-sm)}
+@media (max-width:1023px){.ovgrid{grid-template-columns:1fr}}
 /* M10 swarm (D-3 pick: b-chambers S4 lanes + C meters); strictly sequential plan, one lane per stage group */
 .swarmwrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
 .lanes{display:grid;gap:0;align-items:start}
