@@ -91,6 +91,15 @@ fieldset.qcard legend + *{clear:both}
 .ovgrid .qcard{margin-bottom:0}
 .stale{margin:0 0 10px;color:var(--s-waiting);font-size:var(--fs-sm)}
 @media (max-width:1023px){.ovgrid{grid-template-columns:1fr}}
+/* UX-5 document viewer: a sticky passage rail beside the content; the picked passage is outlined */
+.docsplit{display:grid;grid-template-columns:240px minmax(0,1fr);gap:16px;align-items:start}
+.docrail{padding:12px;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
+.docrail p{margin:0 0 8px} .docrail ol{list-style:none;margin:0;padding:0}
+.docrail button{display:flex;justify-content:space-between;gap:8px;width:100%;min-height:32px;padding:6px 8px;border:0;border-radius:var(--radius);background:none;color:var(--text);font:inherit;font-size:var(--fs-sm);text-align:left;cursor:pointer}
+.docrail button:hover{background:var(--surface)} .docrail button[aria-current="true"]{background:var(--accent-soft);color:var(--accent);font-weight:var(--fw-medium)}
+.passage{padding:16px;scroll-margin-top:16px} .passage h3{margin:0 0 8px;font-size:var(--fs-md)}
+.passage[aria-current="true"]{box-shadow:0 0 0 2px var(--accent)}
+@media (max-width:1023px){.docsplit{grid-template-columns:1fr} .docrail{position:static;max-height:240px}}
 /* M10 swarm (D-3 pick: b-chambers node cards + C meters); UX-3: a top-down dependency stepper
    beside a sticky inspector. Spacing on the 8 px scale; mono only for identifiers. */
 .swarmwrap{display:grid;grid-template-columns:fit-content(560px) minmax(0,1fr);gap:var(--sp-6);align-items:start;margin-top:var(--sp-4)}

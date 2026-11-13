@@ -1308,6 +1308,43 @@
         "summary": "Review Artifact"
       }
     },
+    "/api/v1/artifacts/{aid}/sources": {
+      "get": {
+        "operationId": "get_artifact_sources_api_v1_artifacts__aid__sources_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "aid",
+            "required": true,
+            "schema": {
+              "title": "Aid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Artifact Sources"
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "operationId": "audit_list_api_v1_audit_get",
@@ -1772,6 +1809,43 @@
           }
         },
         "summary": "Get Document Chunks"
+      }
+    },
+    "/api/v1/documents/{doc_id}/meta": {
+      "get": {
+        "operationId": "get_document_meta_api_v1_documents__doc_id__meta_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Document Meta"
       }
     },
     "/api/v1/documents/{doc_id}/text": {

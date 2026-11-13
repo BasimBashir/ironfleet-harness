@@ -94,18 +94,106 @@ def test_document_chunks_match_the_corpus_by_content(api_world):  # M13.5
     assert [c["text"] for c in got] == ["hello"] and isinstance(got[0]["i"], int)
 
 
-def test_document_ingest_without_source_targets_the_matter_uploads(api_world):  # M13.8
+def test_document_viewer_failure_contract(api_world, monkeypatch):  # UX-5
+    """The viewer's states read these exact answers: /meta is the row (no list page);
+    a parser failure is 422 unreadable_document; a gone file is 404 document_file_missing
+    on bytes, text and chunks; a doc of another matter 404s like an unknown one."""
+    from harness import ingest_generic
+    w = api_world
+    h, doc = w.h("reader"), w.A["doc_id"]
+    code = lambda r: (r.status_code, r.json()["error"]["code"])  # noqa: E731
+    meta = w.client.get(f"/api/v1/documents/{doc}/meta", headers=h).json()
+    assert (meta["doc_id"], meta["matter_id"], meta["filename"]) == (doc, w.A["mid"], "a.txt")
+    assert code(w.client.get(f"/api/v1/documents/{w.B['doc_id']}/meta", headers=h)) == (404, "matter_not_found")
+    assert code(w.client.get("/api/v1/documents/doc-nope/meta", headers=h)) == (404, "document_not_found")
+
+    def boom(_):
+        raise RuntimeError('parse failed: a.txt: Traceback (most recent call last):\n  File "pathlib"')
+    monkeypatch.setattr(ingest_generic, "extract_text", boom)
+    r = w.client.get(f"/api/v1/documents/{doc}/text", headers=h)
+    assert code(r) == (422, "unreadable_document"), r.text
+    assert "Traceback" not in r.text and "damaged or in a format" in r.json()["error"]["message"]
+    monkeypatch.undo()
+    for f in (Path(w.app.state.store_root) / "documents" / w.A["mid"]).iterdir():
+        f.unlink()
+    for tail in ("", "/text", "/chunks"):
+        assert code(w.client.get(f"/api/v1/documents/{doc}{tail}", headers=h)) == (404, "document_file_missing")
+    assert w.client.get(f"/api/v1/documents/{w.B['doc_id']}", headers=h).status_code == 404
+
+
+def test_evidence_links_an_upload_only_by_exact_sha(api_world):  # UX-5
+    from harness.lifecycle import dossier
+    from harness.service import system
+    w = api_world
+    con = system.open_db(Path(w.app.state.store_root))
+    sha = con.execute("SELECT sha256 FROM documents WHERE doc_id=?", (w.A["doc_id"],)).fetchone()[0]
+    for label, s in (("E1", sha), ("E2", sha.upper()), ("E3", sha[:16]), ("E4", "")):
+        dossier.append(con, w.A["mid"], "evidence", {"op": "add", "label": label, "file": "a.txt", "sha256": s})
+    # matter B holds an identical upload: it must never be offered from matter A
+    con.close()
+    items = w.client.get(f"/api/v1/matters/{w.A['mid']}/evidence", headers=w.h("reader")).json()["items"]
+    assert {r["label"]: r["doc_id"] for r in items} == {"E1": w.A["doc_id"], "E2": w.A["doc_id"], "E3": None, "E4": None}
+
+
+def test_artifact_sources_tie_quotes_to_upload_and_passage(api_world):  # UX-5
+    """The citation guard's verdicts over a deliverable, each resolved to the upload and the
+    passage index GET /documents/{id}/chunks would show — or null when not an upload."""
+    from harness.corpus import CorpusStore, DocRecord, split_structure
+    from harness.service import system
+    w = api_world
+    root = Path(w.app.state.store_root)
+    con = system.open_db(root)
+    path = con.execute("SELECT path FROM documents WHERE doc_id=?", (w.A["doc_id"],)).fetchone()[0]
+    quote = "the tenant shall pay the rent monthly in advance"
+    body = f"# Lease\n\nPreamble words here.\n\n## Rent\n\n{quote} without any deduction."
+    store = CorpusStore(root / "corpus.sqlite3")
+    law = "a company is insolvent when it cannot pay its debts as they fall due"
+    store.ingest(w.A["mid"], DocRecord(doc_id="doc-law", text=law, source_name="Companies Act 1993, s 4"),
+                 [[0.0]] * len(split_structure("doc-law", law)), "m", "p")   # first: its rowid precedes the upload's
+    n = len(split_structure("doc-u", body))
+    store.ingest(w.A["mid"], DocRecord(doc_id="doc-u", text=body, source_name=Path(path).name), [[0.0]] * n, "m", "p")
+    draft = f'Line one.\nThe lease says "{quote}".\nAnd "{law}".\nBut "these six words are not anywhere".'
+    con.execute("UPDATE artifacts SET content=? WHERE artifact_id=?", (draft, w.A["art"]))
+    con.close()
+    r = w.client.get(f"/api/v1/artifacts/{w.A['art']}/sources", headers=w.h("reader"))
+    assert r.status_code == 200, r.text
+    q = r.json()["quotes"]
+    assert [(x["verdict"], x["line"]) for x in q] == [("VERIFIED", 2), ("VERIFIED", 3), ("NOT_IN_CORPUS", 4)]
+    assert (q[0]["doc_id"], q[0]["filename"]) == (w.A["doc_id"], "a.txt")
+    chunks = store.doc_chunks(w.A["mid"], __import__("hashlib").sha256(body.encode()).hexdigest())
+    ids = [c["i"] for c in chunks]                        # the viewer's passage ids (corpus rowids)
+    assert quote in chunks[ids.index(q[0]["chunk"])]["text"]          # the very passage the viewer shows
+    assert q[0]["passage"] == ids.index(q[0]["chunk"]) + 1 and q[0]["chunk"] != q[0]["passage"]   # id is not a position
+    assert (q[1]["doc_id"], q[1]["chunk"], q[1]["passage"], q[1]["source_name"]) == (None, None, None, "Companies Act 1993, s 4")
+    assert q[2]["doc_id"] is None and q[2]["source_name"] is None
+    assert w.client.get(f"/api/v1/artifacts/{w.A['art']}/sources", headers=w.h("outsider")).status_code == 404
+
+
+def test_document_ingest_without_source_targets_the_matter_uploads(api_world, monkeypatch):  # M13.8
     """UI 'Ingest documents' posts no source: the service must default to the matter's
-    own uploads dir — a user is never shown a store path."""
+    own uploads dir — a user is never shown a store path. UX-5: each upload's status
+    follows what the ingest report says happened to its own stored file."""
+    from harness.service import ingest
     w = api_world
     h = w.h("admin")
+    up = w.client.post(f"/api/v1/matters/{w.A['mid']}/documents?filename=b.docx",
+                       content=b"x", headers=h).json()
+    up2 = w.client.post(f"/api/v1/matters/{w.A['mid']}/documents?filename=c.txt",
+                        content=b"y", headers=h).json()
+    seen = {}
+
+    def fake(mid, source):
+        seen["source"] = source
+        names = {d["doc_id"]: Path(d["path"]).name for d in (up, up2)}
+        return {"ingested": [f"{w.A['doc_id']}-a.txt"], "skipped_by_resume": [],
+                "skipped": [f"{names[up['doc_id']]}: unsupported file type '.docx'"]}
+    monkeypatch.setattr(ingest, "ingest_source", fake)
     r = w.client.post(f"/api/v1/matters/{w.A['mid']}/documents/ingest", json={}, headers=h)
     assert r.status_code == 202, r.text
-    # the fixture's fake ingest_source echoes the source it was handed:
-    assert r.json()["ingest_run"]["ingested"] == \
-        str(Path(w.app.state.store_root) / "documents" / w.A["mid"])
-    assert w.client.get(f"/api/v1/matters/{w.A['mid']}/documents",
-                        headers=h).json()["items"][0]["ingest_status"] == "ingested"
+    assert seen["source"] == str(Path(w.app.state.store_root) / "documents" / w.A["mid"])
+    st = {d["doc_id"]: d["ingest_status"] for d in w.client.get(
+        f"/api/v1/matters/{w.A['mid']}/documents", headers=h).json()["items"]}
+    assert st == {w.A["doc_id"]: "ingested", up["doc_id"]: "skipped", up2["doc_id"]: "pending"}
 
 
 def test_matter_rows_carry_last_activity_from_the_event_log(api_world):  # UX-1 gap

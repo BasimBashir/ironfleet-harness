@@ -48,7 +48,10 @@ export const page = (path, cursor) =>
 // document bytes for the S8 viewer (GET /documents/{id} is application/octet-stream)
 export async function blob(path, { fetchImpl = fetch, token = getToken } = {}) {
   const res = await fetchImpl(BASE + path, { headers: { Authorization: `Bearer ${token()}` } });
-  if (!res.ok) throw new ApiError(res.status, "http_error", `HTTP ${res.status}`);
+  if (!res.ok) {   // errors are the JSON envelope: keep the code (e.g. document_file_missing)
+    const e = await res.json().then((d) => d?.error, () => null);
+    throw new ApiError(res.status, e?.code || "http_error", e?.message || `HTTP ${res.status}`);
+  }
   return res.blob();
 }
 // upload = raw body + ?filename= (M7 plan §0.1: no multipart)

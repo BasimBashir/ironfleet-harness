@@ -80,10 +80,19 @@ def ingest_doc(con, principal: dict, matter_id: str, body: dict,
             raise authz.ServiceError(422, "validation_failed",
                                      "uploaded document files are missing on disk")
     report = ingest.ingest_source(matter_id, source)
+    # UX-5: each upload's status from what the report says happened to ITS stored file
+    # (ingest names sources by file name), never "ingested" for a file it skipped
+    names = lambda v: [v] if isinstance(v, str) else list(v or [])  # noqa: E731
+    done = {Path(n).name for n in names(report.get("ingested")) + names(report.get("skipped_by_resume"))}
+    skipped = {s.split(":", 1)[0].strip() for s in names(report.get("skipped"))}
     con.execute("BEGIN IMMEDIATE")
     try:
-        con.execute("UPDATE documents SET ingest_status='ingested' WHERE matter_id=?",
-                    (matter_id,))
+        for d in con.execute("SELECT doc_id, path FROM documents WHERE matter_id=?",
+                             (matter_id,)).fetchall():
+            name = Path(d["path"]).name
+            st = "ingested" if name in done else "skipped" if name in skipped else None
+            if st:
+                con.execute("UPDATE documents SET ingest_status=? WHERE doc_id=?", (st, d["doc_id"]))
         audit.append(con, matter_id=matter_id, actor=principal["username"],
                      action="documents.ingested", target=source[:200])
         con.execute("COMMIT")
@@ -112,6 +121,13 @@ def evidence(con, principal: dict, matter_id: str, *, q: str = "",
     rows = dossier.read(con, matter_id, "evidence")["events"]
     if q:
         rows = [r for r in rows if q.lower() in (r.get("label") or "").lower()]
+    # UX-5: the upload this row records, by exact full SHA-256 of the file in the same
+    # matter — the only identifier the register carries (no name or prefix matching)
+    by_sha = {(d["sha256"] or "").lower(): d["doc_id"] for d in con.execute(
+        "SELECT doc_id, sha256 FROM documents WHERE matter_id=? ORDER BY created_at DESC, doc_id DESC",
+        (matter_id,))}                                    # newest first: the earliest upload wins
+    rows = [{**r, "doc_id": by_sha.get((r.get("sha256") or "").lower())
+             if len(r.get("sha256") or "") == 64 else None} for r in rows]
     nxt = cursor + limit if cursor + limit < len(rows) else None
     return {"items": rows[cursor:cursor + limit], "next_cursor": nxt}
 
@@ -138,6 +154,42 @@ def _artifact(con, principal, aid: str, perm: str) -> dict:
 
 def get_artifact(con, principal: dict, aid: str) -> dict:
     return _artifact(con, principal, aid, authz.READ)
+
+
+def artifact_sources(con, principal: dict, aid: str, *, store_root: Path | None = None) -> dict:
+    """GET /api/v1/artifacts/{aid}/sources (UX-5): every quotation in a deliverable run
+    through the existing citation guard (moot.verify — byte containment against this
+    matter's corpus), each tied to the uploaded document + passage index it was found in.
+    doc_id/chunk are set only when the deciding corpus chunk came from an upload of this
+    matter (the stored file name the ingest recorded); otherwise they stay null."""
+    import re as _re
+
+    from harness.moot.verify import MIN_QUOTE_WORDS, _QUOTE, _locate, _norm, load_chunks
+    row = _artifact(con, principal, aid, authz.READ)
+    db = Path(store_root or ".") / "corpus.sqlite3"
+    chunks = load_chunks(row["matter_id"], db) if store_root is not None else []
+    uploads = {Path(d["path"]).name: d for d in con.execute(
+        "SELECT doc_id, filename, path FROM documents WHERE matter_id=?", (row["matter_id"],))}
+    text = row["content"] or ""
+    starts = [0] + [m.end() for m in _re.finditer(r"\n", text)]
+    quotes = []
+    for m in _QUOTE.finditer(text):
+        span = _norm(m.group(1))
+        if len(span.split()) < MIN_QUOTE_WORDS:
+            continue                                   # the guard's own threshold
+        hit, quotable = _locate(chunks, span)
+        up = uploads.get(hit["source_name"]) if hit else None
+        # chunk = the passage id GET /documents/{id}/chunks returns as `i` (the corpus rowid);
+        # passage = its 1-based position in that document's list (same sha, rowid order)
+        passage = ([c["rowid"] for c in chunks if c["sha256"] == hit["sha256"]].index(hit["rowid"]) + 1
+                   if up else None)
+        quotes.append({"quote": span, "line": sum(s <= m.start() for s in starts),
+                       "verdict": "VERIFIED" if quotable else ("PRIVILEGED" if hit else "NOT_IN_CORPUS"),
+                       "source_name": hit["source_name"] if hit else None,
+                       "doc_id": up["doc_id"] if up else None, "filename": up["filename"] if up else None,
+                       "chunk": hit["rowid"] if up else None, "passage": passage})
+    return {"artifact_id": aid, "execution_id": row["execution_id"],
+            "corpus_chunks": len(chunks), "quotes": quotes}
 
 
 def review_artifact(con, principal: dict, aid: str, body: dict) -> dict:
@@ -234,9 +286,21 @@ def get_bytes(con, principal: dict, doc_id: str, *,
     data = b""
     if store_root is not None:
         p = Path(store_root) / row["path"]
-        if p.is_file():
-            data = p.read_bytes()
+        if not p.is_file():   # UX-5: say so, never serve an empty body as the document
+            raise authz.not_found("document_file_missing",
+                                  f"document {doc_id!r} has no stored file")
+        data = p.read_bytes()
     return _doc_row(row), data
+
+
+def get_meta(con, principal: dict, doc_id: str) -> dict:
+    """GET /api/v1/documents/{doc_id}/meta (UX-5) — the document row, same authz as the
+    bytes (parent matter read; no membership -> 404), so a deep link needs no list page."""
+    row = con.execute("SELECT * FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+    if row is None:
+        raise authz.not_found("document_not_found", f"document {doc_id!r} not found")
+    authz.require(con, principal, authz.READ, row["matter_id"])
+    return _doc_row(row)
 
 
 def get_text(con, principal: dict, doc_id: str, *, store_root: Path | None = None) -> dict:
@@ -249,8 +313,13 @@ def get_text(con, principal: dict, doc_id: str, *, store_root: Path | None = Non
         raise authz.not_found("document_not_found", f"document {doc_id!r} has no stored file")
     try:
         return {"doc_id": doc_id, "text": extract_text(p)}
-    except (TimeoutError, RuntimeError, UnicodeDecodeError) as e:
-        raise authz.ServiceError(422, "unreadable_document", str(e)) from None
+    except TimeoutError:
+        raise authz.ServiceError(422, "unreadable_document",
+                                 "reading the file took too long and was stopped") from None
+    except (RuntimeError, UnicodeDecodeError):
+        # UX-5: the parser's stderr/traceback is internal detail, never shown to a user
+        raise authz.ServiceError(422, "unreadable_document",
+                                 "the file is damaged or in a format the server cannot read") from None
 
 
 def get_chunks(con, principal: dict, doc_id: str, *, store_root: Path | None = None) -> dict:

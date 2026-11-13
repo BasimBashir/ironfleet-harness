@@ -222,7 +222,7 @@ function Shell({ me, onLogout }) {
     case "home":
     case "board": screen = <Board />; break;
     case "new": screen = <NewMatter />; break;
-    case "workspace": screen = <Workspace mid={mid} tab={route.params.tab} />; break;
+    case "workspace": screen = <Workspace mid={mid} tab={route.params.tab} item={route.params.item} part={route.params.part} />; break;
     case "approvals": screen = <Approvals />; break;
     case "run": screen = <RunPage rid={route.params.rid} node={route.params.node} />; break;
     case "case": screen = <CaseScreens mid={mid} view={route.params.view} />; break;

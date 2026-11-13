@@ -5,6 +5,7 @@ chat and the board are views of the same state) and returns 202. Ops: healthz
 summary (no auth, loopback) and the audit list (global audit.read)."""
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -16,6 +17,13 @@ WRITE = "matter.write"
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def message_row(r) -> dict:
+    """A messages row as the API returns it: the stored refs as `sources` [{ref, label}]."""
+    d = dict(r)
+    d["sources"] = json.loads(d.pop("sources_json", None) or "[]")
+    return d
 
 
 def _conv(con, cid: str) -> dict:
@@ -55,7 +63,7 @@ def list_messages(con, principal: dict, cid: str, *, limit: int = 50,
                   cursor: int = 0) -> dict:
     conv = _conv(con, cid)
     authz.require(con, principal, authz.READ, conv["matter_id"])
-    rows = [dict(r) for r in con.execute(
+    rows = [message_row(r) for r in con.execute(
         "SELECT * FROM messages WHERE conversation_id=? ORDER BY ts, rowid", (cid,))]
     nxt = cursor + limit if cursor + limit < len(rows) else None
     return {"items": rows[cursor:cursor + limit], "next_cursor": nxt}
@@ -81,7 +89,7 @@ def post_message(con, principal: dict, cid: str, body: dict) -> dict:
     except Exception:
         con.execute("ROLLBACK")
         raise
-    msg = dict(con.execute("SELECT * FROM messages WHERE message_id=?",
+    msg = message_row(con.execute("SELECT * FROM messages WHERE message_id=?",
                            (mid_,)).fetchone())
     return {"message": msg, "execution": {"execution_id": ex["execution_id"],
                                           "state": ex["state"]}}

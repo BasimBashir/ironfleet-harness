@@ -42,7 +42,8 @@ def load_chunks(matter: str, store_path: Path) -> list[dict]:
     try:
         try:
             rows = con.execute(
-                f"SELECT f.doc_id, f.heading, f.body, d.source_name, d.trust_tier, d.ts"
+                f"SELECT f.doc_id, f.heading, f.body, d.source_name, d.trust_tier, d.ts,"
+                f" f.rowid, d.sha256"
                 f" FROM {_mtable(matter, 'fts')} f"
                 f" JOIN {_mtable(matter, 'docs')} d ON d.doc_id = f.doc_id"
                 f" ORDER BY f.rowid").fetchall()
@@ -51,14 +52,17 @@ def load_chunks(matter: str, store_path: Path) -> list[dict]:
                 # pre-G3 corpus opened read-only: the column's declared DEFAULT is
                 # T1, so legacy rows are open by the roadmap's own ruling.
                 rows = con.execute(
-                    f"SELECT f.doc_id, f.heading, f.body, d.source_name, 'T1', d.ts"
+                    f"SELECT f.doc_id, f.heading, f.body, d.source_name, 'T1', d.ts,"
+                    f" f.rowid, d.sha256"
                     f" FROM {_mtable(matter, 'fts')} f"
                     f" JOIN {_mtable(matter, 'docs')} d ON d.doc_id = f.doc_id"
                     f" ORDER BY f.rowid").fetchall()
             else:
                 return []                 # matter never ingested -> empty, not a raise
+        # rowid + sha256: the identity CorpusStore.doc_chunks numbers a document's passages by
         return [{"doc_id": r[0], "heading": r[1] or "", "text": r[2],
-                 "source_name": r[3], "trust_tier": r[4], "synced_at": r[5]}
+                 "source_name": r[3], "trust_tier": r[4], "synced_at": r[5],
+                 "rowid": r[6], "sha256": r[7]}
                 for r in rows]
     finally:
         con.close()

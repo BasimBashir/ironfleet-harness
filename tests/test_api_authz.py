@@ -38,6 +38,8 @@ ROUTES = {
     "GET /api/v1/documents/{doc_id}": ("read", None, ""),
     "GET /api/v1/documents/{doc_id}/text": ("read", None, ""),
     "GET /api/v1/documents/{doc_id}/chunks": ("read", None, ""),
+    "GET /api/v1/documents/{doc_id}/meta": ("read", None, ""),
+    "GET /api/v1/artifacts/{aid}/sources": ("read", None, ""),
     "GET /api/v1/matters/{mid}/evidence": ("read", None, ""),
     "GET /api/v1/matters/{mid}/artifacts": ("read", None, ""),
     "GET /api/v1/artifacts/{aid}": ("read", None, ""),

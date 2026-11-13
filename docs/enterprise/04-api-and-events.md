@@ -79,8 +79,13 @@ DELETE /api/v1/matters/{mid}/members/{uid}    → 204
 POST   /api/v1/matters/{mid}/documents        multipart upload {doc_type?, jurisdiction?} → MatterDocument (ingest_status=pending)
 POST   /api/v1/matters/{mid}/documents/ingest {source_spec} → 202 {ingest_run}                   # the extracted /ingest use-case (01 §8)
 GET    /api/v1/matters/{mid}/documents        → paged MatterDocument[]
-GET    /api/v1/documents/{doc_id}             → bytes (stream; authz via parent matter)
-GET    /api/v1/matters/{mid}/evidence?q=&verified= → paged Evidence[] (02 §2.8 shape)
+GET    /api/v1/documents/{doc_id}             → bytes (stream; authz via parent matter); stored file gone → 404 document_file_missing
+GET    /api/v1/documents/{doc_id}/meta        → MatterDocument row (UX-5 deep links; same authz)
+GET    /api/v1/documents/{doc_id}/text        → {doc_id, text} server-extracted reading view; parser failure → 422 unreadable_document
+GET    /api/v1/documents/{doc_id}/chunks      → {doc_id, chunks:[{i, heading, text}]} the passages retrieval sees, in order (i = the passage's corpus id, not its position)
+GET    /api/v1/artifacts/{aid}/sources        → {artifact_id, execution_id, corpus_chunks, quotes:[{quote, line, verdict VERIFIED|PRIVILEGED|NOT_IN_CORPUS, source_name, doc_id, filename, chunk (= chunks[].i), passage (1-based position)}]}
+       # UX-5: the citation guard (moot/verify) over the deliverable; doc_id+chunk only when the deciding chunk came from an upload of this matter
+GET    /api/v1/matters/{mid}/evidence?q=&verified= → paged Evidence[] (02 §2.8 shape) + doc_id (UX-5: the upload whose full SHA-256 equals the row's, else null)
 GET    /api/v1/matters/{mid}/artifacts?review_state= → paged Artifact[]
 GET    /api/v1/artifacts/{aid}                → Artifact + content ref
 POST   /api/v1/artifacts/{aid}/review         {decision: approve|reject|request_changes, note} → Artifact

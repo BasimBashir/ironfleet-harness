@@ -168,7 +168,7 @@ export function OverviewSummary({ mid, m, pend, na, lc, dl, runs, docs, facts, n
         <Block id="ov-docs" title="Latest documents" r={docs} empty="No documents yet."
           more={<p><a href={tab("documents")}>{files.length ? "All documents →" : "Upload in Documents →"}</a></p>}>
           {files.length ? <ul className="rows">{files.map((d) => (
-            <li key={d.doc_id}><a href={tab("documents")}>{d.filename}</a>
+            <li key={d.doc_id}><a href={docHref(mid, d.doc_id)}>{d.filename}</a>
               <span className="muted"> · {d.ingest_status === "ingested" ? "ingested" : "not ingested"} · {fmtDate(d.created_at)}</span></li>))}</ul> : null}
         </Block>
         <Block id="ov-parties" title="Parties" r={facts} empty="">
@@ -249,77 +249,183 @@ export function highlight(text, q) {
   return text.split(re).map((s, i) => (i % 2 ? <mark key={i}>{s}</mark> : s));
 }
 
-function DocViewer({ doc, onClose, q: q0 = "" }) {
-  const [text, setText] = useState(null);
-  const [url, setUrl] = useState(null);
-  const [err, setErr] = useState(null);
-  const [chunks, setChunks] = useState([]);
-  const [q, setQ] = useState(q0);
+// UX-5 evidence navigation: one URL shape for "open this document (at this passage)", used by the
+// document list, the overview and evidence rows. Real history entries, so browser Back returns to
+// wherever the user came from (evidence row, overview, list).
+export const docHref = (mid, doc, chunk) => href("workspace", { mid, tab: "documents", item: doc, part: chunk });
+export const draftHref = (mid, aid) => href("workspace", { mid, tab: "drafts", item: aid });
+
+// a passage by its id `i` from GET /documents/{id}/chunks (the corpus rowid — stable, not a position);
+// anything else (non-numeric, not in this document) is no passage. "Passage N" labels are positions.
+export const passageAt = (chunks, ref) =>
+  (ref == null || !/^\d+$/.test(String(ref)) ? null : chunks.find((c) => c.i === Number(ref)) || null);
+export const hits = (text, q) => {
+  const w = (q || "").trim().toLowerCase();
+  return w ? text.toLowerCase().split(w).length - 1 : 0;
+};
+// verification exactly as supplied: evidence `verified` (04 §5.3) or the citation guard's verdict
+// (moot/verify.py). Anything else — including absence — is "not supplied", never either answer.
+const VERDICT = {
+  VERIFIED: ["verified", "✓", "Verified quote", "The quoted words are, byte for byte, in this matter's corpus"],
+  MISMATCH: ["unverified", "?", "Mismatch", "The cited passage does not contain this quote"],
+  NOT_IN_CORPUS: ["unverified", "?", "Not in corpus", "These words are nowhere in this matter's corpus"],
+  PRIVILEGED: ["waiting", "⚠", "Privileged source", "Found only in privileged material — must not appear in an open deliverable"],
+};
+export function VerifyChip({ v }) {
+  const key = v === true ? "VERIFIED" : String(v);
+  const [cls, icon, word, why] = Object.hasOwn(VERDICT, key) ? VERDICT[key]
+    : v === false ? ["unverified", "?", "Unverified", "Recorded as not verified"]
+      : ["", "–", "Not supplied", "The server records no verification state for this item"];
+  return <span className={`chip${cls ? ` chip--${cls}` : ""}`} data-icon={icon} title={why}>{word}</span>;
+}
+
+const MODE_NOTE = {
+  text: "Plain-text file, shown as stored.",
+  pdf: "Original PDF in your browser's viewer.",
+  extracted: "Reading view — text extracted from the file by the server; layout and formatting are not preserved.",
+};
+
+// Presentational: every state comes in as props so each one is testable without a DOM.
+// content: {text, url, err}; passages: {items, loaded, err}; sel: the passage ref from the URL or a rail pick.
+export function DocView({ mid, doc, content, passages, q = "", setQ = () => {}, sel = null, onPick = () => {} }) {
   const mode = viewMode(doc.filename);
-  useEffect(() => {
-    let u;
-    blob(`/documents/${doc.doc_id}`).then(async (b) => {
-      if (mode === "text") return setText(await b.text());
-      // the API serves octet-stream; re-type it or the iframe downloads instead of rendering
-      u = URL.createObjectURL(mode === "pdf" ? new Blob([b], { type: "application/pdf" }) : b);
-      setUrl(u);
-      if (mode === "extracted") setText((await get(`/documents/${doc.doc_id}/text`)).text);
-    }).catch(setErr);
-    // the passages retrieval sees; [] when the document was never corpus-ingested
-    get(`/documents/${doc.doc_id}/chunks`).then((r) => setChunks(r.chunks || []), () => {});
-    return () => u && URL.revokeObjectURL(u);
-  }, [doc, mode]);
-  useEffect(() => {
-    const w = q.trim().toLowerCase();
-    const hit = w && chunks.find((c) => c.text.toLowerCase().includes(w));
-    if (hit) document.getElementById(`chunk-${hit.i}`)?.scrollIntoView?.({ block: "center" });
-  }, [q, chunks]);
+  const items = passages.items;
+  const cur = passageAt(items, sel);
+  const label = (c, k) => c.heading || `Passage ${k + 1}`;
+  const broken = !!content.err;
+  const missing = content.err?.code === "document_file_missing";
+  const unreadable = content.err?.code === "unreadable_document";
+  const total = q.trim() ? (items.length ? items.reduce((n, c) => n + hits(c.text, q), 0) : hits(content.text || "", q)) : 0;
+  const ingested = doc.ingest_status === "ingested";
   return (
     <section className="stack" aria-label={`Document ${doc.filename}`}>
+      <p className="small"><a href={href("workspace", { mid, tab: "documents" })}>← All documents in this matter</a></p>
       <div className="prov">
         <span className="prov__title">{doc.filename}</span><span />
-        <span className={`chip chip--${doc.ingest_status === "ingested" ? "verified" : "unverified"}`}
-          data-icon={doc.ingest_status === "ingested" ? "✓" : "?"}>{doc.ingest_status === "ingested" ? "Ingested" : "Not ingested"}</span>
+        <span className={`chip chip--${ingested ? "verified" : "unverified"}`} data-icon={ingested ? "✓" : "?"}>
+          {ingested ? "Ingested" : doc.ingest_status === "skipped" ? "Skipped by ingest" : "Not ingested"}</span>
         <dl className="prov__meta">
+          {doc.doc_type ? <div><dt>Type</dt><dd>{doc.doc_type}</dd></div> : null}
+          {doc.jurisdiction ? <div><dt>Jurisdiction</dt><dd>{doc.jurisdiction}</dd></div> : null}
           <div><dt>Origin</dt><dd>upload by {doc.created_by || "—"}</dd></div>
           <div><dt>Added</dt><dd>{fmtDate(doc.created_at)}</dd></div>
           <div><dt>Size</dt><dd>{doc.size} bytes</dd></div>
-          <div><dt>SHA-256</dt><dd className="prov__chain">{(doc.sha256 || "").slice(0, 16)}…</dd></div>
+          <div><dt>SHA-256</dt><dd className="prov__chain" title={doc.sha256}>{(doc.sha256 || "").slice(0, 16)}…</dd></div>
+          <div><dt>Document ID</dt><dd className="id">{doc.doc_id}</dd></div>
         </dl>
       </div>
-      <ErrorLine error={err} />
-      {url && mode === "pdf" ? <iframe className="card" src={url} title={`${doc.filename} (PDF viewer)`}
-        style={{ width: "100%", height: "75vh", border: 0 }} /> : null}
-      {text != null && mode === "extracted" ? <p className="muted">Reading view — text extracted from the file; layout not preserved.</p> : null}
-      {text != null || chunks.length ? (
+      {missing ? <p className="field-error" role="alert">The stored file for this document is missing on the server,
+        so it cannot be shown or searched. Upload it again to restore it.</p>
+        : unreadable ? <p className="field-error" role="alert">IronFleet could not extract readable text from this file
+          ({content.err.message}). {content.url ? "Download the original to read it, or upload" : "Upload"} a readable copy (PDF, DOCX or plain text).</p>
+          : <ErrorLine error={content.err} />}
+      {!broken ? <p className="small muted">{MODE_NOTE[mode]}</p> : null}
+      {sel != null && passages.loaded && !cur ? <p className="small" role="status">
+        {passages.err ? `The linked passage (ref ${sel}) cannot be shown because this document's passages could not be loaded`
+          : `The linked passage (ref ${sel}) is not one of this document's indexed passages — it may have been re-ingested`} — showing the whole document instead.</p> : null}
+      {content.text != null || items.length ? (
         <p><label htmlFor="doc-find">Find in document </label>
-          <input id="doc-find" type="search" value={q} onChange={(e) => setQ(e.target.value)} /></p>) : null}
-      {chunks.length ? (
-        <ol className="stack" aria-label="Passages as retrieval sees them" style={{ listStyle: "none", padding: 0 }}>
-          {chunks.map((c) => (
-            <li key={c.i} id={`chunk-${c.i}`} className="card" style={{ padding: 16 }}>
-              {c.heading ? <h3>{c.heading}</h3> : null}
-              <p style={{ whiteSpace: "pre-wrap" }}>{highlight(c.text, q)}</p>
-            </li>))}
-        </ol>
-      ) : text != null ? <pre className="card" style={{ padding: 16, whiteSpace: "pre-wrap" }}>{highlight(text, q)}</pre> : null}
-      {url ? <p><a href={url} download={doc.filename}>Download {doc.filename}</a></p> : null}
-      <button type="button" className="btn" onClick={onClose}>Back to documents</button>
+          <input id="doc-find" type="search" value={q} onChange={(e) => setQ(e.target.value)} />
+          {q.trim() ? <span className="muted" role="status">{` ${total} match${total === 1 ? "" : "es"}`}</span> : null}</p>) : null}
+      <div className={items.length ? "docsplit" : undefined}>
+        {items.length ? (
+          <nav className="card docrail" aria-label="Passages">
+            <p className="small muted">{`${items.length} passage${items.length === 1 ? "" : "s"} — as agents retrieve them`}</p>
+            <ol>{items.map((c, k) => {
+              const n = hits(c.text, q);
+              return <li key={c.i}><button type="button" aria-current={cur?.i === c.i ? "true" : undefined}
+                onClick={() => onPick(c.i)}>{label(c, k)}
+                {n ? <span className="pill">{n}<span className="sr-only"> matches</span></span> : null}</button></li>;
+            })}</ol>
+          </nav>) : null}
+        <div className="stack">
+          {content.url && mode === "pdf" ? <iframe className="card" src={content.url} title={`${doc.filename} (PDF viewer)`}
+            style={{ width: "100%", height: "75vh", border: 0 }} /> : null}
+          {items.length ? (
+            <ol className="stack" aria-label="Passages as retrieval sees them" style={{ listStyle: "none", padding: 0 }}>
+              {items.map((c, k) => (
+                <li key={c.i} id={`chunk-${c.i}`} className="card passage" aria-current={cur?.i === c.i ? "true" : undefined}>
+                  <h3>{label(c, k)}</h3>
+                  <p style={{ whiteSpace: "pre-wrap" }}>{highlight(c.text, q)}</p>
+                </li>))}
+            </ol>
+          ) : content.text != null ? <pre className="card" style={{ padding: 16, whiteSpace: "pre-wrap" }}>{highlight(content.text, q)}</pre> : null}
+        </div>
+      </div>
+      {broken ? null : passages.err ? <p className="small muted">Passages unavailable: {passages.err.message}</p>
+        : passages.loaded && !items.length ? <p className="small muted">{ingested
+          ? "No indexed passages match this file's current text, so agents are not retrieving from it."
+          : doc.ingest_status === "skipped"
+            ? "The last ingest skipped this file (unsupported type, or too little text to index), so agents cannot retrieve passages from it."
+            : "Not ingested — agents cannot retrieve passages from this document until it is ingested (Documents → Ingest documents)."}</p> : null}
+      {content.url ? <p><a href={content.url} download={doc.filename}>Download {doc.filename}</a></p> : null}
     </section>
   );
 }
 
-function Documents({ mid }) {
+function DocBody({ mid, doc, chunkRef }) {
+  const [content, setContent] = useState({ text: null, url: null, err: null });
+  const [passages, setPassages] = useState({ items: [], loaded: false, err: null });
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(chunkRef ?? null);
+  const mode = viewMode(doc.filename);
+  useEffect(() => setSel(chunkRef ?? null), [chunkRef]);   // a new deep link to the same document
+  useEffect(() => {
+    let u;
+    const put = (x) => setContent((c) => ({ ...c, ...x }));
+    blob(`/documents/${doc.doc_id}`).then(async (b) => {
+      if (mode === "text") return put({ text: await b.text() });
+      // the API serves octet-stream; re-type it or the iframe downloads instead of rendering
+      u = URL.createObjectURL(mode === "pdf" ? new Blob([b], { type: "application/pdf" }) : b);
+      put({ url: u });
+      if (mode === "extracted") put({ text: (await get(`/documents/${doc.doc_id}/text`)).text });
+    }).catch((err) => put({ err }));
+    // the passages retrieval sees; [] when the document was never corpus-ingested
+    get(`/documents/${doc.doc_id}/chunks`).then((r) => setPassages({ items: r.chunks || [], loaded: true, err: null }),
+      (err) => setPassages({ items: [], loaded: true, err }));
+    return () => u && URL.revokeObjectURL(u);
+  }, [doc.doc_id, mode]);
+  useEffect(() => {   // the selected passage into view once passages exist (deep link or rail pick)
+    if (sel != null && passages.loaded) document.getElementById(`chunk-${sel}`)?.scrollIntoView?.({ block: "start" });
+  }, [sel, passages.loaded]);
+  useEffect(() => {
+    const w = q.trim().toLowerCase();
+    const hit = w && passages.items.find((c) => c.text.toLowerCase().includes(w));
+    if (hit) document.getElementById(`chunk-${hit.i}`)?.scrollIntoView?.({ block: "center" });
+  }, [q, passages.items]);
+  // the URL follows the picked passage (shareable) without stacking a history entry per click
+  const pick = (i) => { setSel(i); history.replaceState(null, "", docHref(mid, doc.doc_id, i)); };
+  return <DocView mid={mid} doc={doc} content={content} passages={passages} q={q} setQ={setQ} sel={sel} onPick={pick} />;
+}
+
+// The viewer opens a document only when the server says it belongs to THIS matter
+// (GET /documents/{id}/meta, parent-matter authz): a doc id from another matter — even one the
+// user may read — never reaches the bytes/text/chunks routes here, and "not here" and
+// "not yours" (404) read the same.
+export function DocViewer({ mid, docId, chunkRef, meta }) {
+  if (meta.loading) return <Loading />;
+  const doc = meta.data?.matter_id === mid ? meta.data : null;
+  if (!doc && meta.error && ![403, 404].includes(meta.error.status)) return <ErrorLine error={meta.error} onRetry={meta.reload} />;
+  if (!doc) return (
+    <section className="only-note" aria-label="Document not available">
+      <h2>Document not available</h2>
+      <p>It is not in this matter, it was deleted, or you cannot read it.</p>
+      <p><a href={href("workspace", { mid, tab: "documents" })}>All documents in this matter</a></p>
+    </section>);
+  return <DocBody key={doc.doc_id} mid={mid} doc={doc} chunkRef={chunkRef} />;
+}
+
+function Documents({ mid, item: openId, part: chunk }) {
   const { perms } = useCtx();
   const docs = useApi(`/matters/${mid}/documents`, { matter: mid });
-  const [open, setOpen] = useState(null);
+  const meta = useApi(openId ? `/documents/${openId}/meta` : null, { matter: mid });
   const [st, run] = useCommand();
   const [source, setSource] = useState("");
   const [report, setReport] = useState(null);
   const file = useRef(null);
   const pick = useSelect();
   const canWrite = allowed(perms, "matter.write");
-  if (open) return <DocViewer doc={open} onClose={() => setOpen(null)} />;
+  if (openId) return <DocViewer mid={mid} docId={openId} chunkRef={chunk} meta={meta} />;
   const why = canWrite ? "" : "requires matter.write";
   const remove = async (ids) => {
     if (!confirmDelete(ids.length, "document")) return;
@@ -357,9 +463,9 @@ function Documents({ mid }) {
             <thead><tr><SelectAll ids={docs.data.items.map((d) => d.doc_id)} s={pick} /><th scope="col">Name</th><th scope="col">Origin</th><th scope="col">Ingest</th><th scope="col">Added</th><th scope="col" className="num">Size</th>
               <th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>{docs.data.items.map((d) => (
-              <tr key={d.doc_id} onClick={() => setOpen(d)}>
+              <tr key={d.doc_id} onClick={() => { location.hash = docHref(mid, d.doc_id); }}>
                 <SelectCell id={d.doc_id} label={d.filename} s={pick} />
-                <td className="title"><b><a href={`#${d.doc_id}`} onClick={(e) => { e.preventDefault(); setOpen(d); }}>{d.filename}</a></b><span className="id">{d.doc_id}</span></td>
+                <td className="title"><b><a href={docHref(mid, d.doc_id)} onClick={(e) => e.stopPropagation()}>{d.filename}</a></b><span className="id">{d.doc_id}</span></td>
                 <td>upload</td><td>{d.ingest_status}</td><td>{fmtDate(d.created_at)}</td><td className="num">{d.size}</td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <Btn why={why} disabled={st.busy} onClick={() => remove([d.doc_id])}>Delete</Btn></td>
@@ -392,6 +498,19 @@ function Documents({ mid }) {
   );
 }
 
+// one evidence register row (GET /matters/{mid}/evidence: evidence_id, op, label, file, sha256,
+// actor, ts + doc_id, which the server sets only on an exact SHA-256 match to an upload of this matter)
+export function EvidenceRow({ mid, r }) {
+  return (
+    <tr>
+      <td className="mono">{r.label || "—"}</td>
+      <td>{r.doc_id ? <a href={docHref(mid, r.doc_id)}>View source · {r.file || r.doc_id}</a>
+        : <>{r.file || "—"}{r.file ? <span className="muted small"> · no upload in this matter has this file's SHA-256</span> : null}</>}</td>
+      <td>{r.actor || "—"}<span className="muted"> · {fmtDate(r.ts)}</span></td>
+      <td><VerifyChip v={r.verified} /></td>
+    </tr>);
+}
+
 function Evidence({ mid }) {
   const [q, setQ] = useState("");
   const ev = useApi(`/matters/${mid}/evidence` + (q ? `?q=${encodeURIComponent(q)}` : ""), { matter: mid });
@@ -401,21 +520,38 @@ function Evidence({ mid }) {
       <label htmlFor="ev-q">Filter evidence and authorities by label</label>
       <input id="ev-q" type="text" value={q} onChange={(e) => setQ(e.target.value)} />
       <ErrorLine error={ev.error} onRetry={ev.reload} />
-      {ev.loading ? <Loading /> : rows.length === 0 ? <Empty>No evidence recorded for this matter yet.</Empty> : (
+      {ev.loading ? <Loading /> : rows.length === 0 ? <Empty>No evidence recorded for this matter yet.
+        Quotations in drafts are checked against the matter's documents in each draft's Sources panel.</Empty> : (
         <table className="table" aria-label="Evidence">
-          <thead><tr><th scope="col">Label</th><th scope="col">Excerpt</th><th scope="col">Source</th><th scope="col">Verification</th></tr></thead>
-          <tbody>{rows.map((r, i) => (
-            <tr key={r.evidence_id || i}>
-              <td className="mono">{r.label || "—"}</td>
-              <td style={{ whiteSpace: "normal" }}>{r.sentence || r.excerpt || r.note || "—"}</td>
-              <td>{r.source || r.doc_id || "—"}</td>
-              <td>{r.verified
-                ? <span className="chip chip--verified" data-icon="✓">Verified quote</span>
-                : <span className="chip chip--unverified" data-icon="?">Unverified assertion</span>}</td>
-            </tr>))}</tbody>
+          <thead><tr><th scope="col">Label</th><th scope="col">Source</th><th scope="col">Recorded</th><th scope="col">Verification</th></tr></thead>
+          <tbody>{rows.map((r, i) => <EvidenceRow key={r.evidence_id || i} mid={mid} r={r} />)}</tbody>
         </table>)}
     </div>
   );
+}
+
+// GET /artifacts/{aid}/sources: each quotation the citation guard checked, with the upload +
+// passage it was found in. A link only when the server resolved both; never from the quote text.
+export function DraftSources({ mid, s }) {
+  const quotes = s.data?.quotes || [];
+  const none = s.data && s.data.corpus_chunks === 0;   // nothing ingested: no verdict is meaningful
+  return (
+    <section className="card qcard" aria-labelledby="dsrc-h">
+      <h2 id="dsrc-h">Sources quoted in this draft</h2>
+      <p className="small muted">Each quotation of six or more words, checked word for word against this matter's ingested documents.</p>
+      <ErrorLine error={s.error} onRetry={s.reload} />
+      {s.loading ? <Loading rows={1} /> : !s.data ? null : !quotes.length
+        ? <p className="muted">{none ? "No documents are ingested for this matter, so there is nothing to check against."
+          : "This draft quotes no passage of six or more words."}</p> : (<>
+          {none ? <p className="small">No documents are ingested for this matter, so these quotations could not be checked.</p> : null}
+          <ul className="rows">{quotes.map((q, i) => (
+            <li key={i}><VerifyChip v={none ? undefined : q.verdict} />{" "}“{clip(q.quote, 180)}”
+              <span className="muted"> · line {q.line}</span>
+              {q.doc_id ? <p><a href={docHref(mid, q.doc_id, q.chunk)}>{`View source · ${q.filename}, passage ${q.passage}`}</a></p>
+                : q.source_name ? <p className="muted">Found in {q.source_name} — a law source, not an uploaded document.</p> : null}
+            </li>))}</ul>
+        </>)}
+    </section>);
 }
 
 function WorkPlan({ mid }) {
@@ -461,8 +597,9 @@ function Agents({ mid }) {
   );
 }
 
-function DraftViewer({ aid, why, onReview, onClose, onDelete = null }) {
+function DraftViewer({ mid, aid, why, onReview, onClose, onDelete = null }) {
   const art = useApi(`/artifacts/${aid}`);
+  const src = useApi(`/artifacts/${aid}/sources`);
   const a = art.data;
   return (
     <section className="stack" aria-label={`Draft ${a?.title || aid}`}>
@@ -474,10 +611,12 @@ function DraftViewer({ aid, why, onReview, onClose, onDelete = null }) {
           <dl className="prov__meta">
             <div><dt>Kind</dt><dd>{a.kind}</dd></div>
             <div><dt>Updated</dt><dd>{fmtDate(a.updated_at)}</dd></div>
+            {a.execution_id ? <div><dt>Produced by</dt><dd><a href={href("run", { rid: a.execution_id })}>run {a.execution_id}</a></dd></div> : null}
             {a.review_note ? <div><dt>Review note</dt><dd>{a.review_note}</dd></div> : null}
           </dl>
         </div>
         <pre className="card" style={{ padding: 16, whiteSpace: "pre-wrap" }}>{a.content || "(empty)"}</pre>
+        <DraftSources mid={mid} s={src} />
       </>) : null}
       <p>
         <Btn why={why} onClick={async () => { if (await onReview(aid)) art.reload(); }}>Mark reviewed</Btn>{" "}
@@ -488,11 +627,12 @@ function DraftViewer({ aid, why, onReview, onClose, onDelete = null }) {
   );
 }
 
-function Drafts({ mid }) {
+function Drafts({ mid, item: open }) {
   const { perms } = useCtx();
   const arts = useApi(`/matters/${mid}/artifacts`, { matter: mid });
   const [st, run] = useCommand();
-  const [open, setOpen] = useState(null);
+  // the open draft lives in the URL (UX-5): a source link out and browser Back return to it
+  const setOpen = (aid) => { location.hash = aid ? draftHref(mid, aid) : href("workspace", { mid, tab: "drafts" }); };
   const rows = arts.data?.items || [];
   // the review route requires approval.decide (service/documents.review_artifact)
   const why = allowed(perms, "approval.decide") ? "" : "requires approval.decide";
@@ -515,7 +655,7 @@ function Drafts({ mid }) {
       <ErrorLine error={arts.error} onRetry={arts.reload} />
       <CommandError error={st.error} />
       {open ? null : <BulkBar s={pick} why={delWhy} busy={st.busy} onDelete={() => remove([...pick.sel])} />}
-      {open ? <DraftViewer aid={open} why={why} onReview={review} onClose={() => setOpen(null)}
+      {open ? <DraftViewer mid={mid} aid={open} why={why} onReview={review} onClose={() => setOpen(null)}
           onDelete={<Btn why={delWhy} disabled={st.busy} onClick={() => remove([open])}>Delete</Btn>} />
         : arts.loading ? <Loading /> : rows.length === 0 ? <Empty>No drafts yet. Stage outputs appear in the Work plan tab.</Empty> : (
         <table className="table" aria-label="Drafts">
@@ -523,7 +663,7 @@ function Drafts({ mid }) {
           <tbody>{rows.map((a) => (
             <tr key={a.artifact_id}>
               <SelectCell id={a.artifact_id} label={a.title} s={pick} />
-              <td className="title"><b><a href={`#${a.artifact_id}`} onClick={(e) => { e.preventDefault(); setOpen(a.artifact_id); }}>{a.title}</a></b>
+              <td className="title"><b><a href={draftHref(mid, a.artifact_id)}>{a.title}</a></b>
                 <span className="id">{a.artifact_id}</span></td>
               <td>{a.kind}</td><td>{a.review_state}</td><td>{fmtAgo(a.updated_at)}</td>
               <td><button type="button" className="btn" onClick={() => setOpen(a.artifact_id)}>Read</button>{" "}
@@ -643,7 +783,7 @@ export function MatterUnavailable() {
     </section>);
 }
 
-export default function Workspace({ mid, tab }) {
+export default function Workspace({ mid, tab, item, part }) {
   const m = useApi(`/matters/${mid}`, { matter: mid });
   const panes = { overview: Overview, documents: Documents, evidence: Evidence, workplan: WorkPlan,
     agents: Agents, drafts: Drafts, decisions: Decisions, deadlines: Deadlines, activity: Activity, audit: Audit };
@@ -667,7 +807,7 @@ export default function Workspace({ mid, tab }) {
         <a className="filter" href={href("case", { mid })}>Guided view →</a>
       </nav>
       {/* key: a pane's local state (open document, open draft) never follows you into another matter */}
-      <Pane key={mid} mid={mid} m={m.data} />
+      <Pane key={mid} mid={mid} m={m.data} item={item} part={part} />
       {/* ask about the matter before, during or after any run; key: never carry a thread across matters */}
       <MatterChat key={`chat-${mid}`} mid={mid} />
     </section>

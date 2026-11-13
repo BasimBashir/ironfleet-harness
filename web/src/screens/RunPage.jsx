@@ -8,7 +8,7 @@ import { href } from "../router.js";
 import { EVENT as EVENT_BUS, useApi } from "../useApi.js";
 import { AGENT_STATES, ErrorLine, Loading, StatusChip, allowed, fmtAgo, fmtTokens } from "../ui.jsx";
 import { ApprovalCard } from "./Approvals.jsx";
-import { CommandError, useCommand } from "./Workspace.jsx";
+import { CommandError, docHref, draftHref, useCommand } from "./Workspace.jsx";
 
 // the persisted reads one run overview needs; every one is matter-scoped server-side
 function useRunData(rid, mid, on = true) {
@@ -364,7 +364,7 @@ export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, 
       <ErrorLine error={artifacts.error} onRetry={artifacts.reload} stale={!!artifacts.data} />
       {artifacts.data === undefined ? (artifacts.error ? null : <Loading rows={1} />) : outs.length ? (
         <ul className="links">{outs.map((a) => (
-          <li key={a.artifact_id}><a href={href("workspace", { mid: r.matter_id, tab: "drafts" })}>{a.title || a.artifact_id}</a>{" "}
+          <li key={a.artifact_id}><a href={draftHref(r.matter_id, a.artifact_id)}>{a.title || a.artifact_id}</a>{" "}
             <span className="muted">· {a.kind || "artifact"} · {String(a.review_state || "unreviewed").replace(/_/g, " ")}{a.created_at ? ` · ${at(a.created_at)}` : ""}</span></li>))}
         </ul>) : <p className="muted">{TERMINAL.has(r.state) ? "This run recorded no deliverables." : "No deliverables yet."}</p>}
       <ActivityStream run={r} tasks={ts} approvals={approvals.data || []} live={live} resynced={resynced} link={firm} H={H2} />
@@ -659,8 +659,17 @@ export function speaker(m) {
 // mounted while closed (hidden), so a half-typed message survives minimising. Messages are
 // questions (answered from the matter's records or a model citing them) or instructions, which
 // come back as a proposal card: nothing changes a run until the user confirms it.
+// a counsel citation ref (service/counsel.py _refs: kind:id, validated server-side) → where it lives
+export function sourceHref(mid, ref) {
+  const i = ref.indexOf(":"), kind = ref.slice(0, i), id = ref.slice(i + 1);
+  if (!mid || i < 1 || !id) return null;
+  return kind === "document" ? docHref(mid, id) : kind === "deliverable" ? draftHref(mid, id)
+    : kind === "run" ? href("run", { rid: id }) : kind === "approval" ? href("workspace", { mid, tab: "decisions" })
+      : kind === "deadline" ? href("workspace", { mid, tab: "deadlines" }) : null;   // stage:<key> names no run
+}
+
 export function ChatDock({ run: r = null, tasks, messages, canSend, st, onSend, proposal = null, onAct = () => {},
-  onDismiss = () => {}, scope = "matter", defaultOpen = false }) {
+  onDismiss = () => {}, scope = "matter", defaultOpen = false, mid = null }) {
   const [text, setText] = useState("");
   const [shown, setShown] = useState(defaultOpen);
   const launcher = useRef(null), input = useRef(null), end = useRef(null);
@@ -696,7 +705,10 @@ export function ChatDock({ run: r = null, tasks, messages, canSend, st, onSend, 
               <div key={m.message_id} className={m.role === "lead" ? "msg lead" : "msg"}>
                 <div className="who"><b>{speaker(m)}</b> · {hm(m.ts)}</div>
                 <div className="body">{body}</div>
-                {src ? <div className="src small">Sources: {src}</div> : null}
+                {m.sources?.length ? <div className="src small">Sources: {m.sources.map((s, j) => {
+                  const to = sourceHref(mid, s.ref);
+                  return <span key={s.ref}>{j ? " · " : ""}{to ? <a href={to}>{s.label}</a> : s.label}</span>;
+                })}</div> : src ? <div className="src small">Sources: {src}</div> : null}
                 {open.has(m.message_id) ? <div className="pending" role="status"><span className="dot"></span> run started — its digest lands here when it completes</div> : null}
               </div>);
           })}
@@ -770,7 +782,7 @@ export function MatterChat({ mid, run = null, tasks = [] }) {
     return res;
   });
   return <ChatDock run={run} tasks={tasks} messages={msgs.data?.items} canSend={allowed(perms, "matter.read")}
-    st={st} onSend={onSend} proposal={proposal} onAct={onAct} onDismiss={() => setProposal(null)} scope={mid} />;
+    st={st} onSend={onSend} proposal={proposal} onAct={onAct} onDismiss={() => setProposal(null)} scope={mid} mid={mid} />;
 }
 
 export default function RunPage({ rid, node }) {

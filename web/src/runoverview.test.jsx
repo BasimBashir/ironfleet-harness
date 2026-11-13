@@ -156,7 +156,7 @@ describe("agents, tokens and deliverables", () => {
     const arts = [{ artifact_id: "a-1", execution_id: "exe-1", kind: "memo", title: "SSA comparison memo", review_state: "pending_review", created_at: "2026-11-10T09:10:00Z" },
       { artifact_id: "a-2", execution_id: "exe-OTHER", title: "Someone else's draft" }];
     const h = view({ artifacts: arts });
-    expect(h).toContain('href="#/m/m1/drafts"');
+    expect(h).toContain('href="#/m/m1/drafts/a-1"');   // UX-5: straight to that draft, not the list
     expect(text(h)).toContain("SSA comparison memo · memo · pending review");
     expect(h).not.toContain("Someone else");
   });

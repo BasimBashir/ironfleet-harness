@@ -6,7 +6,8 @@ const ROUTES = [
   ["users", []],
   ["settings", []],
   ["oversight", []],
-  ["workspace", ["mid", "tab"], "m", { tab: "overview" }],
+  // item/part (UX-5): an open record in a tab — Documents: doc_id + passage; Drafts: artifact_id
+  ["workspace", ["mid", "tab", "item", "part"], "m", { tab: "overview", item: undefined, part: undefined }],
   ["case", ["mid", "view"], "case", { view: "home" }],
   ["run", ["rid", "node"], "runs", { node: undefined }],
 ];

@@ -17,12 +17,13 @@ so no schema change."""
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from harness.service import authz
+from harness.service import authz, conversations
 from harness.workflow import audit
 
 DISPATCH = "matter.dispatch"
@@ -401,13 +402,14 @@ def ask(con, principal: dict, cid: str, body: dict, *, store_root: Path) -> dict
                     " execution_id, actor, ts) VALUES(?,?,?,?,?,?,?,?)",
                     (qid, cid, mid, "user", text, None, principal["username"], _now()))
         con.execute("INSERT INTO messages(message_id, conversation_id, matter_id, role, text,"
-                    " execution_id, actor, ts) VALUES(?,?,?,?,?,?,?,?)",
-                    (aid, cid, mid, "lead", stored, None, actor, _now()))
+                    " execution_id, actor, ts, sources_json) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (aid, cid, mid, "lead", stored, None, actor, _now(),
+                     json.dumps(sources) if sources else None))
         audit.append(con, matter_id=mid, actor=principal["username"], action="counsel.asked",
                      target=qid, outputs_digest=actor)
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
         raise
-    get = lambda i: dict(con.execute("SELECT * FROM messages WHERE message_id=?", (i,)).fetchone())  # noqa: E731
+    get = lambda i: conversations.message_row(con.execute("SELECT * FROM messages WHERE message_id=?", (i,)).fetchone())  # noqa: E731
     return {"question": get(qid), "answer": get(aid), "sources": sources, "action": action}

@@ -140,6 +140,18 @@ class TestEndpoint:
         assert [m["role"] for m in msgs[-2:]] == ["user", "lead"]
         assert w.client.get(f"/api/v1/runs/{w.A['eid']}", headers=w.h("admin")).json()["state"] == before
 
+    def test_cited_sources_persist_as_refs_on_the_answer(self, api_world, monkeypatch):  # UX-5
+        w = api_world
+        monkeypatch.setattr(counsel, "records_answer", lambda s, t: None)    # force the model path
+        monkeypatch.setattr(counsel, "dispatch", lambda r, s: SimpleNamespace(
+            content=f"See [document:{w.A['doc_id']}] and [document:doc-invented].", provider="p", model="m"))
+        body = self.ask(w, "admin", "what does the upload say?").json()
+        want = [{"ref": f"document:{w.A['doc_id']}", "label": "a.txt"}]
+        assert body["sources"] == want and body["answer"]["sources"] == want
+        assert "[unverified citation]" in body["answer"]["text"]               # the invented id is not a source
+        msgs = w.client.get(f"/api/v1/conversations/{w.A['cid']}/messages", headers=w.h("admin")).json()["items"]
+        assert msgs[-1]["sources"] == want and msgs[-2]["sources"] == [] and "sources_json" not in msgs[-1]
+
     def test_commands_are_proposals_only_and_need_dispatch(self, api_world):
         w = api_world
         r = self.ask(w, "admin", "cancel the run", execution_id=w.A["eid"]).json()

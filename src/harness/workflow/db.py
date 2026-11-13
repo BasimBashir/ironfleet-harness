@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS conversations(
   created_at TEXT);
 CREATE TABLE IF NOT EXISTS messages(
   message_id TEXT PRIMARY KEY, conversation_id TEXT, matter_id TEXT, role TEXT,
-  text TEXT, execution_id TEXT, actor TEXT, ts TEXT);
+  text TEXT, execution_id TEXT, actor TEXT, ts TEXT, sources_json TEXT);
 INSERT OR IGNORE INTO roles VALUES('admin','Admin'),('editor','Editor'),('reader','Reader');
 INSERT OR IGNORE INTO role_permissions VALUES
   ('admin','matter.read'),('admin','matter.write'),('admin','matter.dispatch'),
@@ -141,4 +141,7 @@ def connect(path: Path) -> sqlite3.Connection:
         con.execute("ALTER TABLE users ADD COLUMN state TEXT DEFAULT 'active'")
     if "must_change_password" not in have:
         con.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0")
+    if "sources_json" not in {r["name"] for r in con.execute("PRAGMA table_info(messages)")}:
+        # UX-5: counsel answers keep their validated citation refs (additive, NULL = none)
+        con.execute("ALTER TABLE messages ADD COLUMN sources_json TEXT")
     return con

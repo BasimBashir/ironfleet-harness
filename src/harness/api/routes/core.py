@@ -199,6 +199,11 @@ def get_document(doc_id: str, request: Request, p=P, con=C):
                     headers={"Content-Disposition": f'attachment; filename="{doc_id}"'})
 
 
+@router.get("/documents/{doc_id}/meta")
+def get_document_meta(doc_id: str, p=P, con=C):
+    return documents.get_meta(con, p, doc_id)
+
+
 @router.get("/documents/{doc_id}/text")
 def get_document_text(doc_id: str, request: Request, p=P, con=C):
     return documents.get_text(con, p, doc_id, store_root=request.app.state.store_root)
@@ -222,6 +227,11 @@ def list_artifacts(mid: str, review_state: str = "", pg=Depends(page), p=P, con=
 @router.get("/artifacts/{aid}")
 def get_artifact(aid: str, p=P, con=C):
     return documents.get_artifact(con, p, aid)
+
+
+@router.get("/artifacts/{aid}/sources")
+def get_artifact_sources(aid: str, request: Request, p=P, con=C):
+    return documents.artifact_sources(con, p, aid, store_root=request.app.state.store_root)
 
 
 @router.post("/artifacts/{aid}/review")
