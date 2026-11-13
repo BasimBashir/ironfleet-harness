@@ -55,4 +55,14 @@ describe("subscribe", () => {
     expect(events.map((e) => e.data.k)).toEqual([1, 2]);
     expect(statuses).toContain("reconnecting");
   });
+
+  it("a refused stream (401/404) is 'unavailable', not a dropped connection; it recovers to live", async () => {
+    const statuses = [];
+    let n = 0;
+    const fetchImpl = async () => (++n === 1 ? new Response("no", { status: 404 }) : n === 2 ? stream(": hb\n\n") : new Promise(() => {}));
+    const stop = subscribe(["matter:m1"], () => {}, { fetchImpl, token: () => "t", retryMs: 1, onStatus: (s) => statuses.push(s) });
+    await new Promise((r) => setTimeout(r, 30));
+    stop();
+    expect(statuses.slice(0, 3)).toEqual(["unavailable", "live", "reconnecting"]);
+  });
 });

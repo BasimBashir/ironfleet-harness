@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { post } from "../api.js";
 import { useCtx } from "../App.jsx";
 import { href } from "../router.js";
-import { useApi } from "../useApi.js";
+import { EVENT as EVENT_BUS, useApi } from "../useApi.js";
 import { AGENT_STATES, ErrorLine, Loading, StatusChip, allowed, fmtAgo, fmtTokens } from "../ui.jsx";
 import { ApprovalCard } from "./Approvals.jsx";
 import { CommandError, useCommand } from "./Workspace.jsx";
@@ -130,14 +130,116 @@ export function stageTimes(events) {
   return out;
 }
 
-const EVENT = { "execution.created": "Run created", "execution.completed": "Run completed",
-  "execution.failed": "Run stopped: failed", "execution.state_changed": "Run state changed (pause, resume or cancel)",
-  "chat.replied": "Lead counsel replied in the chat", "task.running": "started", "task.completed": "completed",
-  "task.failed": "failed" };
-export function eventLine(e, byId) {
-  const t = e.task_id ? byId[e.task_id] : null;
-  if (e.type?.startsWith("task.")) return `Stage ${t ? t.key : e.task_id} ${EVENT[e.type] || e.type.slice(5)}`;
-  return `${EVENT[e.type] || e.type}${t && e.type === "execution.failed" ? ` at stage ${t.key}` : ""}`;
+// -- UX-4 typed activity stream (NEXT_STEPS §9B.4) ----------------------------------
+// Two real sources, one identity: the run's persisted events (GET /runs/{rid}: id, ts, type, task_id —
+// the latest 200) and the SSE frames this tab received for the same execution (they add `to`/`actor`).
+// Both are keyed by the server's workflow_events id, so a replayed, re-fetched or re-delivered event is one
+// entry, always in id order (never ts order). Only the fields below are kept — notes, reasoning, secrets
+// or any other payload field are dropped on arrival and can never render.
+const frames = new Map();   // event id → whitelisted fields; shown only under a run the API just returned to this user
+export function remember(f) {
+  const id = Number(f?.id), d = f?.data;
+  if (!Number.isInteger(id) || !d?.execution_id) return;
+  frames.set(id, { id, type: f.event, ts: d.ts, execution_id: d.execution_id, task_id: d.task_id ?? null, to: d.to, actor: d.actor });
+  if (frames.size > 5000) frames.delete(frames.keys().next().value);   // oldest received first
+}
+if (typeof addEventListener === "function") addEventListener(EVENT_BUS, (e) => remember(e.detail));
+
+const SAFE = /^[\w.@:-]{1,64}$/;
+const RESUMED = { paused: ["Paused", "no further stage starts until someone resumes it"], executing: ["Resumed", ""],
+  cancelled: ["Cancelled", "stages not yet started will not run"] };
+export const FILTERS = [["all", "All"], ["stage", "Stages"], ["run", "Run"], ["problem", "Errors & retries"]];
+
+// one typed entry per backend event; `task_id` is kept only when it names a stage of this run (a valid link)
+export function activity(run, tasks, live = []) {
+  const byId = Object.fromEntries((tasks || []).map((t) => [t.task_id, t]));
+  const all = new Map();
+  for (const f of live) if (f.execution_id === run.execution_id) all.set(f.id, f);
+  for (const e of run.events || []) {
+    const id = Number(e.id);
+    if (Number.isInteger(id)) all.set(id, { ...all.get(id), id, ts: e.ts, type: e.type, task_id: e.task_id ?? null });
+  }
+  const started = new Set();
+  return [...all.values()].sort((a, b) => a.id - b.id).map((e) => {
+    const t = byId[e.task_id];
+    const stage = t ? t.key : SAFE.test(e.task_id || "") ? e.task_id : "unknown";
+    const by = SAFE.test(e.actor || "") ? ` by ${e.actor}` : "";
+    const it = { id: e.id, ts: e.ts, task_id: t ? t.task_id : null, cat: "run", icon: "•" };
+    switch (e.type) {
+      case "execution.created": return { ...it, text: "Run created" };
+      case "execution.completed": return { ...it, icon: "✓", text: "Run completed" };
+      case "execution.failed": return { ...it, cat: "problem", icon: "✕", critical: true, text: `Run stopped: failed${e.task_id ? ` at stage ${stage}` : ""}` };
+      case "chat.replied": return { ...it, text: "Lead counsel posted this run's digest in the counsel chat" };
+      case "execution.state_changed": {
+        if (e.task_id) return { ...it, text: `Stage ${stage} redirected to a new instruction${by}` };
+        const [w, why] = RESUMED[e.to] || [];
+        return { ...it, icon: e.to === "paused" ? "⏸" : "•",
+          text: w ? `${w}${by}${why ? ` — ${why}` : ""}` : "Run paused, resumed or cancelled (which one was not received)" };
+      }
+      case "task.running": {
+        const again = started.has(e.task_id);
+        started.add(e.task_id);
+        return again
+          ? { ...it, cat: "problem", icon: "↻", text: `Stage ${stage} started again — re-claimed after its worker stopped reporting` }
+          : { ...it, cat: "stage", icon: "▸", text: `Stage ${stage} started${t?.agent_id ? ` (${t.agent_id})` : ""}` };
+      }
+      case "task.completed": started.delete(e.task_id); return { ...it, cat: "stage", icon: "✓", text: `Stage ${stage} completed` };
+      case "task.failed": started.delete(e.task_id); return { ...it, cat: "problem", icon: "✕", critical: true, text: `Stage ${stage} failed` };
+      default: return { ...it, cat: "other", text: SAFE.test(e.type || "") ? `Recorded event: ${e.type}` : "Unrecognised event" };
+    }
+  });
+}
+
+// errors, retries and failures stay visible under every filter
+export const shown = (items, cat) => items.filter((i) => cat === "all" || i.cat === cat || i.critical);
+
+// a reconnect (or a refused stream coming back) re-reads the persisted run: the snapshot is the truth
+export const resyncNeeded = (prev, next) => next === "live" && (prev === "reconnecting" || prev === "unavailable");
+
+function connLine(live, finished, resynced) {
+  if (finished) return "This run has finished — below is its recorded history; no further activity is expected.";
+  if (live === "live") return resynced
+    ? `Reconnected ${hm(resynced)} — the server replayed every event recorded while this browser was disconnected, and the run was reloaded.`
+    : "Live — new activity appears as the server records it.";
+  if (live === "reconnecting") return "Reconnecting — the connection dropped in this browser only; the run carries on on the server, and missed events are replayed on reconnect.";
+  if (live === "unavailable") return "Live updates unavailable — the server refused the event stream (session expired or access changed). Retrying; reload the page if this persists.";
+  return "Connecting to live updates…";
+}
+
+export function ActivityStream({ run: r, tasks, approvals = [], live, resynced = null, link = false, H = "h2", received = [...frames.values()] }) {
+  const [cat, setCat] = useState("all");
+  const items = activity(r, tasks, received);
+  const list = shown(items, cat);
+  const latest = items.at(-1);
+  const keyOf = Object.fromEntries((tasks || []).map((t) => [t.task_id, t.key]));
+  return (
+    <section className="stack" aria-label="Run activity">
+      <div className="hdr runsec">
+        <H>Activity</H>
+        <span className="sub">{`${items.length} event${items.length === 1 ? "" : "s"}`}</span>
+        {items.length ? <span className="act seg" role="group" aria-label="Filter activity">{FILTERS.map(([k, label]) => (
+          <button type="button" key={k} className="btn" aria-pressed={cat === k} onClick={() => setCat(k)}>{label}</button>))}</span> : null}
+      </div>
+      <p className="small">{connLine(live, TERMINAL.has(r.state), resynced)}</p>
+      {approvals.filter((a) => a.execution_id === r.execution_id).map((a) => (
+        <p key={a.approval_id} className="banner nextact--wait"><b>⚑ Waiting on you:</b>{` approval (${a.kind}) after stage ${keyOf[a.task_id] || "—"}, requested ${a.requested_at ? at(a.requested_at) : "—"}. `}
+          <a href={href("approvals")}>Approval Center</a></p>))}
+      {latest ? <p className="small"><b>Latest:</b> {latest.text}{latest.ts ? ` · ${fmtAgo(latest.ts)}` : ""}</p> : null}
+      {items.length ? (
+        <ol className="timeline timeline--activity activity" tabIndex={0} aria-label="Run activity, oldest first">
+          {list.map((i) => (
+            <li key={i.id} data-cat={i.cat} data-state={i.icon === "✓" ? "done" : i.critical ? "failed" : undefined} data-latest={i === latest ? "" : undefined}>
+              <time dateTime={i.ts}>{i.ts ? DT.format(new Date(i.ts)) : "—"}</time>
+              <span aria-hidden="true">{i.icon} </span>
+              {link && i.task_id ? <a href={href("run", { rid: r.execution_id, node: i.task_id })}>{i.text}</a> : i.text}
+              {i === latest ? <span className="chip chip--running">Latest</span> : null}
+            </li>))}
+        </ol>) : <p className="muted">No events recorded for this run.</p>}
+      {list.length < items.length ? <p className="small muted">{`${items.length - list.length} event${items.length - list.length === 1 ? "" : "s"} hidden by the filter; errors and retries always show.`}</p> : null}
+      {(r.events || []).length >= 200 ? <p className="small muted">The server returns this run's latest 200 events; older ones appear only if this page received them live.</p> : null}
+      <p className="small muted">This server does not emit tool calls, progress summaries, findings or evidence references as events, so none appear here. Each stage's recorded summary is in its details.</p>
+    </section>
+  );
 }
 
 // what the run needs from a person right now, strictly from execution.state + pending approvals
@@ -167,12 +269,17 @@ export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, 
   onClose, onRedirect = () => {}, asOf: asOfProp, actions = null, children = null }) {
   const { perms, mode, live } = useCtx();
   const [force, setForce] = useState(null);             // Expand/Collapse all; n re-applies a repeat press
+  const [resynced, setResynced] = useState(null);
+  const prevLive = useRef(live);
+  useEffect(() => {
+    if (resyncNeeded(prevLive.current, live)) { run.reload(); tasks.reload(); setResynced(new Date().toISOString()); }
+    prevLive.current = live;
+  }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
   const r = run.data;
   // "now" for lease checks = when this snapshot loaded, so an old snapshot never ages into a failure
   const loadedAt = useMemo(() => Date.now() / 1000, [r, tasks.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const asOf = asOfProp ?? loadedAt;
   const ts = bySeq(tasks.data);
-  const byId = Object.fromEntries(ts.map((t) => [t.task_id, t]));
   const parked = parkedTask(ts, r.state);
   const states = Object.fromEntries(ts.map((t) => [t.task_id, stageState(t, r.state, parked, asOf)]));
   const times = stageTimes(r.events);
@@ -200,7 +307,7 @@ export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, 
         {actions || onClose ? <span className="act">{actions}
           {onClose ? <button type="button" className="btn" onClick={onClose} aria-label="Close run inspection">Close</button> : null}</span> : null}
       </div>
-      {live === "reconnecting" && !TERMINAL.has(r.state) ? (
+      {(live === "reconnecting" || live === "unavailable") && !TERMINAL.has(r.state) ? (
         <p className="stale" role="status">◐ Live updates are disconnected — this is the run as last loaded. It carries on on the server; the page catches up when the connection returns.</p>) : null}
       <ErrorLine error={run.error} onRetry={run.reload} stale />
       {/* label-over-value facts strip; the task reads as the run's lead line */}
@@ -260,14 +367,7 @@ export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, 
           <li key={a.artifact_id}><a href={href("workspace", { mid: r.matter_id, tab: "drafts" })}>{a.title || a.artifact_id}</a>{" "}
             <span className="muted">· {a.kind || "artifact"} · {String(a.review_state || "unreviewed").replace(/_/g, " ")}{a.created_at ? ` · ${at(a.created_at)}` : ""}</span></li>))}
         </ul>) : <p className="muted">{TERMINAL.has(r.state) ? "This run recorded no deliverables." : "No deliverables yet."}</p>}
-      <details>
-        <summary>Run history ({(r.events || []).length} event{(r.events || []).length === 1 ? "" : "s"}{(r.events || []).length >= 200 ? ", latest 200" : ""})</summary>
-        {(r.events || []).length ? (
-          <ol className="timeline timeline--activity">{r.events.map((e) => (
-            <li key={e.id} data-state={/completed$/.test(e.type) ? "done" : undefined}>
-              <time dateTime={e.ts}>{e.ts ? DT.format(new Date(e.ts)) : "—"}</time>{eventLine(e, byId)}</li>))}
-          </ol>) : <p className="muted">No events recorded for this run.</p>}
-      </details>
+      <ActivityStream run={r} tasks={ts} approvals={approvals.data || []} live={live} resynced={resynced} link={firm} H={H2} />
     </section>
   );
 }
@@ -371,7 +471,8 @@ const SHAPE = { sequential: "Sequential — one stage after another.", parallel:
 const NODECLS = { done: "ok", running: "run", waiting: "wait", failed: "bad", blocked: "bad" };
 const stateOf = (s) => AGENT_STATES[s] || ["idle", "?", `Unknown status (${s || "none"})`];
 
-export function SwarmView({ run: r, tasks, tokens, artifacts = [], interjections = [], canAct, st, cmd, sel, onSelect = () => {}, onInterject = () => {} }) {
+export function SwarmView({ run: r, tasks, tokens, artifacts = [], interjections = [], canAct, st, cmd, sel, onSelect = () => {}, onInterject = () => {},
+  received = [...frames.values()] }) {
   const [hide, setHide] = useState(false);
   const [text, setText] = useState("");
   const [view, setView] = useState("graph");
@@ -499,6 +600,14 @@ export function SwarmView({ run: r, tasks, tokens, artifacts = [], interjections
                 : TERMINAL.has(r.state) ? "This run recorded none" : "None yet from this run"}</dd>
             </dl>
             {cs === "failed" && !cur.result_summary ? <p className="small"><b>Error: </b>no error text was recorded for this stage.</p> : null}
+            {/* this stage's own events, same typed mapping and dedup as the run's Activity section */}
+            {(() => {
+              const mine = activity(r, ts, received).filter((i) => i.task_id === cur.task_id);
+              return mine.length ? <ol className="timeline timeline--activity" aria-label={`Activity for stage ${cur.key}`}>{mine.map((i) => (
+                <li key={i.id} data-state={i.icon === "✓" ? "done" : i.critical ? "failed" : undefined}>
+                  <time dateTime={i.ts}>{i.ts ? DT.format(new Date(i.ts)) : "—"}</time><span aria-hidden="true">{i.icon} </span>{i.text}</li>))}
+              </ol> : <p className="small muted">No events recorded for this stage yet.</p>;
+            })()}
             <p className="small muted">Tool activity, findings and evidence references are not recorded per stage, so none are shown here.</p>
             {canAct && live && cur.state === "pending" ? (
               <button type="button" className="btn" onClick={() => {

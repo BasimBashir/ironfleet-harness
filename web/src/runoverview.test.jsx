@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToString } from "react-dom/server";
 import { Ctx } from "./App.jsx";
-import { RunOverview, eventLine, fmtDur, stageState, stageTimes } from "./screens/RunPage.jsx";
+import { RunOverview, fmtDur, stageState, stageTimes } from "./screens/RunPage.jsx";
 
 // UX-2 (NEXT_STEPS §9B.2) — the run overview is a pure render of the persisted snapshot:
 // GET /runs/{rid} (+events), /executions/{rid}/tasks, /matters/{mid}{,/tokens,/artifacts,/approvals}.
@@ -169,10 +169,8 @@ describe("agents, tokens and deliverables", () => {
 describe("history, refresh restoration and the live connection", () => {
   it("renders the persisted events once each, as plain lines (no payloads)", () => {
     const h = view();
-    expect(text(h)).toContain("Run history (5 events)");
-    expect((text(h).match(/Stage research completed/g) || []).length).toBe(1);
-    expect(eventLine({ type: "something.new" }, {})).toBe("something.new");
-    expect(eventLine({ type: "execution.failed", task_id: "t2" }, { t2: { key: "filings" } })).toBe("Run stopped: failed at stage filings");
+    expect(text(h)).toContain("Activity 5 events");
+    expect((text(h.slice(h.indexOf('aria-label="Run activity, oldest first"'))).match(/Stage research completed/g) || []).length).toBe(1);
   });
   it("is a pure function of the persisted snapshot: re-entry renders the same state", () => {
     expect(view()).toBe(view());

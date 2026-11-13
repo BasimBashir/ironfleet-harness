@@ -251,7 +251,7 @@ function Shell({ me, onLogout }) {
         </span>
         <span className="health" data-state={live === "live" ? "live" : live === "reconnecting" ? "reconnecting" : "down"}
           role="status" aria-live="polite">
-          {live === "live" ? "● Live" : live === "reconnecting" ? "◐ Reconnecting…" : "○ Connecting…"}
+          {live === "live" ? "● Live" : live === "reconnecting" ? "◐ Reconnecting…" : live === "unavailable" ? "○ Live updates unavailable" : "○ Connecting…"}
         </span>
         <span className="user"><span className="av" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>
           <span>{name}</span>

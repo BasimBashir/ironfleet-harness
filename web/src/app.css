@@ -184,6 +184,10 @@ ul.links{margin:4px 0 0;padding-left:18px} ul.links li{margin:3px 0}
 .runfacts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .runfacts__wide dd{font-size:var(--fs-md);line-height:1.45;max-width:90ch}
 .runov .runsec{margin-top:var(--sp-8)}
+/* UX-4 activity stream: bounded, keyboard-scrollable; the filter is a segmented row like the graph bar */
+.activity{max-height:28rem;overflow:auto;padding:var(--sp-1) 0 0 var(--sp-2)}
+.activity .chip{margin-left:var(--sp-2)}
+.seg{display:inline-flex;flex-wrap:wrap;align-items:center;gap:var(--sp-1)}
 .runov h2.runsec,.runov h3.runsec,.runov .runsec>h2,.runov .runsec>h3{font-size:var(--fs-md);font-weight:650;margin:0}
 .runov h2.runsec,.runov h3.runsec{margin-top:var(--sp-8)}
 /* clear the floating chat launcher at the end of the page */

@@ -138,7 +138,9 @@ export function ErrorLine({ error, onRetry, stale = false }) {
 // 05 §10: SSE dropped → values on screen may be behind the server; say so, keep them
 export function LiveNote({ live }) {
   return live === "reconnecting"
-    ? <p className="stale" role="status">◐ Live updates paused — values may be out of date. Reconnecting…</p> : null;
+    ? <p className="stale" role="status">◐ Live updates paused — values may be out of date. Reconnecting…</p>
+    : live === "unavailable"
+      ? <p className="stale" role="status">○ Live updates unavailable — the server refused the event stream; values may be out of date. Retrying…</p> : null;
 }
 
 export function Empty({ children, action }) {

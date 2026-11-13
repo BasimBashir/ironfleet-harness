@@ -39,12 +39,13 @@ export function subscribe(channels, onEvent,
   (async () => {
     while (!stopped) {
       ctrl = new AbortController();
+      let refused = false;   // the server answered and said no (401/404…) — not a dropped connection
       try {
         const headers = { Authorization: `Bearer ${token()}` };
         if (lastId) headers["Last-Event-ID"] = lastId;
         const res = await fetchImpl(`/api/v1/events?channels=${channels.map(encodeURIComponent).join(",")}`,
           { headers, signal: ctrl.signal });
-        if (!res.ok) throw new Error(`events ${res.status}`);
+        if (!res.ok) { refused = true; throw new Error(`events ${res.status}`); }
         onStatus("live");
         const feed = createParser((e) => {
           lastId = e.id ?? lastId;
@@ -62,7 +63,7 @@ export function subscribe(channels, onEvent,
         if (stopped) return;
       }
       if (stopped) return;
-      onStatus("reconnecting");
+      onStatus(refused ? "unavailable" : "reconnecting");
       await new Promise((r) => setTimeout(r, retryMs));
     }
   })();

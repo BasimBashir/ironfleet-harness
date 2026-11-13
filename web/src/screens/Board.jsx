@@ -172,7 +172,7 @@ export default function Board() {
         </table>
       )}
       {next ? <p><button type="button" className="btn" disabled={st.busy} onClick={loadMore}>Load more matters</button></p> : null}
-      <p className="foot" id="board-keys">{live === "live" ? "Updating live" : live === "reconnecting" ? "Reconnecting…" : "Connecting…"}
+      <p className="foot" id="board-keys">{live === "live" ? "Updating live" : live === "reconnecting" ? "Reconnecting…" : live === "unavailable" ? "Live updates unavailable" : "Connecting…"}
         {" "}· <kbd>j</kbd> <kbd>k</kbd> to move, <kbd>Enter</kbd> to open</p>
     </section>
   );
