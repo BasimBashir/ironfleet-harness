@@ -29,6 +29,7 @@ def main(argv=None) -> int:
     if args.cmd == "seed-operator":
         from harness.service import auth, system
         pw = os.environ.get("HARNESS_OPERATOR_PASSWORD")
+        Path(root).mkdir(parents=True, exist_ok=True)  # a fresh HARNESS_HOME is seeded before serve ever makes it
         con = system.open_db(root)
         try:
             if pw:

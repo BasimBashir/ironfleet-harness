@@ -315,6 +315,45 @@ class CorpusStore:
         return [CorpusHit(doc_id=d, heading=h, text=b, source_name=s, score=-sc)
                 for d, h, b, s, sc in rows]
 
+    def doc_chunks(self, matter_ref: str, sha256: str) -> list[dict]:
+        """M13.5: one document's passages in ingest order, found by its extracted text's
+        sha256 (uploads and corpus rows use different doc_id namespaces)."""
+        try:
+            rows = self._c().execute(
+                f"SELECT f.rowid, f.heading, f.body FROM {_mtable(matter_ref, 'fts')} f"
+                f" JOIN {_mtable(matter_ref, 'docs')} d ON d.doc_id = f.doc_id"
+                f" WHERE d.sha256 = ? ORDER BY f.rowid", (sha256,)).fetchall()
+        except sqlite3.OperationalError:        # matter never ingested -> no passages
+            return []
+        return [{"i": i, "heading": h, "text": b} for i, h, b in rows]
+
+    def forget(self, matter_ref: str, sha256: str | None = None) -> list[str]:
+        """Delete one document's passages (by extracted-text sha256, as doc_chunks finds
+        them) or, with sha256=None, the matter's whole lexical corpus. Returns the corpus
+        doc_ids removed so the caller can drop their vectors (chunk_text needs them)."""
+        docs, fts, cites = (_mtable(matter_ref, k) for k in ("docs", "fts", "cites"))
+        if sha256 is None:
+            with self._c() as c:
+                try:
+                    ids = [r[0] for r in c.execute(f"SELECT doc_id FROM {docs}")]
+                except sqlite3.OperationalError:
+                    ids = []
+                for t in (docs, fts, cites):
+                    c.execute(f"DROP TABLE IF EXISTS {t}")
+            return ids
+        try:
+            with self._c() as c:
+                ids = [r[0] for r in c.execute(
+                    f"SELECT doc_id FROM {docs} WHERE sha256=?", (sha256,))]
+                for d in ids:
+                    c.execute(f"DELETE FROM {cites} WHERE fts_rowid IN "
+                              f"(SELECT rowid FROM {fts} WHERE doc_id=?)", (d,))
+                    c.execute(f"DELETE FROM {fts} WHERE doc_id=?", (d,))
+                    c.execute(f"DELETE FROM {docs} WHERE doc_id=?", (d,))
+                return ids
+        except sqlite3.OperationalError:        # matter never ingested -> nothing to forget
+            return []
+
     def reindex_cites(self, matter_ref: str) -> int:
         """(Re)derive cites_<m> from the stored chunks — keys are pure text, so no
         re-embedding. Runs after upgrading an already-ingested corpus to the

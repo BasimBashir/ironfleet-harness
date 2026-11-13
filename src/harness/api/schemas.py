@@ -57,6 +57,24 @@ class UserCreateIn(BaseModel):
     role_id: str = "reader"
 
 
+class ProviderIn(BaseModel):        # M13.7: all optional — PATCH-shaped row edit
+    base_url: str | None = None
+    model: str | None = None
+    api_key: str | None = None      # write-only: never echoed back
+
+
+class ProviderNewIn(BaseModel):     # M13.7 '+': an admin-added provider row
+    name: str
+    engine: str                     # ollama | llamacpp | vllm | mlx-lm | cloud
+    base_url: str
+    model: str
+    api_key: str | None = None      # write-only: never echoed back
+
+
+class AssignIn(BaseModel):          # M13.7: null clears back to auto
+    provider: str | None = None
+
+
 class UserPatchIn(BaseModel):
     role_id: str | None = None
     is_active: bool | None = None
@@ -64,7 +82,7 @@ class UserPatchIn(BaseModel):
 
 
 class IngestIn(BaseModel):
-    source: str
+    source: str = ""   # empty = ingest this matter's own uploaded documents
 
 
 class ReviewIn(BaseModel):

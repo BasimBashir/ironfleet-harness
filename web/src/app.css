@@ -41,6 +41,7 @@ a.filter{text-decoration:none;display:inline-block}
 .form{max-width:760px}
 .qcard{padding:18px 22px;margin-bottom:14px} .qcard h2{margin:0 0 4px;font-size:var(--fs-md)}
 label{display:block;margin:10px 0 4px;font-weight:var(--fw-medium)}
+input[type=checkbox]{width:24px;height:24px;margin:0}
 textarea,input[type=text],input[type=password],input[type=date],input[type=number],select{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--control-border);border-radius:var(--radius);background:var(--raise);color:var(--text)}
 .hint{color:var(--muted);font-size:.9em;font-weight:400}
 .field-error{color:var(--s-failed);font-size:var(--fs-sm);margin-top:var(--sp-1)}

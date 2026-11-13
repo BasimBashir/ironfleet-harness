@@ -48,8 +48,31 @@ def _scalar_usage(result: dict) -> dict:
     return result
 
 
+def _saved_settings() -> dict:
+    """<store_root>/model-settings.json (written by service/settings.py); {} when
+    absent or unparsable — a corrupt settings file must not take dispatch down."""
+    import json
+    from harness.paths import resolve_store_root
+    try:
+        doc = json.loads((resolve_store_root()[0] / "model-settings.json")
+                         .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _apply_assign(rt: RoutingTable) -> None:
+    """M13.7: the admin's manual per-stage assignment leads route()'s candidates — any
+    provider, not just the YAML-listed ones (policy.RoutingTable.assign); gate.py's
+    availability walk still falls back to the rest. Applied at gate build: an
+    assignment lands on the next build_gate (a restart, or a fresh dispatch session)."""
+    assign = _saved_settings().get("assign")
+    rt.assign = assign if isinstance(assign, dict) else {}
+
+
 def build_gate(trace_path: Path, routing: Path) -> tuple[EgressGate, RoutingTable, dict]:
     rt = RoutingTable.from_yaml(routing)
+    _apply_assign(rt)
     aliases = load_aliases(routing)   # the model catalog OpenCode sees
     trace = TraceStore(trace_path)
     reg = _probe_ollama()
@@ -121,7 +144,7 @@ def _validate_url_override(env_var: str, url: str, declared_hosts: set[str]) -> 
                      f"(http/https loopback or https to a declared provider host)")
 
 
-def _provider_specs(path: Path | None = None) -> list[dict]:
+def _provider_specs(path: Path | None = None, saved: dict | None = None) -> list[dict]:
     """The provider registry AS DATA (data/providers.yaml) — one row = url + model +
     engine + kind, so a user swapping provider/model/url edits data, never code.
 
@@ -131,8 +154,15 @@ def _provider_specs(path: Path | None = None) -> list[dict]:
     swaps with no file edit. M1/S9: a _URL override is validated against the allow-list
     (_validate_url_override) — it is env-settable, unlike the file itself. A missing
     file raises (never silently probes nothing): the same fail-loud shape as
-    cli.default_routing's stranded-data check."""
+    cli.default_routing's stranded-data check.
+
+    M13.7: on the live (path=None) read, the admin's Settings-tab edits apply on top —
+    saved["providers"][name] overrides base_url/model, saved["custom"] appends rows
+    (URLs validated when saved, service/settings._url). Env overrides still win."""
     import yaml
+    if path is None:
+        saved = _saved_settings() if saved is None else saved
+    saved = saved or {}
     p = path or (Path(__file__).resolve().parents[2] / "data" / "providers.yaml")
     if not p.is_file():
         raise FileNotFoundError(f"provider registry not found at {p} — the distribution "
@@ -141,6 +171,11 @@ def _provider_specs(path: Path | None = None) -> list[dict]:
     rows = doc.get("providers") if isinstance(doc, dict) else None
     if not isinstance(rows, list) or not rows:
         raise ValueError(f"provider registry {p}: no 'providers' rows — refusing to probe")
+    edits = saved.get("providers") or {}
+    rows = [{**r, **{k: v for k, v in (edits.get(r["name"]) or {}).items()
+                     if k in ("base_url", "model")}} for r in rows]
+    rows += [c for c in saved.get("custom") or []      # a hand-mangled row is skipped, not fatal
+             if isinstance(c, dict) and all(c.get(k) for k in ("name", "base_url", "model", "engine"))]
     from urllib.parse import urlparse
     declared = {urlparse(r["base_url"]).hostname for r in rows}
     out = []

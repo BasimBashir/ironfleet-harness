@@ -13,6 +13,8 @@ import Approvals from "./screens/Approvals.jsx";
 import RunPage from "./screens/RunPage.jsx";
 import CaseScreens from "./screens/CaseScreens.jsx";
 import Users from "./screens/Users.jsx";
+import Settings from "./screens/Settings.jsx";
+import Oversight from "./screens/Oversight.jsx";
 
 export const Ctx = createContext(null);
 export const useCtx = () => useContext(Ctx);
@@ -225,6 +227,8 @@ function Shell({ me, onLogout }) {
     case "run": screen = <RunPage rid={route.params.rid} />; break;
     case "case": screen = <CaseScreens mid={mid} view={route.params.view} />; break;
     case "users": screen = <Users />; break;
+    case "settings": screen = <Settings />; break;
+    case "oversight": screen = <Oversight />; break;
     default: screen = <section><h1>Page not found</h1><p>That page does not exist. <a href={href("board")}>Go to the board</a></p></section>;
   }
 
@@ -259,6 +263,8 @@ function Shell({ me, onLogout }) {
           {nav("approvals", "Approvals", nPending ? <span className="pill" aria-label={`${nPending} waiting`}>{nPending}</span> : null)}
           {nav("new", "+ New matter")}
           {allowed(perms, "user.admin") ? nav("users", "Users & roles") : null}
+          {allowed(perms, "user.admin") ? nav("settings", "Model settings") : null}
+          {allowed(perms, "audit.read") ? nav("oversight", "Audit & metrics") : null}
           <h2>Recent matters</h2>
           {(recent.data?.items || []).slice(0, 6).map((m) => (
             <a key={m.matter_id} href={href("workspace", { mid: m.matter_id })}

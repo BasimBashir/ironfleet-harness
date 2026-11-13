@@ -50,7 +50,10 @@ GUARD_TEMPLATE = ROOT / "src" / "harness" / "module_e" / "ironfleet-guard-s7c.ts
 TOOLS_TEMPLATE = ROOT / "src" / "harness" / "substrate" / "ironfleet-tools.ts"
 PLUGIN_SRC = ROOT / "src" / "harness" / "substrate"
 GUARD_CLI = ROOT / "src" / "harness" / "module_e" / "guard_cli.py"
-PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
+# Frozen, the exe IS the interpreter (ironfleet_app.run_dash_c dispatches -c /
+# -m / script.py children); a .venv path would point at nothing.
+PYTHON = (Path(sys.executable) if getattr(sys, "frozen", False)
+          else ROOT / ".venv" / "Scripts" / "python.exe")
 ROUTING = DATA / "routing-a1.yaml"
 # A-5: the proxy serves a directory of per-matter records. Adding a window is dropping a
 # record here, not editing a registry. Sibling of the workspace's parent, so a workspace
@@ -306,6 +309,8 @@ def sync_mount(ws: Path, mount: Path, matter_ref: str, classification: str,
     inject_memory(ws / ".opencode" / "agent", MODULE_E / "personas.yaml",
                   MemoryStore.open_existing(root / "agent_memory.db"))
     sync_skills(MODULE_E / "skills", ws / ".opencode" / "skills")
+    if (root / "skills").is_dir():  # M13.6 admin-uploaded SKILL.md files (service/skills.py)
+        sync_skills(root / "skills", ws / ".opencode" / "skills")
     (ws / ".opencode" / "plugins").mkdir(parents=True, exist_ok=True)
     plugins = {
         "ironfleet-guard.ts": render_guard_plugin(

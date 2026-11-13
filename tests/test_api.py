@@ -18,7 +18,10 @@ DOMAIN = {"POST /api/v1/executions/{eid}/resume": (409, "invalid_transition"),
           # the fixture's run is parked at an approval: decided, not paused (M10 guard)
           "POST /api/v1/executions/{eid}/pause": (409, "invalid_transition"),
           "POST /api/v1/executions/{eid}/redirect": (409, "lease_conflict"),
-          "POST /api/v1/matters/{mid}/close": (409, "invalid_transition")}
+          "POST /api/v1/matters/{mid}/close": (409, "invalid_transition"),
+          # the fixture's run is live: a matter with running work is not deletable
+          "DELETE /api/v1/matters/{mid}": (409, "invalid_transition"),
+          "DELETE /api/v1/settings/providers": (404, "not_found")}
 PAGED = {"GET /api/v1/matters", "GET /api/v1/matters/{mid}/documents",
          "GET /api/v1/matters/{mid}/evidence", "GET /api/v1/matters/{mid}/artifacts",
          "GET /api/v1/audit", "GET /api/v1/approvals",
@@ -70,6 +73,242 @@ def test_pause_only_a_running_execution_and_redirect_keeps_a_park(api_world):
 def test_healthz_needs_no_token(api_world):
     r = api_world.client.get("/healthz")
     assert r.status_code == 200 and r.json()["stores"] == "ok"
+
+
+def test_document_text_is_the_extracted_reading_view(api_world):  # M13.4
+    w = api_world
+    r = w.client.get(f"/api/v1/documents/{w.A['doc_id']}/text", headers=w.h("reader"))
+    assert r.json() == {"doc_id": w.A["doc_id"], "text": "hello"}
+
+
+def test_document_chunks_match_the_corpus_by_content(api_world):  # M13.5
+    from harness.corpus import CorpusStore, DocRecord, split_structure
+    w = api_world
+    url = f"/api/v1/documents/{w.A['doc_id']}/chunks"
+    assert w.client.get(url, headers=w.h("reader")).json()["chunks"] == []   # not ingested
+    n = len(split_structure("doc-x", "hello"))
+    CorpusStore(Path(w.app.state.store_root) / "corpus.sqlite3").ingest(
+        w.A["mid"], DocRecord(doc_id="doc-x", text="hello", source_name="a.txt"),
+        [[0.0]] * n, "m", "p")
+    got = w.client.get(url, headers=w.h("reader")).json()["chunks"]
+    assert [c["text"] for c in got] == ["hello"] and isinstance(got[0]["i"], int)
+
+
+def test_document_ingest_without_source_targets_the_matter_uploads(api_world):  # M13.8
+    """UI 'Ingest documents' posts no source: the service must default to the matter's
+    own uploads dir — a user is never shown a store path."""
+    w = api_world
+    h = w.h("admin")
+    r = w.client.post(f"/api/v1/matters/{w.A['mid']}/documents/ingest", json={}, headers=h)
+    assert r.status_code == 202, r.text
+    # the fixture's fake ingest_source echoes the source it was handed:
+    assert r.json()["ingest_run"]["ingested"] == \
+        str(Path(w.app.state.store_root) / "documents" / w.A["mid"])
+    assert w.client.get(f"/api/v1/matters/{w.A['mid']}/documents",
+                        headers=h).json()["items"][0]["ingest_status"] == "ingested"
+
+
+def test_document_ingest_without_documents_is_a_422(api_world):  # M13.8
+    w = api_world
+    mid = w.client.post("/api/v1/matters", json={"title": "no docs"},
+                        headers=w.h("admin")).json()["matter_id"]
+    r = w.client.post(f"/api/v1/matters/{mid}/documents/ingest", json={},
+                      headers=w.h("admin"))
+    assert (r.status_code, code(r)) == (422, "validation_failed"), r.text
+    assert "no uploaded documents" in r.json()["error"]["message"]
+
+
+def test_skill_upload_validates_and_lands_in_the_store(api_world):  # M13.6
+    from test_api_authz import SKILL
+    c, h = api_world.client, api_world.h("admin")
+    r = c.post("/api/v1/skills?name=my-skill", content=SKILL, headers=h)
+    assert r.status_code == 201, r.text
+    got = (Path(api_world.app.state.store_root) / "skills" / "my-skill" / "SKILL.md")
+    assert "name: my-skill" in got.read_text(encoding="utf-8")
+    for name, body in (("no-fm", b"# just markdown"), ("Bad_Name", SKILL),
+                       ("affidavit-formatter", SKILL), ("short", b"---\ndescription: x\n---\n")):
+        r = c.post(f"/api/v1/skills?name={name}", content=body, headers=h)
+        assert (r.status_code, code(r)) == (422, "validation_failed"), (name, r.text)
+
+
+def test_settings_view_put_write_only_key_and_test(api_world):  # M13.7
+    w = api_world
+    h = w.h("admin")
+    r = w.client.get("/api/v1/settings/providers", headers=h)
+    body = r.json()
+    assert r.status_code == 200
+    names = {p["name"] for p in body["providers"]}
+    assert {"ollama-local", "ollama-embed", "nvidia-nim"} <= names
+    ollama = next(p for p in body["providers"] if p["name"] == "ollama-local")
+    assert ollama["tier"] == "local" and ollama["has_key"] is False
+    assert [s["task_class"] for s in body["stages"]]      # routing rows as data
+    # row edit persists to the store; the key lands in the keychain and is never echoed
+    r = w.client.put("/api/v1/settings/providers?name=ollama-local", headers=h,
+                     json={"base_url": "http://127.0.0.1:11434/v1",
+                           "model": "thomson1-chat:latest", "api_key": "sk-secret-1"})
+    assert r.status_code == 200 and "sk-secret-1" not in r.text, r.text
+    from harness.keychain import get_key
+    assert get_key("ollama-local") == "sk-secret-1"
+    f = Path(w.app.state.store_root) / "model-settings.json"
+    saved = json.loads(f.read_text(encoding="utf-8"))
+    assert saved["providers"]["ollama-local"]["model"] == "thomson1-chat:latest"
+    # local rows stay on the loopback; cloud rows must be https
+    bad = w.client.put("/api/v1/settings/providers?name=ollama-local", headers=h,
+                       json={"base_url": "http://evil.example.com/v1"})
+    assert (bad.status_code, code(bad)) == (422, "validation_failed"), bad.text
+    bad = w.client.put("/api/v1/settings/providers?name=nvidia-nim", headers=h,
+                       json={"base_url": "http://integrate.api.nvidia.com/v1"})
+    assert (bad.status_code, code(bad)) == (422, "validation_failed"), bad.text
+    unknown = w.client.put("/api/v1/settings/providers?name=who", headers=h, json={})
+    assert (unknown.status_code, code(unknown)) == (404, "not_found")
+    # Test: the conftest seam answers, so no network — and Test never stores a key
+    r = w.client.post("/api/v1/settings/providers/test?name=ollama-local", headers=h)
+    assert r.status_code == 200 and r.json() == {
+        "name": "ollama-local", "reachable": False, "auth_ok": False,
+        "admission": "refused", "verified": False, "models": 0}, r.text
+
+
+def test_assign_persists_and_the_gate_applies_it(api_world, monkeypatch):  # M13.7
+    from harness.providers.config import ProviderConfig, ProviderRegistry
+    from harness.policy import MatterPolicy
+    import harness.bootstrap as bs
+    w = api_world
+    h = w.h("admin")
+    r = w.client.put("/api/v1/settings/assign?task_class=drafting", headers=h,
+                     json={"provider": "nvidia-nim"})
+    assert r.status_code == 200 and r.json() == {"task_class": "drafting",
+                                                 "assign": "nvidia-nim"}, r.text
+    bad = w.client.put("/api/v1/settings/assign?task_class=drafting", headers=h,
+                       json={"provider": "nope"})
+    assert (bad.status_code, code(bad)) == (422, "validation_failed"), bad.text
+    bad = w.client.put("/api/v1/settings/assign?task_class=nonexistent", headers=h,
+                       json={"provider": "ollama-local"})
+    assert (bad.status_code, code(bad)) == (422, "validation_failed"), bad.text
+    clear = w.client.put("/api/v1/settings/assign?task_class=drafting", headers=h,
+                         json={"provider": None})
+    assert clear.status_code == 200 and clear.json()["assign"] is None
+    # re-set, then prove the live gate build applies the order (store root via env)
+    w.client.put("/api/v1/settings/assign?task_class=drafting", headers=h,
+                 json={"provider": "nvidia-nim"})
+    monkeypatch.setenv("HARNESS_HOME", str(w.app.state.store_root))
+    monkeypatch.setattr(bs, "_probe_ollama", lambda *a, **k: ProviderRegistry())
+    gate, rt, _ = bs.build_gate(Path(w.app.state.store_root) / "trace-t.db",
+                                Path("data/routing-a1.yaml"))
+    reg = ProviderRegistry()
+    for n, t in (("ollama-local", "local"), ("nvidia-nim", "cloud")):
+        reg.upsert(ProviderConfig(name=n, base_url="http://127.0.0.1:9/v1", model="m",
+                                  models=[], engine="ollama" if t == "local" else "cloud",
+                                  tier=t, admitted="full"))
+    pol = MatterPolicy(matter_ref="m", classification="LOCAL_PREFERRED")
+    got = [c.name for c in rt.route("drafting", pol, reg)]
+    assert got[0] == "nvidia-nim" and set(got) == {"nvidia-nim", "ollama-local"}, got
+
+
+def test_add_provider_and_assign_any_provider_to_any_stage(api_world, monkeypatch):
+    from harness.providers.config import ProviderConfig, ProviderRegistry
+    from harness.policy import MatterPolicy
+    import harness.bootstrap as bs
+    w = api_world
+    h = w.h("admin")
+    url = "/api/v1/settings/providers"
+    r = w.client.post(url, headers=h, json={"name": "groq-x", "engine": "cloud", "model": "llama-9",
+                                            "base_url": "https://api.groq.com/v1", "api_key": "k1"})
+    assert r.status_code == 201 and "k1" not in r.text, r.text
+    for bad, want in (({"name": "groq-x"}, 409),                      # duplicate
+                      ({"name": "Bad Name"}, 422),
+                      ({"name": "ok", "engine": "nope"}, 422),
+                      ({"name": "ok", "base_url": "http://plain.example/v1"}, 422)):
+        r = w.client.post(url, headers=h, json={"name": "x", "engine": "cloud", "model": "m",
+                                                "base_url": "https://a.example/v1", **bad})
+        assert r.status_code == want, (bad, r.text)
+    p = next(p for p in w.client.get(url, headers=h).json()["providers"] if p["name"] == "groq-x")
+    assert p["custom"] and p["tier"] == "cloud" and p["model"] == "llama-9"
+    # edit in place; any stage takes it, except the structurally local-only ones (A-4)
+    assert w.client.put(f"{url}?name=groq-x", headers=h, json={"model": "llama-10"}).status_code == 200
+    assert w.client.put("/api/v1/settings/assign?task_class=extraction", headers=h,
+                        json={"provider": "groq-x"}).status_code == 200
+    bad = w.client.put("/api/v1/settings/assign?task_class=embedding", headers=h,
+                       json={"provider": "groq-x"})
+    assert (bad.status_code, code(bad)) == (422, "validation_failed"), bad.text
+    # the live registry read and the gate both see it, though routing YAML never names it
+    monkeypatch.setenv("HARNESS_HOME", str(w.app.state.store_root))
+    spec = next(s for s in bs._provider_specs() if s["name"] == "groq-x")
+    assert spec["model"] == "llama-10" and spec["declared"]["weights_revision"] == "llama-10"
+    monkeypatch.setattr(bs, "_probe_ollama", lambda *a, **k: ProviderRegistry())
+    _, rt, _ = bs.build_gate(Path(w.app.state.store_root) / "trace-t.db",
+                             Path("data/routing-a1.yaml"))
+    reg = ProviderRegistry()
+    for n, t in (("ollama-local", "local"), ("groq-x", "cloud")):
+        reg.upsert(ProviderConfig(name=n, base_url="http://127.0.0.1:9/v1", model="m", models=[],
+                                  engine="ollama" if t == "local" else "cloud", tier=t,
+                                  admitted="full"))
+    pol = MatterPolicy(matter_ref="m", classification="LOCAL_PREFERRED")
+    assert [c.name for c in rt.route("extraction", pol, reg)] == ["groq-x", "ollama-local"]
+
+
+def test_hard_deletes_remove_content_and_keep_the_audit_chain(api_world):  # 2026-11-13
+    import hashlib
+    from harness.corpus import CorpusStore, _mtable, split_structure
+    from harness.service import system
+    w, h, A = api_world, api_world.h("admin"), api_world.A
+    root = Path(w.app.state.store_root)
+    text = "The transaction is voidable under section 297 of the Companies Act. " * 40
+    up = w.client.post(f"/api/v1/matters/{A['mid']}/documents?filename=memo.txt",
+                       content=text.encode(), headers=h).json()
+    from harness.ingest_generic import extract_text
+    text = extract_text(root / up["path"])      # what ingest indexes
+    store = CorpusStore(root / "corpus.sqlite3")
+    with store._c() as c:     # seed the lexical index (ingest proper needs 1:1 vectors)
+        t = {k: _mtable(A["mid"], k) for k in ("docs", "fts", "cites")}
+        c.execute(f"CREATE TABLE {t['docs']}(doc_id TEXT PRIMARY KEY, source_name TEXT,"
+                  " sha256 TEXT, words INTEGER, chunk_count INTEGER, ts TEXT)")
+        c.execute(f"CREATE VIRTUAL TABLE {t['fts']} USING fts5(doc_id, heading, body)")
+        c.execute(f"CREATE TABLE {t['cites']}(key TEXT, fts_rowid INTEGER)")
+        c.execute(f"INSERT INTO {t['docs']} VALUES('c1','memo.txt',?,1,1,'t')",
+                  (hashlib.sha256(text.encode()).hexdigest(),))
+        c.executemany(f"INSERT INTO {t['fts']} VALUES(?,?,?)",
+                      [(ch.doc_id, ch.heading, ch.text) for ch in split_structure("c1", text)])
+    assert w.client.get(f"/api/v1/documents/{up['doc_id']}/chunks", headers=h).json()["chunks"]
+    # document: file, row and searchable passages all go
+    r = w.client.delete(f"/api/v1/documents/{up['doc_id']}", headers=h)
+    assert r.status_code == 204, r.text
+    assert not (root / up["path"]).exists()
+    assert store.search_lexical(A["mid"], "voidable transaction") == []
+    assert w.client.get(f"/api/v1/documents/{up['doc_id']}", headers=h).status_code == 404
+    # draft
+    assert w.client.delete(f"/api/v1/artifacts/{A['art']}", headers=h).status_code == 204
+    assert w.client.get(f"/api/v1/artifacts/{A['art']}", headers=h).status_code == 404
+    # matter: refused while its run is live, then everything goes but the audit chain
+    r = w.client.delete(f"/api/v1/matters/{A['mid']}", headers=h)
+    assert (r.status_code, code(r)) == (409, "invalid_transition"), r.text
+    w.client.post(f"/api/v1/executions/{A['eid']}/cancel", json={"reason": "r"}, headers=h)
+    assert w.client.delete(f"/api/v1/matters/{A['mid']}", headers=h).status_code == 204
+    assert w.client.get(f"/api/v1/matters/{A['mid']}", headers=h).status_code == 404
+    assert not (root / "documents" / A["mid"]).exists()
+    con = system.open_db(root)
+    acts = {r["action"] for r in con.execute(
+        "SELECT action FROM audit_events WHERE matter_id=?", (A["mid"],))}
+    assert not con.execute("SELECT 1 FROM tasks WHERE execution_id=?", (A["eid"],)).fetchone()
+    con.close()
+    assert {"matter.created", "document.deleted", "artifact.deleted", "matter.deleted"} <= acts
+    assert w.client.get(f"/api/v1/matters/{w.B['mid']}", headers=h).status_code == 200
+
+
+def test_delete_added_provider_only(api_world):
+    w, h = api_world, api_world.h("admin")
+    url = "/api/v1/settings/providers"
+    w.client.post(url, headers=h, json={"name": "gone-x", "engine": "cloud", "model": "m",
+                                        "base_url": "https://a.example/v1", "api_key": "k"})
+    w.client.put("/api/v1/settings/assign?task_class=drafting", headers=h, json={"provider": "gone-x"})
+    assert w.client.delete(f"{url}?name=gone-x", headers=h).status_code == 204
+    body = w.client.get(url, headers=h).json()
+    assert "gone-x" not in {p["name"] for p in body["providers"]}
+    assert next(s for s in body["stages"] if s["task_class"] == "drafting")["assign"] is None
+    from harness.keychain import get_key
+    assert get_key("gone-x") is None
+    r = w.client.delete(f"{url}?name=nvidia-nim", headers=h)
+    assert (r.status_code, code(r)) == (409, "conflict"), r.text
+    assert w.client.delete(f"{url}?name=nope", headers=h).status_code == 404
 
 
 def test_error_envelope_shapes(api_world):
@@ -212,3 +451,19 @@ def test_openapi_committed_and_current(api_world):
     for key in ROUTES:                    # every 04 §5 / 08 §16 path is published
         method, path = key.split(" ", 1)
         assert method.lower() in spec["paths"][path], key
+
+
+def test_seed_operator_creates_missing_store(harness_home, monkeypatch):
+    from harness.api.__main__ import main
+    from harness.paths import resolve_store_root
+    from harness.service import auth, system
+    monkeypatch.setattr(auth, "_ITER", 1000)
+    monkeypatch.delenv("HARNESS_OPERATOR_PASSWORD", raising=False)
+    root = resolve_store_root()[0]
+    assert not Path(root).exists()        # the guide's fresh-store case
+    assert main(["seed-operator"]) == 0
+    con = system.open_db(root)
+    try:
+        assert con.execute("SELECT 1 FROM users WHERE username='admin'").fetchone()
+    finally:
+        con.close()

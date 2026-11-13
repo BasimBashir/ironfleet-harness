@@ -1,12 +1,13 @@
 // S3 Matter Workspace (05 §3): persistent matter header + 9 tabs (Swarm/Chat are M10,
 // Research folds into Evidence — plan §0). S8 document viewer + S9 activity/audit live here.
 import { useEffect, useRef, useState } from "react";
-import { ApiError, blob, post, upload } from "../api.js";
+import { ApiError, blob, del, get, page, post, upload } from "../api.js";
 import { useCtx } from "../App.jsx";
 import { href } from "../router.js";
 import { subscribe } from "../sse.js";
 import { useApi } from "../useApi.js";
-import { Btn, Empty, ErrorLine, Loading, StatusChip, allowed, fmtAgo, fmtDate, fmtDue, fmtTokens } from "../ui.jsx";
+import { BulkBar, Btn, Empty, ErrorLine, Loading, SelectAll, SelectCell, StatusChip, allowed, confirmDelete,
+  fmtAgo, fmtDate, fmtDue, fmtTokens, useSelect } from "../ui.jsx";
 import { RunDrawer } from "./RunPage.jsx";
 import { Members } from "./Users.jsx";
 
@@ -116,18 +117,44 @@ function Overview({ mid, m }) {
   );
 }
 
-function DocViewer({ doc, onClose }) {
+// M13.4: plain text as-is, PDF in the browser's own viewer, everything else (DOCX, HTML…)
+// as server-extracted text — no pixel-faithful Office rendering by design
+export const viewMode = (name) =>
+  /\.(txt|md|csv|json)$/i.test(name) ? "text" : /\.pdf$/i.test(name) ? "pdf" : "extracted";
+
+// M13.5: wrap every case-insensitive occurrence of q in <mark> (matches land on odd indices)
+export function highlight(text, q) {
+  const w = (q || "").trim();
+  if (!w) return [text];
+  const re = new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  return text.split(re).map((s, i) => (i % 2 ? <mark key={i}>{s}</mark> : s));
+}
+
+function DocViewer({ doc, onClose, q: q0 = "" }) {
   const [text, setText] = useState(null);
   const [url, setUrl] = useState(null);
   const [err, setErr] = useState(null);
+  const [chunks, setChunks] = useState([]);
+  const [q, setQ] = useState(q0);
+  const mode = viewMode(doc.filename);
   useEffect(() => {
     let u;
     blob(`/documents/${doc.doc_id}`).then(async (b) => {
-      if (/\.(txt|md|csv|json)$/i.test(doc.filename)) setText(await b.text());
-      else { u = URL.createObjectURL(b); setUrl(u); }
-    }, setErr);
+      if (mode === "text") return setText(await b.text());
+      // the API serves octet-stream; re-type it or the iframe downloads instead of rendering
+      u = URL.createObjectURL(mode === "pdf" ? new Blob([b], { type: "application/pdf" }) : b);
+      setUrl(u);
+      if (mode === "extracted") setText((await get(`/documents/${doc.doc_id}/text`)).text);
+    }).catch(setErr);
+    // the passages retrieval sees; [] when the document was never corpus-ingested
+    get(`/documents/${doc.doc_id}/chunks`).then((r) => setChunks(r.chunks || []), () => {});
     return () => u && URL.revokeObjectURL(u);
-  }, [doc]);
+  }, [doc, mode]);
+  useEffect(() => {
+    const w = q.trim().toLowerCase();
+    const hit = w && chunks.find((c) => c.text.toLowerCase().includes(w));
+    if (hit) document.getElementById(`chunk-${hit.i}`)?.scrollIntoView?.({ block: "center" });
+  }, [q, chunks]);
   return (
     <section className="stack" aria-label={`Document ${doc.filename}`}>
       <div className="prov">
@@ -142,7 +169,21 @@ function DocViewer({ doc, onClose }) {
         </dl>
       </div>
       <ErrorLine error={err} />
-      {text != null ? <pre className="card" style={{ padding: 16, whiteSpace: "pre-wrap" }}>{text}</pre> : null}
+      {url && mode === "pdf" ? <iframe className="card" src={url} title={`${doc.filename} (PDF viewer)`}
+        style={{ width: "100%", height: "75vh", border: 0 }} /> : null}
+      {text != null && mode === "extracted" ? <p className="muted">Reading view — text extracted from the file; layout not preserved.</p> : null}
+      {text != null || chunks.length ? (
+        <p><label htmlFor="doc-find">Find in document </label>
+          <input id="doc-find" type="search" value={q} onChange={(e) => setQ(e.target.value)} /></p>) : null}
+      {chunks.length ? (
+        <ol className="stack" aria-label="Passages as retrieval sees them" style={{ listStyle: "none", padding: 0 }}>
+          {chunks.map((c) => (
+            <li key={c.i} id={`chunk-${c.i}`} className="card" style={{ padding: 16 }}>
+              {c.heading ? <h3>{c.heading}</h3> : null}
+              <p style={{ whiteSpace: "pre-wrap" }}>{highlight(c.text, q)}</p>
+            </li>))}
+        </ol>
+      ) : text != null ? <pre className="card" style={{ padding: 16, whiteSpace: "pre-wrap" }}>{highlight(text, q)}</pre> : null}
       {url ? <p><a href={url} download={doc.filename}>Download {doc.filename}</a></p> : null}
       <button type="button" className="btn" onClick={onClose}>Back to documents</button>
     </section>
@@ -157,31 +198,52 @@ function Documents({ mid }) {
   const [source, setSource] = useState("");
   const [report, setReport] = useState(null);
   const file = useRef(null);
+  const pick = useSelect();
   const canWrite = allowed(perms, "matter.write");
   if (open) return <DocViewer doc={open} onClose={() => setOpen(null)} />;
+  const why = canWrite ? "" : "requires matter.write";
+  const remove = async (ids) => {
+    if (!confirmDelete(ids.length, "document")) return;
+    await run(async () => { for (const id of ids) await del(`/documents/${id}`); });
+    pick.clear();
+    docs.reload();
+  };
   const onFiles = async (e) => {
     for (const f of e.target.files) await run(() => upload(`/matters/${mid}/documents`, f));
     e.target.value = "";
     docs.reload();
   };
+  const ingestMine = async () => {
+    const r = await run(() => post(`/matters/${mid}/documents/ingest`, { source: "" }));
+    setReport(r?.data?.ingest_run || null);
+    docs.reload();
+  };
+  const hasDocs = (docs.data?.items || []).length > 0;
   return (
     <div className="stack">
       {canWrite ? (
         <p>
           <input ref={file} type="file" multiple onChange={onFiles} className="sr-only" id="doc-up" tabIndex={-1} aria-hidden="true" />
           <button type="button" className="btn btn--primary" onClick={() => file.current?.click()}>Upload documents</button>
-          {st.busy ? <span className="muted" role="status"> Uploading…</span> : null}
+          {hasDocs ? <button type="button" className="btn" onClick={ingestMine} disabled={st.busy}
+            title="Run this matter's uploaded documents through the retrieval pipeline">Ingest documents</button> : null}
+          {st.busy ? <span className="muted" role="status"> Working…</span> : null}
         </p>) : null}
       <CommandError error={st.error} />
       <ErrorLine error={docs.error} onRetry={docs.reload} />
+      <BulkBar s={pick} why={why} busy={st.busy} onDelete={() => remove([...pick.sel])} />
       {docs.loading ? <Loading /> : (docs.data?.items || []).length === 0
         ? <Empty>No documents yet.</Empty> : (
           <table className="table" aria-label="Documents">
-            <thead><tr><th scope="col">Name</th><th scope="col">Origin</th><th scope="col">Ingest</th><th scope="col">Added</th><th scope="col" className="num">Size</th></tr></thead>
+            <thead><tr><SelectAll ids={docs.data.items.map((d) => d.doc_id)} s={pick} /><th scope="col">Name</th><th scope="col">Origin</th><th scope="col">Ingest</th><th scope="col">Added</th><th scope="col" className="num">Size</th>
+              <th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>{docs.data.items.map((d) => (
               <tr key={d.doc_id} onClick={() => setOpen(d)}>
+                <SelectCell id={d.doc_id} label={d.filename} s={pick} />
                 <td className="title"><b><a href={`#${d.doc_id}`} onClick={(e) => { e.preventDefault(); setOpen(d); }}>{d.filename}</a></b><span className="id">{d.doc_id}</span></td>
                 <td>upload</td><td>{d.ingest_status}</td><td>{fmtDate(d.created_at)}</td><td className="num">{d.size}</td>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <Btn why={why} disabled={st.busy} onClick={() => remove([d.doc_id])}>Delete</Btn></td>
               </tr>))}</tbody>
           </table>)}
       {canWrite ? (
@@ -189,23 +251,24 @@ function Documents({ mid }) {
           e.preventDefault();
           const r = await run(() => post(`/matters/${mid}/documents/ingest`, { source }));
           setReport(r?.data?.ingest_run || null);
+          docs.reload();
         }}>
           <h2>Ingest operator-supplied law sources</h2>
           <label htmlFor="ing-s">Source path or sources-spec YAML <span className="hint">(files you downloaded yourself — W2)</span></label>
           <input id="ing-s" type="text" required value={source} onChange={(e) => setSource(e.target.value)} />
           <p><button type="submit" className="btn">Ingest</button>{st.busy ? <span className="muted" role="status"> Ingesting…</span> : null}</p>
-          {report ? (  /* the TUI's /ingest report lines (parity, doc 14) */
-            <div role="status">
-              <p><b>Ingest done</b> — {report.chunks ?? 0} chunks.
-                {![...(report.ingested || []), ...(report.skipped || []), ...(report.skipped_by_resume || [])].length
-                  ? " Nothing in that source was a file this ingester reads — check the path and the file types." : ""}</p>
-              <ul>
-                {(report.ingested || []).map((n) => <li key={`i-${n}`}>✓ ingested: {n}</li>)}
-                {(report.skipped || []).map((n) => <li key={`s-${n}`}>✕ skipped: {n}</li>)}
-                {(report.skipped_by_resume || []).map((n) => <li key={`r-${n}`}>○ already in the corpus: {n}</li>)}
-              </ul>
-            </div>) : null}
         </form>) : null}
+      {report ? (  /* the TUI's /ingest report lines (parity, doc 14) — shared by both ingest actions */
+        <div role="status">
+          <p><b>Ingest done</b> — {report.chunks ?? 0} chunks.
+            {![...(report.ingested || []), ...(report.skipped || []), ...(report.skipped_by_resume || [])].length
+              ? " Nothing in that source was a file this ingester reads — check the path and the file types." : ""}</p>
+          <ul>
+            {(report.ingested || []).map((n) => <li key={`i-${n}`}>✓ ingested: {n}</li>)}
+            {(report.skipped || []).map((n) => <li key={`s-${n}`}>✕ skipped: {n}</li>)}
+            {(report.skipped_by_resume || []).map((n) => <li key={`r-${n}`}>○ already in the corpus: {n}</li>)}
+          </ul>
+        </div>) : null}
     </div>
   );
 }
@@ -279,24 +342,74 @@ function Agents({ mid }) {
   );
 }
 
+function DraftViewer({ aid, why, onReview, onClose, onDelete = null }) {
+  const art = useApi(`/artifacts/${aid}`);
+  const a = art.data;
+  return (
+    <section className="stack" aria-label={`Draft ${a?.title || aid}`}>
+      <ErrorLine error={art.error} onRetry={art.reload} />
+      {art.loading ? <Loading /> : a ? (<>
+        <div className="prov">
+          <span className="prov__title">{a.title}</span><span />
+          <span className="chip">{a.review_state}</span>
+          <dl className="prov__meta">
+            <div><dt>Kind</dt><dd>{a.kind}</dd></div>
+            <div><dt>Updated</dt><dd>{fmtDate(a.updated_at)}</dd></div>
+            {a.review_note ? <div><dt>Review note</dt><dd>{a.review_note}</dd></div> : null}
+          </dl>
+        </div>
+        <pre className="card" style={{ padding: 16, whiteSpace: "pre-wrap" }}>{a.content || "(empty)"}</pre>
+      </>) : null}
+      <p>
+        <Btn why={why} onClick={async () => { if (await onReview(aid)) art.reload(); }}>Mark reviewed</Btn>{" "}
+        {onDelete}{" "}
+        <button type="button" className="btn" onClick={onClose}>Back to drafts</button>
+      </p>
+    </section>
+  );
+}
+
 function Drafts({ mid }) {
   const { perms } = useCtx();
   const arts = useApi(`/matters/${mid}/artifacts`, { matter: mid });
   const [st, run] = useCommand();
+  const [open, setOpen] = useState(null);
   const rows = arts.data?.items || [];
-  const why = allowed(perms, "matter.write") ? "" : "requires matter.write";
+  // the review route requires approval.decide (service/documents.review_artifact)
+  const why = allowed(perms, "approval.decide") ? "" : "requires approval.decide";
+  const review = async (aid) => {
+    const r = await run(() => post(`/artifacts/${aid}/review`, { decision: "approve" }));
+    arts.reload();
+    return r;
+  };
+  const pick = useSelect();
+  const delWhy = allowed(perms, "matter.write") ? "" : "requires matter.write";
+  const remove = async (ids) => {
+    if (!confirmDelete(ids.length, "draft")) return;
+    await run(async () => { for (const id of ids) await del(`/artifacts/${id}`); });
+    pick.clear();
+    setOpen(null);
+    arts.reload();
+  };
   return (
     <div className="stack">
       <ErrorLine error={arts.error} onRetry={arts.reload} />
       <CommandError error={st.error} />
-      {arts.loading ? <Loading /> : rows.length === 0 ? <Empty>No drafts yet. Stage outputs appear in the Work plan tab.</Empty> : (
+      {open ? null : <BulkBar s={pick} why={delWhy} busy={st.busy} onDelete={() => remove([...pick.sel])} />}
+      {open ? <DraftViewer aid={open} why={why} onReview={review} onClose={() => setOpen(null)}
+          onDelete={<Btn why={delWhy} disabled={st.busy} onClick={() => remove([open])}>Delete</Btn>} />
+        : arts.loading ? <Loading /> : rows.length === 0 ? <Empty>No drafts yet. Stage outputs appear in the Work plan tab.</Empty> : (
         <table className="table" aria-label="Drafts">
-          <thead><tr><th scope="col">Title</th><th scope="col">Kind</th><th scope="col">Review</th><th scope="col">Updated</th><th scope="col">Action</th></tr></thead>
+          <thead><tr><SelectAll ids={rows.map((a) => a.artifact_id)} s={pick} /><th scope="col">Title</th><th scope="col">Kind</th><th scope="col">Review</th><th scope="col">Updated</th><th scope="col">Action</th></tr></thead>
           <tbody>{rows.map((a) => (
             <tr key={a.artifact_id}>
-              <td className="title"><b>{a.title}</b><span className="id">{a.artifact_id}</span></td>
+              <SelectCell id={a.artifact_id} label={a.title} s={pick} />
+              <td className="title"><b><a href={`#${a.artifact_id}`} onClick={(e) => { e.preventDefault(); setOpen(a.artifact_id); }}>{a.title}</a></b>
+                <span className="id">{a.artifact_id}</span></td>
               <td>{a.kind}</td><td>{a.review_state}</td><td>{fmtAgo(a.updated_at)}</td>
-              <td><Btn why={why} onClick={() => run(() => post(`/artifacts/${a.artifact_id}/review`, { decision: "approved" }))}>Mark reviewed</Btn></td>
+              <td><button type="button" className="btn" onClick={() => setOpen(a.artifact_id)}>Read</button>{" "}
+                <Btn why={why} onClick={() => review(a.artifact_id)}>Mark reviewed</Btn>{" "}
+                <Btn why={delWhy} disabled={st.busy} onClick={() => remove([a.artifact_id])}>Delete</Btn></td>
             </tr>))}</tbody>
         </table>)}
     </div>
@@ -353,25 +466,48 @@ function Activity({ mid }) {
   );
 }
 
-function Audit({ mid }) {
-  const { perms } = useCtx();
-  const can = allowed(perms, "audit.read");
-  const au = useApi(can ? `/audit?matter_id=${encodeURIComponent(mid)}` : null, { matter: mid });
-  if (!can) return <p className="table__empty">🔒 The audit chain needs the audit.read permission.</p>;
-  const chain = au.data?.chain;
+export function AuditView({ chain, items, allMatters = false, onMore }) {
   return (
-    <div className="stack">
+    <>
       {chain ? (chain.ok
         ? <p><span className="chip chip--done" data-icon="✓">Chain verified</span> every row hashes to the one before it.</p>
         : <p><span className="chip chip--failed" data-icon="⚠">Chain broken</span> first bad row: <span className="id">{chain.first_bad}</span></p>) : null}
-      <ErrorLine error={au.error} onRetry={au.reload} />
+      <table className="table" aria-label="Audit chain">
+        <thead><tr><th scope="col">When</th>{allMatters ? <th scope="col">Matter</th> : null}<th scope="col">Actor</th>
+          <th scope="col">Action</th><th scope="col">Target</th><th scope="col">Hash</th></tr></thead>
+        <tbody>{items.map((r) => (
+          <tr key={r.audit_id}><td>{new Date(r.ts).toLocaleString("en-NZ")}</td>
+            {allMatters ? <td className="mono">{r.matter_id || "—"}</td> : null}<td>{r.actor}</td><td>{r.action}</td>
+            <td className="mono">{r.target}</td><td className="mono">{(r.hash || "").slice(0, 12)}</td></tr>))}</tbody>
+      </table>
+      {onMore ? <p><button type="button" className="btn" onClick={onMore}>Load more</button></p> : null}
+    </>
+  );
+}
+
+// no mid = every matter (admin oversight, M13.3)
+export function Audit({ mid }) {
+  const { perms } = useCtx();
+  const can = allowed(perms, "audit.read");
+  const path = mid ? `/audit?matter_id=${encodeURIComponent(mid)}` : "/audit";
+  const au = useApi(can ? path : null, { matter: mid });
+  const [more, setMore] = useState({ items: [], next: undefined });
+  const [err, setErr] = useState(null);
+  useEffect(() => setMore({ items: [], next: undefined }), [au.data]);  // a refetch restarts paging
+  if (!can) return <p className="table__empty">🔒 The audit chain needs the audit.read permission.</p>;
+  const next = more.next === undefined ? au.data?.next_cursor : more.next;
+  const loadMore = async () => {
+    try {
+      const r = await page(path, next);
+      setMore({ items: [...more.items, ...r.items], next: r.next_cursor });
+    } catch (x) { setErr(x); }
+  };
+  return (
+    <div className="stack">
+      <ErrorLine error={au.error || err} onRetry={() => { setErr(null); au.reload(); }} />
       {au.loading ? <Loading /> : (
-        <table className="table" aria-label="Audit chain">
-          <thead><tr><th scope="col">When</th><th scope="col">Actor</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Hash</th></tr></thead>
-          <tbody>{(au.data?.items || []).map((r) => (
-            <tr key={r.audit_id}><td>{new Date(r.ts).toLocaleString("en-NZ")}</td><td>{r.actor}</td><td>{r.action}</td>
-              <td className="mono">{r.target}</td><td className="mono">{(r.hash || "").slice(0, 12)}</td></tr>))}</tbody>
-        </table>)}
+        <AuditView chain={au.data?.chain} items={[...(au.data?.items || []), ...more.items]}
+          allMatters={!mid} onMore={next ? loadMore : null} />)}
     </div>
   );
 }

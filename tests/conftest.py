@@ -24,6 +24,14 @@ def api_world(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "_ITER", 1000)          # pbkdf2 speed, tests only
     monkeypatch.setattr(system, "doctor_report", lambda **_: "doctor ok (test)")
     monkeypatch.setattr(ingest, "ingest_source", lambda m, s, *a, **k: {"ingested": s})
+    import harness.keychain as _keychain
+    from harness.service import settings as _settings
+    monkeypatch.setattr(_keychain, "_kv", {})         # M13.7: no OS keyring touches
+    async def _canned_probe(name, spec, **_):         # the Test probe dials the network
+        return {"name": name, "reachable": False,
+                "auth_ok": False, "admission": "refused",
+                "verified": False, "models": 0}
+    monkeypatch.setattr(_settings, "_probe_one", _canned_probe)
     root = tmp_path / "store"
     root.mkdir()
     con = system.open_db(root)

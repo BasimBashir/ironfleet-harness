@@ -1,14 +1,15 @@
 // M10 T5 — users & roles admin (user.admin) + the matter membership editor (matter.write).
 // 05 §12: without the permission the mutation controls are hidden; the reason stays visible.
 import { useState } from "react";
-import { del, patch, post, put } from "../api.js";
+import { del, patch, post, put, request } from "../api.js";
 import { useCtx } from "../App.jsx";
 import { useApi } from "../useApi.js";
 import { ErrorLine, Loading, allowed } from "../ui.jsx";
 import { CommandError, useCommand } from "./Workspace.jsx";
 
-export function UsersView({ users, roles, canAdmin, st, onCreate, onPatch }) {
+export function UsersView({ users, roles, canAdmin, st, onCreate, onPatch, onSkill }) {
   const [f, setF] = useState({ username: "", password: "", role_id: "reader" });
+  const [sk, setSk] = useState({ name: "", file: null, done: "" });
   if (!canAdmin) return <p className="table__empty">🔒 User administration requires the user.admin permission.</p>;
   const roleIds = (roles || []).map((r) => r.role_id);
   const stateLabel = (u) => u.state === "pending" ? "Pending" : u.state === "rejected" ? "Rejected"
@@ -16,6 +17,10 @@ export function UsersView({ users, roles, canAdmin, st, onCreate, onPatch }) {
   const submit = async (e) => {
     e.preventDefault();
     if (await onCreate(f)) setF({ username: "", password: "", role_id: f.role_id });
+  };
+  const submitSkill = async (e) => {
+    e.preventDefault();
+    if (await onSkill(sk.name, sk.file)) { setSk({ name: "", file: null, done: sk.name }); e.target.reset(); }
   };
   return (
     <div className="stack">
@@ -53,6 +58,18 @@ export function UsersView({ users, roles, canAdmin, st, onCreate, onPatch }) {
           {roleIds.map((r) => <option key={r} value={r}>{r}</option>)}</select>
         <p><button type="submit" className="btn btn--primary" disabled={st.busy}>Create user</button></p>
       </form>
+      <form className="card qcard" onSubmit={submitSkill}>
+        <h2>Upload skill</h2>
+        <p className="muted">One SKILL.md (frontmatter + markdown). No scripts or archives. Used by every later run.</p>
+        <label htmlFor="sk-name">Skill name</label>
+        <input id="sk-name" type="text" required pattern="[a-z0-9\-]+" title="lowercase letters, digits and hyphens"
+          value={sk.name} onChange={(e) => setSk({ ...sk, name: e.target.value })} />
+        <label htmlFor="sk-file">SKILL.md</label>
+        <input id="sk-file" type="file" required accept=".md,text/markdown"
+          onChange={(e) => setSk({ ...sk, file: e.target.files[0] || null })} />
+        <p><button type="submit" className="btn btn--primary" disabled={st.busy}>Upload skill</button></p>
+        <p role="status">{sk.done ? `Uploaded ${sk.done}.` : ""}</p>
+      </form>
       <table className="table" aria-label="Roles">
         <thead><tr><th scope="col">Role</th><th scope="col">Permissions</th></tr></thead>
         <tbody>{(roles || []).map((r) => (
@@ -78,7 +95,8 @@ export default function Users() {
       {can && (us.loading || rs.loading) ? <Loading /> : (
         <UsersView users={us.data} roles={rs.data} canAdmin={can} st={st}
           onCreate={(b) => done(() => post("/users", b))}
-          onPatch={(uid, b) => done(() => patch(`/users/${encodeURIComponent(uid)}`, b))} />)}
+          onPatch={(uid, b) => done(() => patch(`/users/${encodeURIComponent(uid)}`, b))}
+          onSkill={(name, file) => cmd(() => request("POST", `/skills?name=${encodeURIComponent(name)}`, file, { raw: true }))} />)}
     </section>
   );
 }

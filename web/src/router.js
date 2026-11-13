@@ -4,6 +4,8 @@ const ROUTES = [
   ["approvals", []],
   ["new", []],
   ["users", []],
+  ["settings", []],
+  ["oversight", []],
   ["workspace", ["mid", "tab"], "m", { tab: "overview" }],
   ["case", ["mid", "view"], "case", { view: "home" }],
   ["run", ["rid"], "runs"],

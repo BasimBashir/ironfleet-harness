@@ -22,6 +22,8 @@ describe("UsersView", () => {
     expect(h).toContain("matter.read");
     expect(h).toContain('aria-label="Role for rita"');
     expect(h).toContain(">Create user<");
+    expect(h).toContain(">Upload skill<");            // M13.6: one SKILL.md, admin only
+    expect(h).toContain('accept=".md,text/markdown"');
   });
   it("without user.admin shows a lock row, no data, no controls", () => {
     const h = uv({ canAdmin: false, users: undefined, roles: undefined });

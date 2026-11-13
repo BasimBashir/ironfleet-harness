@@ -1,5 +1,5 @@
 // Shared UI pieces, 1:1 onto design/system/components.css (D-4). No inline colours.
-import { useId } from "react";
+import { useId, useState } from "react";
 
 // [css class, icon, word] — the D-4 gallery's mapping (02 §4 matter, 02 §5 agent)
 export const MATTER_STATES = {
@@ -51,6 +51,36 @@ export function Btn({ why = "", primary = false, onClick, children, className = 
     );
   }
   return <button type="button" className={cls} onClick={onClick} {...rest}>{children}</button>;
+}
+
+// row selection for "Delete selected" (Board, Documents, Drafts, added providers)
+export function useSelect() {
+  const [sel, setSel] = useState(() => new Set());
+  const toggle = (id) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const all = (ids) => setSel((s) => (ids.every((i) => s.has(i)) ? new Set() : new Set(ids)));
+  return { sel, toggle, all, clear: () => setSel(new Set()) };
+}
+
+export const confirmDelete = (n, noun) =>
+  !!globalThis.confirm?.(`Delete ${n} ${noun}${n === 1 ? "" : "s"}? This cannot be undone.`);
+
+export function SelectAll({ ids, s }) {
+  return <th scope="col"><input type="checkbox" aria-label="Select all"
+    checked={ids.length > 0 && ids.every((i) => s.sel.has(i))} onChange={() => s.all(ids)} /></th>;
+}
+
+export function SelectCell({ id, label, s }) {
+  // stopPropagation: rows that open on click must not open when ticking the box
+  return <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${label}`}
+    checked={s.sel.has(id)} onChange={() => s.toggle(id)} /></td>;
+}
+
+export function BulkBar({ s, why = "", busy = false, onDelete }) {
+  if (!s.sel.size) return null;
+  return (
+    <p role="group" aria-label="Selected rows">{s.sel.size} selected{" "}
+      <Btn why={why} disabled={busy} onClick={onDelete}>Delete selected</Btn>{" "}
+      <button type="button" className="btn" onClick={s.clear}>Clear selection</button></p>);
 }
 
 export function fmtTokens(n) {

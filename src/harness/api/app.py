@@ -160,6 +160,16 @@ def create_app(store_root, *, sse_heartbeat_s: float = 15.0, sse_poll_s: float =
         app.include_router(r)
     if web_dist is not None and Path(web_dist).is_dir():
         from starlette.staticfiles import StaticFiles
-        app.mount("/", StaticFiles(directory=web_dist, html=True), name="web")
+
+        class _Web(StaticFiles):
+            # the shell must revalidate: without it browsers heuristically reuse the
+            # previous build's index.html after an update (2026-11-13: new buttons unseen);
+            # assets/ names are content-hashed, so those may cache
+            async def get_response(self, path, scope):
+                r = await super().get_response(path, scope)
+                if not path.startswith("assets/"):
+                    r.headers["Cache-Control"] = "no-cache"
+                return r
+        app.mount("/", _Web(directory=web_dist, html=True), name="web")
     app.add_middleware(IdempotencyMiddleware, store_root=Path(store_root))
     return app

@@ -136,6 +136,48 @@ def set_state(con, principal: dict, matter_id: str, body: dict) -> dict:
     return get(con, principal, matter_id)
 
 
+# every platform.db table keyed by matter_id; audit_events + workflow_events are
+# append-only by trigger and stay — they ARE the record that the matter existed
+_MATTER_TABLES = ("approvals", "cases", "case_events", "strategy_versions", "proposals",
+                  "predictions", "deadlines", "flaws", "facts", "evidence", "documents",
+                  "artifacts", "interjections", "messages", "conversations", "executions",
+                  "matter_members", "matters")
+
+
+def delete(con, principal: dict, matter_id: str, *, store_root=None) -> None:
+    """Hard delete (user ruling 2026-11-13): rows, uploaded files, records, passages and
+    vectors. user.admin only; refuses while work is live (the worker would crash on it)."""
+    import shutil
+    from pathlib import Path
+    authz.require(con, principal, "user.admin")
+    authz.require(con, principal, WRITE, matter_id)
+    if con.execute("SELECT 1 FROM matters WHERE matter_id=?", (matter_id,)).fetchone() is None:
+        raise authz.not_found("matter_not_found", f"matter {matter_id!r} not found")
+    if con.execute("SELECT 1 FROM executions WHERE matter_id=? AND state IN"
+                   " ('executing','paused','waiting_human')", (matter_id,)).fetchone():
+        raise authz.ServiceError(409, "invalid_transition",
+                                 "cancel this matter's running work before deleting it")
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        con.execute("DELETE FROM tasks WHERE execution_id IN"
+                    " (SELECT execution_id FROM executions WHERE matter_id=?)", (matter_id,))
+        con.execute("DELETE FROM outcomes WHERE prediction_id IN"
+                    " (SELECT prediction_id FROM predictions WHERE matter_id=?)", (matter_id,))
+        for t in _MATTER_TABLES:
+            con.execute(f"DELETE FROM {t} WHERE matter_id=?", (matter_id,))
+        audit.append(con, matter_id=matter_id, actor=principal["username"],
+                     action="matter.deleted", target=matter_id)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    if store_root is not None:
+        from harness.service.documents import forget_retrieval
+        forget_retrieval(store_root, matter_id)
+        for d in ("documents", "matters"):
+            shutil.rmtree(Path(store_root) / d / matter_id, ignore_errors=True)
+
+
 def members(con, principal: dict, matter_id: str) -> list[dict]:
     authz.require(con, principal, authz.READ, matter_id)
     rows = con.execute(

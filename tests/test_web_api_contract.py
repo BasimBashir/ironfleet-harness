@@ -39,6 +39,14 @@ def test_every_client_path_is_an_api_operation():
     assert not unknown, f"client calls paths missing from openapi-v1.json: {unknown}"
 
 
+def test_artifact_review_decisions_are_ones_the_api_accepts():
+    # 2026-11-12: Drafts sent "approved" (a state) where the API takes "approve" -> 422
+    sent = {m for f in _sources() for m in re.findall(
+        r"/review`,\s*\{\s*decision:\s*\"(\w+)\"", f.read_text(encoding="utf-8"))}
+    assert sent, "no artifact review call found — the gate would pass vacuously"
+    assert sent <= {"approve", "reject", "request_changes"}, sent
+
+
 def test_no_other_origin_and_fetch_only_in_the_two_client_modules():
     for f in _sources():
         text = f.read_text(encoding="utf-8")

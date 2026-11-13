@@ -67,7 +67,18 @@ def ingest_doc(con, principal: dict, matter_id: str, body: dict,
     authz.require(con, principal, WRITE, matter_id)
     source = (body or {}).get("source")
     if not source:
-        raise authz.ServiceError(422, "validation_failed", "source required")
+        # UI "Ingest documents" — no path given: the matter's own uploads.
+        if store_root is None:
+            raise authz.ServiceError(422, "validation_failed", "source required")
+        n = con.execute("SELECT COUNT(*) FROM documents WHERE matter_id=?",
+                        (matter_id,)).fetchone()[0]
+        if not n:
+            raise authz.ServiceError(422, "validation_failed",
+                                     "no uploaded documents to ingest")
+        source = str(Path(store_root) / "documents" / matter_id)
+        if not Path(source).is_dir():
+            raise authz.ServiceError(422, "validation_failed",
+                                     "uploaded document files are missing on disk")
     report = ingest.ingest_source(matter_id, source)
     con.execute("BEGIN IMMEDIATE")
     try:
@@ -152,6 +163,66 @@ def review_artifact(con, principal: dict, aid: str, body: dict) -> dict:
     return get_artifact(con, principal, aid)
 
 
+def delete_artifact(con, principal: dict, aid: str) -> None:
+    row = _artifact(con, principal, aid, WRITE)
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        con.execute("DELETE FROM artifacts WHERE artifact_id=?", (aid,))
+        audit.append(con, matter_id=row["matter_id"], actor=principal["username"],
+                     action="artifact.deleted", target=aid, inputs_digest=row["title"] or "")
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+
+
+def forget_retrieval(store_root: Path, matter_id: str, text: str | None = None) -> int:
+    """Remove passages + vectors from search: one document's (by its extracted text) or,
+    text=None, the whole matter's. Returns the passage-doc count removed."""
+    from harness.corpus import CorpusStore, chunk_text
+    root = Path(store_root)
+    if not (root / "corpus.sqlite3").is_file():
+        return 0
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest() if text is not None else None
+    ids = CorpusStore(root / "corpus.sqlite3").forget(matter_id, sha)
+    if (root / "vectors.sqlite3").is_file() and (ids or text is None):
+        from harness.vectors import VectorStore
+        VectorStore(root / "vectors.sqlite3").delete(
+            matter_id, None if text is None else [t for d in ids for t in chunk_text(d, text)])
+    return len(ids)
+
+
+def delete_document(con, principal: dict, doc_id: str, *, store_root: Path | None = None) -> None:
+    """Hard delete (user ruling 2026-11-13): the file, its row, and its passages/vectors so
+    search stops surfacing it; the audit chain keeps a document.deleted entry."""
+    from harness.ingest_generic import extract_text
+    row = con.execute("SELECT * FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+    if row is None:
+        raise authz.not_found("document_not_found", f"document {doc_id!r} not found")
+    authz.require(con, principal, WRITE, row["matter_id"])
+    p = Path(store_root or ".") / row["path"]
+    twin = con.execute("SELECT 1 FROM documents WHERE matter_id=? AND sha256=? AND doc_id<>?",
+                       (row["matter_id"], row["sha256"], doc_id)).fetchone()
+    # an identical upload still in the matter shares the passages: leave them searchable
+    if store_root is not None and p.is_file() and twin is None:
+        try:
+            forget_retrieval(store_root, row["matter_id"], extract_text(p))
+        except (TimeoutError, RuntimeError, UnicodeDecodeError):
+            pass      # unreadable -> never ingested as text, so nothing indexed to remove
+    if store_root is not None:
+        p.unlink(missing_ok=True)
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        con.execute("DELETE FROM documents WHERE doc_id=?", (doc_id,))
+        audit.append(con, matter_id=row["matter_id"], actor=principal["username"],
+                     action="document.deleted", target=doc_id,
+                     inputs_digest=f"{row['filename']} {(row['sha256'] or '')[:12]}")
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+
+
 def get_bytes(con, principal: dict, doc_id: str, *,
               store_root: Path | None = None) -> tuple[dict, bytes]:
     """GET /api/v1/documents/{doc_id} — authz via the parent matter (fails
@@ -166,3 +237,29 @@ def get_bytes(con, principal: dict, doc_id: str, *,
         if p.is_file():
             data = p.read_bytes()
     return _doc_row(row), data
+
+
+def get_text(con, principal: dict, doc_id: str, *, store_root: Path | None = None) -> dict:
+    """GET /api/v1/documents/{doc_id}/text (M13.4) — reading text for formats a browser
+    cannot show (DOCX, HTML, ...) via the same killable parser chain ingest uses."""
+    from harness.ingest_generic import extract_text
+    doc, _ = get_bytes(con, principal, doc_id, store_root=store_root)   # authz + existence
+    p = Path(store_root or ".") / doc["path"]
+    if store_root is None or not p.is_file():
+        raise authz.not_found("document_not_found", f"document {doc_id!r} has no stored file")
+    try:
+        return {"doc_id": doc_id, "text": extract_text(p)}
+    except (TimeoutError, RuntimeError, UnicodeDecodeError) as e:
+        raise authz.ServiceError(422, "unreadable_document", str(e)) from None
+
+
+def get_chunks(con, principal: dict, doc_id: str, *, store_root: Path | None = None) -> dict:
+    """GET /api/v1/documents/{doc_id}/chunks (M13.5) — the passages retrieval sees, matched
+    to the corpus by the same extracted text's sha256; [] when never corpus-ingested."""
+    from harness.corpus import CorpusStore
+    doc, _ = get_bytes(con, principal, doc_id, store_root=store_root)
+    sha = hashlib.sha256(get_text(con, principal, doc_id, store_root=store_root)["text"]
+                         .encode("utf-8")).hexdigest()
+    db = Path(store_root) / "corpus.sqlite3"
+    chunks = CorpusStore(db).doc_chunks(doc["matter_id"], sha) if db.is_file() else []
+    return {"doc_id": doc_id, "chunks": chunks}

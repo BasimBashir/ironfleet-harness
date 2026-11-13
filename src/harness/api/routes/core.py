@@ -6,15 +6,18 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from harness.api.deps import get_con, get_principal, page, paged
-from harness.api.schemas import (IngestIn, LoginIn, MatterIn, MatterPatch, MemberIn,
-                                 PasswordIn, ReviewIn, SignupIn, ToIn, UserCreateIn,
-                                 UserPatchIn)
-from harness.service import auth, conversations, documents, matters, usage, users
+from harness.api.schemas import (AssignIn, IngestIn, LoginIn, MatterIn, MatterPatch,
+                                 MemberIn, PasswordIn, ProviderIn, ProviderNewIn, ReviewIn, SignupIn,
+                                 ToIn, UserCreateIn, UserPatchIn)
+from harness.service import (auth, conversations, documents, matters, skills, settings,
+                             usage, users)
 
 router = APIRouter(prefix="/api/v1")
 ops = APIRouter()
 P = Depends(get_principal)
 C = Depends(get_con)
+_RAW = {"requestBody": {"required": True, "content": {"application/octet-stream": {
+    "schema": {"type": "string", "format": "binary"}}}}}
 
 
 # -- 5.1 auth --------------------------------------------------------------------
@@ -71,6 +74,12 @@ def patch_matter(mid: str, body: MatterPatch, p=P, con=C):
     return matters.patch(con, p, mid, body.model_dump(exclude_unset=True))
 
 
+@router.delete("/matters/{mid}", status_code=204)
+def delete_matter(mid: str, request: Request, p=P, con=C):
+    matters.delete(con, p, mid, store_root=request.app.state.store_root)
+    return Response(status_code=204)
+
+
 @router.post("/matters/{mid}/state")
 def matter_state(mid: str, body: ToIn, p=P, con=C):
     return matters.set_state(con, p, mid, body.model_dump())
@@ -114,10 +123,51 @@ def list_roles(p=P, con=C):
     return users.list_roles(con, p)
 
 
-# -- 5.3 documents, evidence, artifacts ---------------------------------------------
+@router.post("/skills", status_code=201, openapi_extra=_RAW)
+async def upload_skill(request: Request, name: str = Query(...), p=P, con=C):  # M13.6
+    return skills.upload(con, p, name, await request.body(),
+                         store_root=request.app.state.store_root)
 
-_RAW = {"requestBody": {"required": True, "content": {"application/octet-stream": {
-    "schema": {"type": "string", "format": "binary"}}}}}
+
+# -- 5.x model settings (M13.7, user.admin) ------------------------------------------
+
+@router.get("/settings/providers")
+async def settings_view(request: Request, p=P, con=C):
+    return settings.view(con, p, store_root=request.app.state.store_root)
+
+
+@router.post("/settings/providers", status_code=201)
+async def settings_add(request: Request, body: ProviderNewIn, p=P, con=C):
+    return settings.add_provider(con, p, body.model_dump(),
+                                 store_root=request.app.state.store_root)
+
+
+@router.put("/settings/providers")
+async def settings_put(request: Request, body: ProviderIn, name: str = Query(...),
+                       p=P, con=C):
+    return settings.put_provider(con, p, name, body.model_dump(exclude_unset=True),
+                                 store_root=request.app.state.store_root)
+
+
+@router.delete("/settings/providers", status_code=204)
+async def settings_delete(request: Request, name: str = Query(...), p=P, con=C):
+    settings.delete_provider(con, p, name, store_root=request.app.state.store_root)
+    return Response(status_code=204)
+
+
+@router.post("/settings/providers/test")
+async def settings_test(request: Request, name: str = Query(...), p=P, con=C):
+    return await settings.test_provider(con, p, name, store_root=request.app.state.store_root)
+
+
+@router.put("/settings/assign")
+async def settings_assign(request: Request, body: AssignIn,
+                          task_class: str = Query(...), p=P, con=C):
+    return settings.put_assign(con, p, task_class, body.provider,
+                               store_root=request.app.state.store_root)
+
+
+# -- 5.3 documents, evidence, artifacts ---------------------------------------------
 
 
 @router.post("/matters/{mid}/documents", status_code=201, openapi_extra=_RAW)
@@ -130,8 +180,9 @@ async def upload_document(mid: str, request: Request, filename: str = Query(...)
 
 
 @router.post("/matters/{mid}/documents/ingest", status_code=202)
-def ingest_documents(mid: str, body: IngestIn, p=P, con=C):
-    return documents.ingest_doc(con, p, mid, body.model_dump())
+def ingest_documents(mid: str, body: IngestIn, request: Request, p=P, con=C):
+    return documents.ingest_doc(con, p, mid, body.model_dump(),
+                                store_root=request.app.state.store_root)
 
 
 @router.get("/matters/{mid}/documents")
@@ -146,6 +197,16 @@ def get_document(doc_id: str, request: Request, p=P, con=C):
                                   store_root=request.app.state.store_root)
     return Response(content=data, media_type="application/octet-stream",
                     headers={"Content-Disposition": f'attachment; filename="{doc_id}"'})
+
+
+@router.get("/documents/{doc_id}/text")
+def get_document_text(doc_id: str, request: Request, p=P, con=C):
+    return documents.get_text(con, p, doc_id, store_root=request.app.state.store_root)
+
+
+@router.get("/documents/{doc_id}/chunks")
+def get_document_chunks(doc_id: str, request: Request, p=P, con=C):
+    return documents.get_chunks(con, p, doc_id, store_root=request.app.state.store_root)
 
 
 @router.get("/matters/{mid}/evidence")
@@ -166,6 +227,18 @@ def get_artifact(aid: str, p=P, con=C):
 @router.post("/artifacts/{aid}/review")
 def review_artifact(aid: str, body: ReviewIn, p=P, con=C):
     return documents.review_artifact(con, p, aid, body.model_dump())
+
+
+@router.delete("/artifacts/{aid}", status_code=204)
+def delete_artifact(aid: str, p=P, con=C):
+    documents.delete_artifact(con, p, aid)
+    return Response(status_code=204)
+
+
+@router.delete("/documents/{doc_id}", status_code=204)
+def delete_document(doc_id: str, request: Request, p=P, con=C):
+    documents.delete_document(con, p, doc_id, store_root=request.app.state.store_root)
+    return Response(status_code=204)
 
 
 # -- 5.9 system -----------------------------------------------------------------------

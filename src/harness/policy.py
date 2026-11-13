@@ -22,6 +22,7 @@ class MatterPolicy(BaseModel):
 class RoutingTable:
     def __init__(self, rules: dict, defaults: dict) -> None:
         self._rules, self._defaults = rules, defaults
+        self.assign: dict[str, str] = {}   # M13.7 admin pick per task class: any provider, leads
 
     @classmethod
     def from_yaml(cls, path: Path) -> "RoutingTable":
@@ -31,12 +32,14 @@ class RoutingTable:
         return cls(doc.get("rules", []), doc["defaults"])
 
     def _pref(self, task_class: str, classification: str) -> list[str]:
+        prefs = list(self._defaults.get(classification.lower(), []))
         for r in self._rules:
-            if r.get("task_class") == task_class:
-                prefs = r.get(classification.lower())
-                if prefs is not None:
-                    return list(prefs)                # else: fall through to defaults
-        return list(self._defaults.get(classification.lower(), []))
+            if r.get("task_class") == task_class and r.get(classification.lower()) is not None:
+                prefs = list(r[classification.lower()])
+                break                                 # else: fall through to defaults
+        first = self.assign.get(task_class)
+        # the assigned provider leads even if the YAML never listed it; route() still filters it
+        return [first] + [n for n in prefs if n != first] if first else prefs
 
     def route(self, task_class: str, policy: MatterPolicy, registry: ProviderRegistry) -> list[ProviderConfig]:
         by_name = {c.name: c for c in registry.list()}

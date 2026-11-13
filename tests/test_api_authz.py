@@ -13,6 +13,7 @@ import pytest
 DENIED = {"unauthenticated", "permission_denied", "matter_not_found"}
 PLAN = "```plan\ns1|clerk|do it\n```"
 WF = [{"stage": "s", "agent": "a", "instruction": "i"}]
+SKILL = b"---\ndescription: A demo skill used only by the API contract tests.\n---\n# Demo\n"
 
 # "METHOD path" -> (kind, body, query). kinds:
 #   public  — no auth;  authed — any principal;  gwrite — platform matter.write;
@@ -35,10 +36,16 @@ ROUTES = {
     "POST /api/v1/matters/{mid}/documents/ingest": ("write", {"source": "x"}, ""),
     "GET /api/v1/matters/{mid}/documents": ("read", None, ""),
     "GET /api/v1/documents/{doc_id}": ("read", None, ""),
+    "GET /api/v1/documents/{doc_id}/text": ("read", None, ""),
+    "GET /api/v1/documents/{doc_id}/chunks": ("read", None, ""),
     "GET /api/v1/matters/{mid}/evidence": ("read", None, ""),
     "GET /api/v1/matters/{mid}/artifacts": ("read", None, ""),
     "GET /api/v1/artifacts/{aid}": ("read", None, ""),
     "POST /api/v1/artifacts/{aid}/review": ("write", {"decision": "approve"}, ""),
+    "DELETE /api/v1/artifacts/{aid}": ("write", None, ""),
+    "DELETE /api/v1/documents/{doc_id}": ("write", None, ""),
+    "DELETE /api/v1/matters/{mid}": ("useradmin", None, ""),
+    "DELETE /api/v1/settings/providers": ("useradmin", None, "name=nope"),
     "GET /healthz": ("public", None, ""),
     "GET /api/v1/audit": ("audit", None, ""),
     "GET /api/v1/metrics": ("audit", None, ""),
@@ -99,6 +106,17 @@ ROUTES = {
     "POST /api/v1/users": ("useradmin", {"username": "mx", "password": "pw"}, ""),
     "PATCH /api/v1/users/{uid}": ("useradmin", {"role_id": "reader"}, ""),
     "GET /api/v1/roles": ("useradmin", None, ""),
+    "POST /api/v1/skills": ("useradmin", SKILL, "name=demo-skill"),
+    "GET /api/v1/settings/providers": ("useradmin", None, ""),
+    "POST /api/v1/settings/providers": ("useradmin",
+                                        {"name": "authz-x", "engine": "ollama", "model": "m",
+                                         "base_url": "http://127.0.0.1:11434/v1"}, ""),
+    "PUT /api/v1/settings/providers": ("useradmin",
+                                       {"base_url": "http://127.0.0.1:11434/v1"},
+                                       "name=ollama-local"),
+    "POST /api/v1/settings/providers/test": ("useradmin", None, "name=ollama-local"),
+    "PUT /api/v1/settings/assign": ("useradmin", {"provider": "ollama-local"},
+                                    "task_class=drafting"),
 }
 
 
