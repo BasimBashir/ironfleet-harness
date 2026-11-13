@@ -10,7 +10,7 @@ import { BulkBar, Btn, Empty, ErrorLine, LiveNote, Loading, SelectAll, SelectCel
   fmtAgo, fmtDate, fmtDue, fmtTokens, useSelect } from "../ui.jsx";
 import { ApprovalCard, plainKind } from "./Approvals.jsx";
 import { DEADLINE_WORD, Deadlines, JOURNEY_STRIP, LawyerNowBanner, STAGE_PLAIN, stripIndex } from "./CaseScreens.jsx";
-import { RunDrawer } from "./RunPage.jsx";
+import { MatterChat, RunDrawer } from "./RunPage.jsx";
 import { Members } from "./Users.jsx";
 
 export const stageName = (s) => s.toLowerCase().replace(/_/g, " ");
@@ -668,6 +668,8 @@ export default function Workspace({ mid, tab }) {
       </nav>
       {/* key: a pane's local state (open document, open draft) never follows you into another matter */}
       <Pane key={mid} mid={mid} m={m.data} />
+      {/* ask about the matter before, during or after any run; key: never carry a thread across matters */}
+      <MatterChat key={`chat-${mid}`} mid={mid} />
     </section>
   );
 }

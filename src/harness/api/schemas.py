@@ -152,6 +152,11 @@ class MessageIn(BaseModel):
     refs: list[str] = []
 
 
+class AskIn(BaseModel):
+    text: str
+    execution_id: str | None = None     # the run the user is looking at; else the latest
+
+
 class FactsIn(BaseModel):
     updates: dict[str, Any]
 

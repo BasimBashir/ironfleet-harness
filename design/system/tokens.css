@@ -38,7 +38,10 @@
   --dur:150ms; --ease:cubic-bezier(.2,0,0,1);
   --focus-ring:0 0 0 3px var(--focus);
 }
+:root{color-scheme:light}
+/* color-scheme: native scrollbars, form controls and autofill follow the theme */
 [data-theme="dark"]{
+  color-scheme:dark;
   --bg:#171612; --surface:#1f1d18; --raise:#26241e;
   --text:#ece8df; --muted:#b0a999;
   --rule:#353229; --control-border:#878070;

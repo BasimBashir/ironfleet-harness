@@ -212,11 +212,26 @@ describe("stage list density: summary first, details on demand", () => {
     expect(h).not.toContain("Agents in this run");
     expect(h).not.toContain("Expand all");
   });
-  it("firm page variant (stages=false) keeps the summary and leaves stage inspection to the team view", () => {
+  it("firm page variant (stages=false) keeps the summary and leaves the explanation to the stage map", () => {
     const h = text(view({ stages: false }));
     expect(h).toContain("2 of 5 complete");
-    expect(h).toContain("Select a stage in the team view below");
+    expect(h).not.toContain("Stages run one at a time");     // said once, by the stage map
     expect(h).not.toContain("Expand all");
+  });
+  it("puts run commands beside the status and the stage map under the stage progress, before deliverables", () => {
+    const h = renderToString(
+      <Ctx.Provider value={{ perms: ["*"], mode: "firm", live: "live" }}>
+        <RunOverview run={ok(RUN)} tasks={ok(plan(["completed"]))} tokens={ok({ total: { all: 1 }, agents: [] })}
+          matter={ok({ title: "Acme" })} artifacts={ok({ items: [] })} approvals={ok([])} stages={false} asOf={T0 + 60}
+          actions={<button type="button">Pause</button>}><div id="stage-map" /></RunOverview>
+      </Ctx.Provider>);
+    expect(h.indexOf(">Pause<")).toBeLessThan(h.indexOf("Prepare the SSA comparison"));
+    expect(h.indexOf("1 of 5 complete")).toBeLessThan(h.indexOf('id="stage-map"'));
+    expect(h.indexOf('id="stage-map"')).toBeLessThan(h.indexOf(">Deliverables<"));
+  });
+  it("a paused run with a stage still running says that stage will finish first", () => {
+    expect(text(view({ run: { state: "paused" } }))).toContain("the stage already running will finish. No further stages start until the run is resumed.");
+    expect(text(view({ run: { state: "paused" }, states: ["completed", "completed"] }))).not.toContain("already running");
   });
   it("Redirect stays gated by matter.dispatch", () => {
     expect(view()).toContain(">Redirect<");

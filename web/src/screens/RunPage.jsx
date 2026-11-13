@@ -1,7 +1,7 @@
 // Run inspection (05 §5): drawer beside the Work plan, or the full page at #/runs/{rid}.
 // Identity, state, stage timeline with each stage's output, per-agent tokens (C's meters),
 // and the permission-gated actions (interject, pause/resume, cancel, redirect a pending stage).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { post } from "../api.js";
 import { useCtx } from "../App.jsx";
 import { href } from "../router.js";
@@ -66,30 +66,24 @@ export function RunDrawer({ rid, mid, onClose }) {
   );
 }
 
-// -- swarm (D-3 pick: B's lanes + C's meters; firm-only per §9A.2) ------------------
-// The orchestrator's plan is strictly sequential (tasks.seq): lanes group consecutive
-// stages, nothing here invents parallel branches.
-const LANE = { intake: "Intake", research: "Research", strategy: "Strategy & attack", attack: "Strategy & attack",
-  assess: "Strategy & attack", filings: "Filings & moot", moot: "Filings & moot", advice: "Advice & close",
-  verify: "Advice & close", close: "Advice & close" };
+// run-level commands, beside the run's status (05 §12: hidden without matter.dispatch, not disabled)
+export function RunControls({ run: r, canAct, cmd }) {
+  if (!canAct || !LIVE.has(r.state)) return null;
+  const rid = r.execution_id;
+  return <>
+    {r.state === "paused"
+      ? <button type="button" className="btn btn--primary" onClick={() => cmd(() => post(`/executions/${rid}/resume`))}>Resume</button>
+      : r.state === "executing"   // a run parked at an approval is decided, not paused
+        ? <button type="button" className="btn" onClick={() => cmd(() => post(`/executions/${rid}/pause`))}>Pause</button> : null}
+    <button type="button" className="btn" onClick={() => {
+      if (confirm("Cancel this run? Stages not yet run will not run.")) cmd(() => post(`/runs/${rid}/cancel`));
+    }}>Cancel</button>
+  </>;
+}
+
+// -- swarm (D-3 pick: B's node cards + C's meters; firm-only per §9A.2) -------------
 const title = (s) => { s = String(s || "").replace(/[-_]/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
 const LIVE = new Set(["executing", "waiting_human", "paused"]);
-
-export function swarmLanes(tasks) {
-  const lanes = [];
-  for (const t of [...(tasks || [])].sort((a, b) => a.seq - b.seq)) {
-    const name = LANE[t.key] || title(t.key);
-    if (lanes.at(-1)?.name === name) lanes.at(-1).tasks.push(t);
-    else lanes.push({ name, tasks: [t] });
-  }
-  return lanes;
-}
-
-export function nodeView(t, parked = false) {
-  if (parked) return ["wait", "⏸ Awaiting your approval"];
-  return { completed: ["ok", "✓ Done"], running: ["run", "● Running"], failed: ["bad", "✕ Failed"],
-    timed_out: ["bad", "⏱ Timed out"], cancelled: ["idle", "⊘ Cancelled"] }[t.state] || ["idle", "○ Not started"];
-}
 
 // a run parks right after its approval stage completes: the last completed stage carries the kind
 export function parkedTask(tasks, runState) {
@@ -154,7 +148,8 @@ export function nextAction(r, ts, states, approvals) {
     case "waiting_human": return { tone: "wait", title: "Your approval is needed",
       text: approvals.length ? "This run is parked until the checkpoint below is decided." :
         "This run is parked at a checkpoint; its approval is not in the pending list — it may have just been decided." };
-    case "paused": return { tone: "wait", title: "Paused — waiting for someone to resume it", text: "No further stages start until the run is resumed." };
+    case "paused": return { tone: "wait", title: "Paused — waiting for someone to resume it",
+      text: `${ts.some((t) => t.state === "running") ? "A pause takes effect at the next stage boundary, so the stage already running will finish. " : ""}No further stages start until the run is resumed.` };
     case "failed": return { tone: "bad", title: failedT ? `Stopped: stage ${failedT.key} failed` : "Stopped: the run failed",
       text: failedT ? "Later stages did not run. The stage's error is in its details below." : "No stage recorded an error for this failure." };
     case "cancelled": return { tone: "idle", title: "Cancelled", text: "Stages that had not started will not run." };
@@ -169,7 +164,7 @@ export function nextAction(r, ts, states, approvals) {
 const fmtSpan = (a, b) => (a && b && Date.parse(b) >= Date.parse(a) ? fmtDur(Date.parse(b) - Date.parse(a)) : null);
 
 export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, level = 2, stages = true,
-  onClose, onRedirect = () => {}, asOf: asOfProp }) {
+  onClose, onRedirect = () => {}, asOf: asOfProp, actions = null, children = null }) {
   const { perms, mode, live } = useCtx();
   const [force, setForce] = useState(null);             // Expand/Collapse all; n re-applies a repeat press
   const r = run.data;
@@ -200,23 +195,25 @@ export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, 
   const byAgent = Object.fromEntries((tokens.data?.agents || []).map((a) => [a.agent, a]));
   return (
     <section className="stack runov" aria-label="Run overview">
-      <div className="hdr">
-        <H style={{ margin: 0 }}>Run <span className="mono">{r.execution_id}</span> <StatusChip kind="agent" state={r.state} /></H>
-        {onClose ? <span className="act"><button type="button" className="btn" onClick={onClose} aria-label="Close run inspection">Close</button></span> : null}
+      <div className="hdr runhead">
+        <H>Run <span className="mono">{r.execution_id}</span> <StatusChip kind="agent" state={r.state} /></H>
+        {actions || onClose ? <span className="act">{actions}
+          {onClose ? <button type="button" className="btn" onClick={onClose} aria-label="Close run inspection">Close</button> : null}</span> : null}
       </div>
       {live === "reconnecting" && !TERMINAL.has(r.state) ? (
         <p className="stale" role="status">◐ Live updates are disconnected — this is the run as last loaded. It carries on on the server; the page catches up when the connection returns.</p>) : null}
       <ErrorLine error={run.error} onRetry={run.reload} stale />
-      <dl className="kv">
-        <dt>Matter</dt><dd><a href={href(firm ? "workspace" : "case", { mid: r.matter_id })}>{matter.data?.title || r.matter_id}</a></dd>
-        <dt>Task</dt><dd>{r.input_task_text || "—"}</dd>
-        <dt>Started</dt><dd>{r.started_at ? at(r.started_at) : "—"}</dd>
-        {r.ended_at ? <><dt>Ended</dt><dd>{at(r.ended_at)}</dd></> : null}
-        <dt>{r.ended_at ? "Duration" : "Elapsed"}</dt><dd>{span ? (r.ended_at ? span : `${span} so far`) : "Not available"}</dd>
-        <dt>Last update</dt><dd>{last ? at(last) : "No events recorded"}</dd>
-        <dt>Tokens</dt><dd className="tokens">{tokens.data
+      {/* label-over-value facts strip; the task reads as the run's lead line */}
+      <dl className="runfacts">
+        <div className="runfacts__wide"><dt>Task</dt><dd>{r.input_task_text || "—"}</dd></div>
+        <div><dt>Matter</dt><dd><a href={href(firm ? "workspace" : "case", { mid: r.matter_id })}>{matter.data?.title || r.matter_id}</a></dd></div>
+        <div><dt>Started</dt><dd>{r.started_at ? at(r.started_at) : "—"}</dd></div>
+        {r.ended_at ? <div><dt>Ended</dt><dd>{at(r.ended_at)}</dd></div> : null}
+        <div><dt>{r.ended_at ? "Duration" : "Elapsed"}</dt><dd>{span ? (r.ended_at ? span : `${span} so far`) : "Not available"}</dd></div>
+        <div><dt>Last update</dt><dd>{last ? at(last) : "No events recorded"}</dd></div>
+        <div><dt>Tokens</dt><dd>{tokens.data
           ? `${fmtTokens(tokens.data.total?.all)} across this matter (all runs) · a per-run total is not recorded`
-          : tokens.error ? "Unavailable" : "…"}</dd>
+          : tokens.error ? "Unavailable" : "…"}</dd></div>
       </dl>
       <div className={`banner nextact nextact--${act.tone}`} role={act.tone === "bad" || act.tone === "wait" ? "alert" : "status"}>
         <p className="banner__title"><span aria-hidden="true">{{ wait: "⚑", bad: "✕", done: "✓" }[act.tone] || "○"} </span>{act.title}</p><p style={{ margin: 0 }}>{act.text}</p>
@@ -224,8 +221,8 @@ export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, 
           {appr.map((a) => <ApprovalCard key={a.approval_id} a={a} onDone={approvals.reload} />)}
           <p className="small">Also in the <a href={href("approvals")}>Approval Center</a>.</p></> : null}
       </div>
-      <div className="hdr">
-        <H2 style={{ fontSize: "var(--fs-sm)", margin: 0 }}>Stages</H2>
+      <div className="hdr runsec">
+        <H2>Stages</H2>
         <span className="sub">{ts.length ? [`${done} of ${ts.length} complete`, ...Object.entries(counts)
           .filter(([s]) => s !== "completed").map(([s, n]) => `${n} ${word(s).toLowerCase()}`)].join(" · ") : ""}</span>
         {stages && ts.length ? <span className="act">
@@ -235,8 +232,8 @@ export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, 
       </div>
       {ts.length ? <>
         <div className="bar2" aria-hidden="true"><i style={{ width: `${Math.round((100 * done) / ts.length)}%` }} /></div>
-        <p className="small">Stages run one at a time in plan order; each starts only after every earlier stage has completed.
-          {stages ? "" : " Select a stage in the team view below to inspect it."}</p>
+        {/* firm page: the stage map below carries this explanation once */}
+        {stages ? <p className="small">Stages run one at a time in plan order; each starts only after every earlier stage has completed.</p> : null}
       </> : null}
       <ErrorLine error={tasks.error} onRetry={tasks.reload} stale={!!tasks.data} />
       {stages ? <>
@@ -245,7 +242,7 @@ export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, 
           : <StageList tasks={ts} runState={r.state} states={states} times={times} force={force}
             canAct={allowed(perms, "matter.dispatch")} live={LIVE.has(r.state)} onRedirect={onRedirect} />}
         {agents.length ? <>
-          <H2 style={{ fontSize: "var(--fs-sm)", margin: 0 }}>Agents</H2>
+          <H2 className="runsec">Agents</H2>
           <table className="table" aria-label="Agents in this run">
             <thead><tr><th scope="col">Agent</th><th scope="col">Stages</th><th scope="col">Tokens on this matter</th></tr></thead>
             <tbody>{agents.map((g) => {
@@ -255,7 +252,8 @@ export function RunOverview({ run, tasks, tokens, matter, artifacts, approvals, 
             })}</tbody>
           </table></> : null}
       </> : null}
-      <H2 style={{ fontSize: "var(--fs-sm)", margin: 0 }}>Deliverables</H2>
+      {children}
+      <H2 className="runsec">Deliverables</H2>
       <ErrorLine error={artifacts.error} onRetry={artifacts.reload} stale={!!artifacts.data} />
       {artifacts.data === undefined ? (artifacts.error ? null : <Loading rows={1} />) : outs.length ? (
         <ul className="links">{outs.map((a) => (
@@ -315,21 +313,6 @@ export function StageList({ tasks, runState, canAct, live, onRedirect, force, st
   );
 }
 
-export function stageOf(tasks) {
-  const ts = [...(tasks || [])].sort((a, b) => a.seq - b.seq);
-  const i = ts.findIndex((t) => t.state !== "completed");
-  return i === -1 ? ts.length : i + 1;
-}
-
-export function durations(events) {
-  const start = {}, out = {};
-  for (const e of events || []) {
-    if (!e.task_id) continue;
-    if (e.type === "task.running" && !(e.task_id in start)) start[e.task_id] = Date.parse(e.ts);
-    if (/^task\.(completed|failed)$/.test(e.type) && e.task_id in start) out[e.task_id] = Date.parse(e.ts) - start[e.task_id];
-  }
-  return out;
-}
 
 // runs last hours or days: "2h 05m" past the hour, else "4m 07s"
 export const fmtDur = (ms) => {
@@ -337,76 +320,192 @@ export const fmtDur = (ms) => {
   return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m ${String(s % 60).padStart(2, "0")}s`;
 };
 
-export function SwarmView({ run: r, tasks, tokens, canAct, st, cmd, sel, onSelect = () => {}, onInterject = () => {} }) {
+// -- UX-3 dependency graph (NEXT_STEPS §9B.3) ---------------------------------------
+// An arrow is a real dependency from one of two sources, never from event order:
+//  1. tasks[].depends_on (task_id[]) when the API supplies it — it does not yet (backend gap);
+//  2. else plan order: orchestrator.claim() starts a stage only once every lower-seq stage has
+//     completed, so each stage waits on the stage(s) holding the next-lower seq.
+// Positions are a pure function of that topology, so status updates never move a node.
+// laid out top-down (a stepper): one row per dependency depth, peers side by side in a row
+export const NODE = { w: 248, h: 58, gx: 16, gy: 26 };
+
+export function runGraph(tasks) {
+  const ts = bySeq(tasks);
+  const ids = new Set(ts.map((t) => t.task_id));
+  if (ts.some((t) => !t.task_id) || ids.size !== ts.length) return { error: "two stages share an ID, or a stage has none" };
+  const explicit = ts.some((t) => "depends_on" in t);
+  let deps;
+  if (explicit) {
+    const bad = ts.find((t) => !Array.isArray(t.depends_on) || t.depends_on.some((d) => d === t.task_id || !ids.has(d)));
+    if (bad) return { error: `stage ${bad.key || bad.task_id} has missing or invalid dependency data` };
+    deps = Object.fromEntries(ts.map((t) => [t.task_id, [...new Set(t.depends_on)]]));
+  } else if (ts.every((t) => Number.isFinite(t.seq))) {
+    deps = Object.fromEntries(ts.map((t) => {
+      const prev = ts.filter((p) => p.seq < t.seq).at(-1)?.seq;   // ts is seq-sorted
+      return [t.task_id, ts.filter((p) => p.seq === prev).map((p) => p.task_id)];
+    }));
+  } else return { error: "no dependency metadata was recorded" };
+  const depth = {}, open = new Set();
+  const visit = (id) => {   // longest path from a root = the column; a cycle has none
+    if (id in depth) return depth[id];
+    if (open.has(id)) throw new Error("cycle");
+    open.add(id);
+    return (depth[id] = 1 + Math.max(-1, ...deps[id].map(visit)));
+  };
+  try { ts.forEach((t) => visit(t.task_id)); } catch { return { error: "its recorded dependencies form a cycle" }; }
+  const cols = [];
+  for (const t of ts) (cols[depth[t.task_id]] ||= []).push(t);
+  const pos = {};
+  cols.forEach((c, y) => c.forEach((t, x) => { pos[t.task_id] = { x: x * (NODE.w + NODE.gx), y: y * (NODE.h + NODE.gy) }; }));
+  const rows = Math.max(0, ...cols.map((c) => c.length));   // widest depth = peers side by side
+  return {
+    deps, pos, cols, source: explicit ? "explicit" : "plan",
+    shape: rows <= 1 ? "sequential" : cols.length === 1 ? "parallel" : "hybrid",
+    width: Math.max(0, rows * (NODE.w + NODE.gx) - NODE.gx), height: Math.max(0, cols.length * (NODE.h + NODE.gy) - NODE.gy),
+    edges: ts.flatMap((t) => deps[t.task_id].map((d) => [d, t.task_id])),
+  };
+}
+
+const SHAPE = { sequential: "Sequential — one stage after another.", parallel: "Parallel — no stage waits on another.",
+  hybrid: "Hybrid — stages side by side in one row wait on none of each other and can run at the same time." };
+const NODECLS = { done: "ok", running: "run", waiting: "wait", failed: "bad", blocked: "bad" };
+const stateOf = (s) => AGENT_STATES[s] || ["idle", "?", `Unknown status (${s || "none"})`];
+
+export function SwarmView({ run: r, tasks, tokens, artifacts = [], interjections = [], canAct, st, cmd, sel, onSelect = () => {}, onInterject = () => {} }) {
   const [hide, setHide] = useState(false);
   const [text, setText] = useState("");
-  const ts = [...(tasks || [])].sort((a, b) => a.seq - b.seq);
+  const [view, setView] = useState("graph");
+  const [zoom, setZoom] = useState(1);
+  const [closed, setClosed] = useState(false);
+  const box = useRef(null);
+  const ts = bySeq(tasks);
   const rid = r.execution_id;
+  const byId = Object.fromEntries(ts.map((t) => [t.task_id, t]));
   const byAgent = Object.fromEntries((tokens?.agents || []).map((a) => [a.agent, a]));
   const parked = parkedTask(ts, r.state);
-  const dur = durations(r.events);
+  const asOf = useMemo(() => Date.now() / 1000, [r, tasks]);   // lease checks as of this snapshot (see stageState)
+  const states = Object.fromEntries(ts.map((t) => [t.task_id, stageState(t, r.state, parked, asOf)]));
+  const times = stageTimes(r.events);
+  const g = runGraph(ts);
+  const mode = g.error ? "list" : view;
   const live = LIVE.has(r.state);
   const seen = {};
   for (const t of ts) seen[t.agent_id] = (seen[t.agent_id] || 0) + 1;
   // an agent that works several stages is named by stage, so nodes stay distinguishable
   const label = (t) => `${title(t.agent_id || "agent")}${seen[t.agent_id] > 1 ? ` · ${t.key}` : ""}${t.task_id === parked ? " ⚑" : ""}`;
-  const cur = ts.find((t) => t.task_id === sel) || ts.find((t) => t.task_id === parked)
+  const pinned = byId[sel];
+  const cur = closed && !pinned ? null : pinned || byId[parked]
     || ts.find((t) => t.state === "running") || ts.find((t) => t.state !== "completed") || ts.at(-1);
-  const lanes = swarmLanes(ts)
-    .map((l) => ({ ...l, tasks: hide ? l.tasks.filter((t) => t.state !== "completed" || t.task_id === parked) : l.tasks }))
-    .filter((l) => l.tasks.length);
+  const deps = (id) => g.deps?.[id] || [];
+  const needs = (id) => (g.edges || []).filter(([a]) => a === id).map(([, b]) => b);
+  // why a queued stage has not started: the dependencies it still waits on (live runs only)
+  const waitOn = (id) => (live && states[id] === "pending" ? deps(id).filter((d) => byId[d].state !== "completed") : []);
+  const keys = (list) => list.map((d) => byId[d].key).join(", ");
+  const pick = (id) => { setClosed(false); onSelect(id); };
+  const close = () => { setClosed(true); onSelect(null); };
+  // whole map in the viewport: width of the column and the window height, never above 100 %
+  const fit = () => {
+    const w = box.current?.clientWidth;
+    if (w && g.width) setZoom(Math.max(0.25, Math.min(1, (w - 16) / g.width, (innerHeight - 200) / g.height)));
+  };
+  const nodeBtn = (t, style, list) => {
+    const s = states[t.task_id], [cls, icon, word] = stateOf(s), w = waitOn(t.task_id);
+    const tm = times[t.task_id] || {}, span = fmtSpan(tm.start, tm.end), d = deps(t.task_id);
+    const after = g.deps ? (d.length ? `After ${keys(d)}` : "Starts first") : null;
+    const meta = [w.length ? `waits on ${keys(w)}` : span, list ? after : null].filter(Boolean).join(" · ");
+    return (
+      <button type="button" key={t.task_id} className={`card node ${NODECLS[cls] || ""}`} style={style} title={label(t)}
+        aria-pressed={t === cur} onClick={() => pick(t.task_id)}
+        aria-label={`${label(t)}: ${word}${w.length ? `, waiting on ${keys(w)}` : ""}${after ? `. ${after}` : ""}`}>
+        <b>{label(t)}</b>
+        <span className="line"><span className="s"><span aria-hidden="true">{icon} </span>{word}</span>{meta ? <span className="m">{meta}</span> : null}</span>
+      </button>);
+  };
+  const order = g.cols ? g.cols.flat() : ts;
   const a = cur ? byAgent[cur.agent_id] : null;
+  const cs = cur ? states[cur.task_id] : null;
+  const ctm = cur ? times[cur.task_id] || {} : {};
   return (
-    <section aria-labelledby="swarm-h">
-      <div className="hdr"><h2 id="swarm-h">The team at work</h2>
-        <span className="sub">{`${rid} · stage ${stageOf(ts)} of ${ts.length} · ${fmtTokens(tokens?.total?.all)} tokens`}</span>
-        <span className="act">
-          <button type="button" className="btn" aria-pressed={hide} onClick={() => setHide(!hide)}>Hide finished</button>
-          {canAct && live ? <>
-            {r.state === "paused"
-              ? <button type="button" className="btn" onClick={() => cmd(() => post(`/executions/${rid}/resume`))}>Resume</button>
-              : r.state === "executing"   // a run parked at an approval is decided, not paused
-                ? <button type="button" className="btn" onClick={() => cmd(() => post(`/executions/${rid}/pause`))}>Pause</button> : null}
-            <button type="button" className="btn" onClick={() => {
-              if (confirm("Cancel this run? Stages not yet run will not run.")) cmd(() => post(`/runs/${rid}/cancel`));
-            }}>Cancel</button></> : null}
-        </span></div>
+    <section className="stagemapsec" aria-label="Stage map">
       <CommandError error={st.error} />
       {st.pending ? <p className="muted" role="status">Pending… waiting for the worker to confirm.</p> : null}
-      <div className="swarmwrap">
-        <div className="lanes" role="list" aria-label="Agent runs by stage, left to right"
-          style={{ gridTemplateColumns: `repeat(${lanes.length || 1},minmax(120px,1fr))` }}>
-          {lanes.map((l) => (
-            <div className="lane" role="listitem" key={l.tasks[0].task_id}>
-              <h3>{l.name} <span>{l.tasks.length}</span></h3>
-              {l.tasks.map((t) => {
-                const [cls, word] = nodeView(t, t.task_id === parked);
-                const tk = byAgent[t.agent_id];
-                const meta = [dur[t.task_id] != null ? fmtDur(dur[t.task_id]) : null, tk ? fmtTokens(tk.all) : null].filter(Boolean);
-                return (
-                  <button type="button" key={t.task_id} className={`card node ${cls}`} aria-pressed={t === cur}
-                    onClick={() => onSelect(t.task_id)}>
-                    <b>{label(t)}</b><span className="s">{word}</span>
-                    {meta.length ? <span className="m">{meta.join(" · ")}</span> : null}
-                  </button>);
-              })}
-            </div>))}
-        </div>
+      {ts.length && !g.error ? <div className="graphbar" role="toolbar" aria-label="Stage map view">
+        <span className="seg">
+          <button type="button" className="btn" aria-pressed={mode === "graph"} onClick={() => setView("graph")}>Graph</button>
+          <button type="button" className="btn" aria-pressed={mode === "list"} onClick={() => setView("list")}>List</button>
+        </span>
+        {mode === "graph" ? <span className="seg">
+          <button type="button" className="btn" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.25, z - 0.25))}>−</button>
+          <output className="zoomval" aria-live="polite" aria-label="Zoom">{`${Math.round(zoom * 100)}%`}</output>
+          <button type="button" className="btn" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(2, z + 0.25))}>+</button>
+          <button type="button" className="btn" onClick={fit}>Fit</button>
+          <button type="button" className="btn" onClick={() => setZoom(1)}>Reset zoom</button></span>
+          : <button type="button" className="btn" aria-pressed={hide} onClick={() => setHide(!hide)}>Hide finished</button>}
+      </div> : null}
+      {g.error ? <p className="banner" role="status">{`Dependency graph unavailable for this run: ${g.error}. The stages are listed in plan order; no connections are drawn.`}</p>
+        : ts.length ? <p className="small">{`${SHAPE[g.shape]} ${g.source === "plan"
+          ? "Dependencies come from plan order: the orchestrator starts a stage only after every earlier stage has completed."
+          : "Dependencies as recorded for this run."} An arrow means “must finish first” — solid once finished, dashed until then.`}</p>
+        : <p className="muted">No stage details were recorded for this run.</p>}
+      <div className={`swarmwrap${cur ? "" : " solo"}`}>
+        {!ts.length ? null : mode === "graph" ? (
+          <div className="graph" ref={box} tabIndex={0} role="group" onKeyDown={(e) => { if (e.key === "Escape") close(); }}
+            aria-label={`Dependency graph, ${ts.length} stages. Scroll to pan; the List view shows the same stages as a list.`}>
+            <div style={{ width: g.width * zoom, height: g.height * zoom }}>
+              <div className="graph__canvas" style={{ width: g.width, height: g.height, transform: `scale(${zoom})` }}>
+                <svg width={g.width} height={g.height} aria-hidden="true" focusable="false">
+                  <defs><marker id={`arr-${rid}`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" /></marker></defs>
+                  {g.edges.map(([s, e]) => {
+                    const p = g.pos[s], q = g.pos[e], x1 = p.x + NODE.w / 2, y1 = p.y + NODE.h, x2 = q.x + NODE.w / 2, y2 = q.y - 2, m = (y1 + y2) / 2;
+                    return <path key={`${s}>${e}`} data-edge={`${s}>${e}`} className={byId[s].state === "completed" ? "met" : undefined}
+                      d={`M${x1} ${y1}C${x1} ${m} ${x2} ${m} ${x2} ${y2}`} markerEnd={`url(#arr-${rid})`} />;
+                  })}
+                </svg>
+                {order.map((t) => nodeBtn(t, { left: g.pos[t.task_id].x, top: g.pos[t.task_id].y }))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <ol className="stagemap" aria-label={g.deps ? "Stages in dependency order" : "Stages in plan order"}
+            onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
+            {order.filter((t) => !hide || t.state !== "completed" || t.task_id === parked)
+              .map((t) => <li key={t.task_id}>{nodeBtn(t, undefined, true)}</li>)}
+          </ol>)}
         {cur ? (
-          <aside className="card drawer" aria-label="Agent inspection">
-            <h3>{`${label(cur)} · stage ${ts.indexOf(cur) + 1} of ${ts.length}`}</h3>
+          <aside className="card drawer" aria-label="Stage inspection">
+            <div className="hdr"><h3>{`${label(cur)} · stage ${ts.indexOf(cur) + 1} of ${ts.length}`}</h3>
+              <span className="act"><button type="button" className="btn" onClick={close} aria-label="Close stage inspection">Close</button></span></div>
+            {pinned ? null : <p className="small muted">Showing the current stage — select any stage to inspect it.</p>}
             <dl className="kv">
-              <dt>State</dt><dd>{nodeView(cur, cur.task_id === parked)[1]}{dur[cur.task_id] != null ? ` · ${fmtDur(dur[cur.task_id])}` : ""}</dd>
-              <dt>Goal</dt><dd>{cur.instruction}</dd>
-              <dt>Tokens</dt><dd className="tokens">{a ? `${fmtTokens(a.all)} · in ${fmtTokens(a.in)} · out ${fmtTokens(a.out)} · think ${fmtTokens(a.thinking)}` : "none recorded for this agent"}</dd>
-              {cur.attempts > 1 ? <><dt>Attempts</dt><dd>{`${cur.attempts} of ${cur.max_attempts}`}</dd></> : null}
+              <dt>Agent</dt><dd>{cur.agent_id || "Not recorded"}</dd>
+              <dt>Goal</dt><dd>{cur.instruction || "—"}</dd>
+              <dt>State</dt><dd><span className={`chip chip--${stateOf(cs)[0]}`} data-icon={stateOf(cs)[1]}>{stateOf(cs)[2]}</span></dd>
+              <dt>Depends on</dt><dd>{!g.deps ? "Not available for this run" : deps(cur.task_id).length
+                ? deps(cur.task_id).map((d) => <button type="button" key={d} className="btn" onClick={() => pick(d)}>{`${byId[d].key} · ${stateOf(states[d])[2]}`}</button>)
+                : "Nothing — starts first"}</dd>
+              {g.deps ? <><dt>Needed by</dt><dd>{needs(cur.task_id).length
+                ? needs(cur.task_id).map((d) => <button type="button" key={d} className="btn" onClick={() => pick(d)}>{byId[d].key}</button>)
+                : "No later stage"}</dd></> : null}
+              {waitOn(cur.task_id).length ? <><dt>Waiting on</dt><dd>{`${keys(waitOn(cur.task_id))} to finish`}</dd></> : null}
+              {ctm.start ? <><dt>Started</dt><dd>{at(ctm.start)}</dd></> : null}
+              {ctm.end ? <><dt>Finished</dt><dd>{at(ctm.end)}</dd></> : null}
+              {fmtSpan(ctm.start, ctm.end) ? <><dt>Duration</dt><dd>{fmtSpan(ctm.start, ctm.end)}</dd></> : null}
+              {cur.attempts > 1 || cs === "failed" || cs === "interrupted" ? <><dt>Attempts</dt><dd>{`${cur.attempts ?? "?"} of ${cur.max_attempts ?? "?"}${cs === "interrupted"
+                ? " — its worker missed its heartbeat; the stage is re-claimed automatically" : ""}`}</dd></> : null}
+              {cur.approval_kind ? <><dt>Checkpoint</dt><dd>{`Approval (${cur.approval_kind}) after this stage`}</dd></> : null}
+              <dt>Tokens</dt><dd>{a ? `${fmtTokens(a.all)} · in ${fmtTokens(a.in)} · out ${fmtTokens(a.out)} · think ${fmtTokens(a.thinking)} — this agent across the matter; a per-stage count is not recorded` : "None recorded for this agent"}</dd>
+              <dt>Deliverables</dt><dd>{artifacts.length
+                ? <><a href={href("workspace", { mid: r.matter_id, tab: "drafts" })}>{`${artifacts.length} from this run`}</a> — which stage wrote each is not recorded</>
+                : TERMINAL.has(r.state) ? "This run recorded none" : "None yet from this run"}</dd>
             </dl>
+            {cs === "failed" && !cur.result_summary ? <p className="small"><b>Error: </b>no error text was recorded for this stage.</p> : null}
+            <p className="small muted">Tool activity, findings and evidence references are not recorded per stage, so none are shown here.</p>
             {canAct && live && cur.state === "pending" ? (
               <button type="button" className="btn" onClick={() => {
                 const instruction = prompt(`New instruction for stage "${cur.key}"`);
                 if (instruction) cmd(() => post(`/executions/${rid}/redirect`, { task_id: cur.task_id, instruction }));
               }}>Redirect</button>) : null}
-            {cur.result_summary ? <pre className="log">{cur.result_summary}</pre> : null}
+            {cur.result_summary ? <>{cs === "failed" ? <p className="small"><b>Error</b></p> : null}<pre className="log">{cur.result_summary}</pre></> : null}
             {canAct && live ? (
               <form onSubmit={async (e) => {
                 e.preventDefault();
@@ -417,6 +516,9 @@ export function SwarmView({ run: r, tasks, tokens, canAct, st, cmd, sel, onSelec
                 <textarea id={`inj-${rid}`} rows="2" required value={text} onChange={(e) => setText(e.target.value)} />
                 <button type="submit" className="btn">Send</button>
               </form>) : null}
+            {/* interjections are write-only in the API: only what this page sent is known */}
+            {interjections.length ? <ul className="links small" aria-label="Interjections sent from this page">{interjections.map((i) => (
+              <li key={i.interjection_id}>{`“${i.text}” — delivered at the next stage boundary · ${hm(i.at)}`}</li>))}</ul> : null}
           </aside>) : null}
       </div>
     </section>
@@ -432,98 +534,146 @@ export function unanswered(messages) {
 }
 
 const hm = (ts) => (ts ? new Date(ts).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" }) : "");
-const ST = { executing: "run", waiting_human: "wait", paused: "wait", completed: "done" };
 
-export function ChatDock({ run: r, tasks, messages, approvals, artifacts, interjections, canSend, st, onSend, inlineApproval = true }) {
+// who answered, from the answer's persisted provenance (service/counsel.py `actor`)
+export function speaker(m) {
+  if (m.role !== "lead") return "You";
+  const a = m.actor || "";
+  if (a === "counsel:records") return "Lead counsel · from matter records";
+  if (a === "counsel:proposal") return "Lead counsel · proposed change";
+  if (a.startsWith("counsel:model:")) return `Lead counsel · model answer (${a.slice(14)})`;
+  if (a === "counsel:unavailable") return "Lead counsel";
+  return "Lead counsel · run digest";
+}
+
+// floating chat: a launcher pinned bottom-right opens a non-modal panel above it. The panel stays
+// mounted while closed (hidden), so a half-typed message survives minimising. Messages are
+// questions (answered from the matter's records or a model citing them) or instructions, which
+// come back as a proposal card: nothing changes a run until the user confirms it.
+export function ChatDock({ run: r = null, tasks, messages, canSend, st, onSend, proposal = null, onAct = () => {},
+  onDismiss = () => {}, scope = "matter", defaultOpen = false }) {
   const [text, setText] = useState("");
-  const ts = [...(tasks || [])].sort((a, b) => a.seq - b.seq);
+  const [shown, setShown] = useState(defaultOpen);
+  const launcher = useRef(null), input = useRef(null), end = useRef(null);
+  const ts = bySeq(tasks);
   const msgs = messages || [];
   const open = unanswered(msgs);
-  const done = ts.filter((t) => t.state === "completed").length;
-  const cur = ts.find((t) => t.state !== "completed");
   const byId = Object.fromEntries(ts.map((t) => [t.task_id, t]));
-  const reached = [...(r.events || [])].reverse().find((e) => e.type === "task.running" && byId[e.task_id]);
-  const latest = [...(artifacts || [])].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 3);
-  const appr = approvals || [];
+  const reached = [...(r?.events || [])].reverse().find((e) => e.type === "task.running" && byId[e.task_id]);
   const send = async () => { if (text.trim() && await onSend(text.trim())) setText(""); };
-  const cid = `chat-${r.execution_id}`;
+  const cid = `chat-${scope}`, pid = `chatpanel-${scope}`;
+  const close = () => { setShown(false); launcher.current?.focus(); };
+  useEffect(() => {   // on open: newest message in view, focus in the composer
+    if (!shown) return;
+    end.current?.scrollIntoView?.({ block: "end" });
+    input.current?.focus();
+  }, [shown, msgs.length]);
   return (
-    <div className="bottom">
-      <section className="card chat" aria-label="Conversation: supervision">
-        <div className="ch"><h2>Counsel chat — Supervision</h2><span>{`${msgs.length} message${msgs.length === 1 ? "" : "s"} · replies land here when stages close`}</span></div>
-        <div className="msgs">
-          {msgs.map((m) => (
-            <div key={m.message_id} className={m.role === "lead" ? "msg lead" : "msg"}>
-              <div className="who"><b>{m.role === "lead" ? "Lead counsel" : "You"}</b> · {hm(m.ts)}</div>
-              <div className="body">{m.text}</div>
-              {open.has(m.message_id) ? <div className="pending" role="status"><span className="dot"></span> pending…</div> : null}
-            </div>))}
-          {reached ? <div className="sys">{`↳ ${byId[reached.task_id].key} stage reached ${hm(reached.ts)} (live, from the lanes above)`}</div> : null}
-          {inlineApproval && appr.length ? <div className="appr"><ApprovalCard a={appr[0]} /></div> : null}
+    <div className="chatfab">
+      <section id={pid} className="card chat chatpanel" role="dialog" aria-modal="false" aria-labelledby={`${pid}-h`} hidden={!shown}
+        onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
+        <div className="ch">
+          <div><h2 id={`${pid}-h`}>Counsel chat</h2>
+            <span>{`Ask about this matter in any state · ${msgs.length} message${msgs.length === 1 ? "" : "s"}`}</span></div>
+          <button type="button" className="btn chatpanel__min" onClick={close} aria-label="Minimise counsel chat">–</button>
+        </div>
+        <div className="msgs" aria-live="polite">
+          {msgs.length ? null : <p className="small">Ask where things stand, what failed, what is waiting on you, what a stage
+            found, or a question about the matter. You can also say “pause”, “resume”, “cancel”, “redirect &lt;stage&gt; to: …”
+            or “start a run to …” — you confirm every change first.</p>}
+          {msgs.map((m) => {
+            const [body, src] = String(m.text || "").split("\n\nSources: ");
+            return (
+              <div key={m.message_id} className={m.role === "lead" ? "msg lead" : "msg"}>
+                <div className="who"><b>{speaker(m)}</b> · {hm(m.ts)}</div>
+                <div className="body">{body}</div>
+                {src ? <div className="src small">Sources: {src}</div> : null}
+                {open.has(m.message_id) ? <div className="pending" role="status"><span className="dot"></span> run started — its digest lands here when it completes</div> : null}
+              </div>);
+          })}
+          {reached ? <div className="sys">{`↳ ${byId[reached.task_id].key} stage reached ${hm(reached.ts)}`}</div> : null}
+          {st.busy ? <div className="pending" role="status"><span className="dot"></span> Lead counsel is answering…</div> : null}
+          {proposal ? (
+            <div className="card confirmcard" role="group" aria-label={`Confirm: ${proposal.title}`}>
+              <p className="confirmcard__title">{proposal.title}</p>
+              <p className="small">{proposal.detail}</p>
+              <div className="row">
+                <button type="button" className="btn" onClick={onDismiss}>Not now</button>
+                <button type="button" className="btn btn--primary" disabled={st.busy} onClick={() => onAct(proposal)}>{proposal.confirm}</button>
+              </div>
+            </div>) : null}
+          <div ref={end} />
         </div>
         {canSend ? (
           <form className="comp" onSubmit={(e) => { e.preventDefault(); send(); }}>
-            <label htmlFor={cid} className="small">Instruction to lead counsel</label>
-            <textarea id={cid} value={text} onChange={(e) => setText(e.target.value)}
-              placeholder="Type an instruction… (enter sends, shift+enter newline)"
+            <label htmlFor={cid} className="small">Ask about this matter, or tell lead counsel what to change</label>
+            <textarea id={cid} ref={input} value={text} onChange={(e) => setText(e.target.value)}
+              placeholder="Where are we? · What did research find? · Pause after this stage"
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
-            <div className="row"><span className="hint">Send → 202 · appears in the lanes above as pending…</span>
+            <div className="row"><span className="hint">Enter sends · Shift+Enter for a new line</span>
               <button type="submit" className="btn btn--primary" disabled={st.busy}>Send</button></div>
             <CommandError error={st.error} />
-            {st.pending ? <p className="muted" role="status">Pending… waiting for the worker to confirm.</p> : null}
+            {st.pending ? <p className="muted" role="status">Sent — waiting for the worker to confirm.</p> : null}
           </form>) : <CommandError error={st.error} />}
       </section>
-      <aside className="ctxrail" aria-label="Run context">
-        <div className="card"><h3>Execution</h3>
-          <dl className="kv">
-            <dt>Run</dt><dd><a href={href("run", { rid: r.execution_id })} className="mono">{r.execution_id}</a></dd>
-            <dt>State</dt><dd><span className={`st ${ST[r.state] || ""}`}>{r.state}{cur ? ` · stage ${stageOf(ts)}/${ts.length} (${cur.key})` : ""}</span></dd>
-            <dt>Started</dt><dd>{fmtAgo(r.started_at)}</dd>
-          </dl>
-          <div className="bar2"><i style={{ width: `${ts.length ? Math.round((100 * done) / ts.length) : 0}%` }}></i></div>
-          <span className="small">{`${done} of ${ts.length} stages complete`}</span></div>
-        <div className="card"><h3>Latest artifacts</h3>
-          {latest.length ? (
-            <ul className="links">{latest.map((a) => (
-              <li key={a.artifact_id}><a href={href("workspace", { mid: r.matter_id, tab: "drafts" })} className="mono">{a.artifact_id}</a> {a.title}</li>))}
-            </ul>) : <p className="small">None yet.</p>}</div>
-        <div className="card"><h3>Open approvals</h3>
-          <p className="small"><span className={appr.length ? "st wait" : "st"}>{appr.length ? `${appr.length} ⚑ pending` : "None pending"}</span>
-            {appr.length ? ` — ${appr.map((a) => a.kind).join(", ")}` : ""}</p>
-          <p className="small">Also in the <a href={href("approvals")}>Approval Center</a>.</p></div>
-        <div className="card"><h3>Interjections</h3>
-          {(interjections || []).length ? interjections.map((i) => (
-            <p className="small" key={i.interjection_id}>{`“${i.text}” — `}<b>delivered at next boundary</b> {hm(i.at)}</p>))
-            : <p className="small">None sent from this page.</p>}</div>
-      </aside>
+      <button type="button" ref={launcher} className="chatfab__btn" aria-expanded={shown} aria-controls={pid}
+        onClick={() => (shown ? close() : setShown(true))}>
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="18" height="18"><path d="M4 5h16v10H9l-5 4z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /></svg>
+        <span>Counsel chat</span>
+        {open.size ? <span className="chatfab__badge">{`${open.size} awaiting reply`}</span> : null}
+      </button>
     </div>
   );
 }
 
-export default function RunPage({ rid }) {
-  const { perms, mode } = useCtx();
-  const firm = mode === "firm";
-  const d = useRunData(rid, undefined, firm);   // self-rep: RunDrawer below does its own reads
-  const { run, tasks, tokens: tk, artifacts: arts, approvals: appr } = d;
-  const mid = run.data?.matter_id;
-  const convs = useApi(firm && mid ? `/matters/${mid}/conversations` : null, { matter: mid });
+// the matter's Supervision thread + ask/confirm wiring, shared by the run page and the matter
+// workspace (so a lawyer can ask before any run exists). `run` is the run on screen, if any.
+export function MatterChat({ mid, run = null, tasks = [] }) {
+  const { perms } = useCtx();
+  const convs = useApi(mid ? `/matters/${mid}/conversations` : null, { matter: mid });
   const conv = (convs.data || []).find((c) => c.title === "Supervision") || convs.data?.[0];
   const msgs = useApi(conv ? `/conversations/${conv.conversation_id}/messages` : null, { matter: mid });
   const [st, cmd, reset] = useCommand();
-  const [chat, chatCmd, chatReset] = useCommand();
-  const [sel, setSel] = useState(null);
+  const [proposal, setProposal] = useState(null);
+  useEffect(() => { reset(); }, [msgs.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const thread = async () => {      // created on first message, never on view
+    if (conv) return conv.conversation_id;
+    const cid = (await post(`/matters/${mid}/conversations`, { title: "Supervision" })).data.conversation_id;
+    convs.reload();
+    return cid;
+  };
+  const onSend = (text) => cmd(async () => {
+    const res = await post(`/conversations/${await thread()}/ask`, { text, execution_id: run?.execution_id || null });
+    setProposal(res.data?.action || null);
+    msgs.reload();
+    return res;
+  });
+  // the confirmed proposal goes through the same command endpoints as the page's own buttons
+  const onAct = (a) => cmd(async () => {
+    const e = a.execution_id;
+    const res = a.command === "pause" ? await post(`/executions/${e}/pause`)
+      : a.command === "resume" ? await post(`/executions/${e}/resume`)
+        : a.command === "cancel" ? await post(`/runs/${e}/cancel`)
+          : a.command === "redirect" ? await post(`/executions/${e}/redirect`, { task_id: a.task_id, instruction: a.instruction })
+            : await post(`/conversations/${await thread()}/messages`, { text: a.task_text });
+    setProposal(null);
+    msgs.reload();
+    return res;
+  });
+  return <ChatDock run={run} tasks={tasks} messages={msgs.data?.items} canSend={allowed(perms, "matter.read")}
+    st={st} onSend={onSend} proposal={proposal} onAct={onAct} onDismiss={() => setProposal(null)} scope={mid} />;
+}
+
+export default function RunPage({ rid, node }) {
+  const { perms, mode } = useCtx();
+  const firm = mode === "firm";
+  const d = useRunData(rid, undefined, firm);   // self-rep: RunDrawer below does its own reads
+  const { run, tasks, tokens: tk, artifacts: arts } = d;
+  const [st, cmd, reset] = useCommand();
   // interjections are write-only in the API: only what this page sent is known here
   const [sent, setSent] = useState([]);
   // a 202 stays "pending…" until the confirming SSE event refetches the run (05 §10)
   useEffect(() => { reset(); }, [run.data, tasks.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { chatReset(); }, [msgs.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const onSend = (text) => chatCmd(async () => {
-    let cid = conv?.conversation_id;    // the thread is created on first send, never on view
-    if (!cid) cid = (await post(`/matters/${mid}/conversations`, { title: "Supervision" })).data.conversation_id;
-    const res = await post(`/conversations/${cid}/messages`, { text });
-    if (!conv) convs.reload();
-    return res;
-  });
   if (!firm) return (   // the swarm is firm-only (§9A.2): self-rep keeps the plain inspection view
     <section aria-labelledby="run-h">
       <div className="hdr"><h1 id="run-h">Run inspection</h1></div>
@@ -535,13 +685,14 @@ export default function RunPage({ rid }) {
   if (!run.data || !tasks.data) return <Loading />;
   const canAct = allowed(perms, "matter.dispatch");
   return (<>
-    {/* firm: the swarm below is the stage map + per-stage inspection, so the overview skips its own list */}
-    <RunOverview {...d} level={1} stages={false} />
-    <SwarmView run={run.data} tasks={tasks.data} tokens={tk.data} canAct={canAct}
-      st={st} cmd={cmd} sel={sel} onSelect={setSel}
-      onInterject={(d) => setSent((s) => [...s, { ...d, at: new Date().toISOString() }])} />
-    <ChatDock run={run.data} tasks={tasks.data} messages={msgs.data?.items} approvals={appr.data}
-      artifacts={arts.data?.items} interjections={sent} canSend={canAct} st={chat} onSend={onSend}
-      inlineApproval={false} />{/* the overview above carries the decision; one set of controls per page */}
+    {/* firm: the stage map sits under the overview's stage progress, so the overview skips its own list */}
+    <RunOverview {...d} level={1} stages={false} actions={<RunControls run={run.data} canAct={canAct} cmd={cmd} />}>
+      {/* the selected stage lives in the hash (#/runs/{rid}/{task_id}): deep-linkable, back/forward-safe */}
+      <SwarmView run={run.data} tasks={tasks.data} tokens={tk.data} canAct={canAct} interjections={sent}
+        artifacts={(arts.data?.items || []).filter((a) => a.execution_id === rid)}
+        st={st} cmd={cmd} sel={node} onSelect={(id) => { location.hash = href("run", { rid, node: id || undefined }); }}
+        onInterject={(d) => setSent((s) => [...s, { ...d, at: new Date().toISOString() }])} />
+    </RunOverview>
+    <MatterChat mid={run.data.matter_id} run={run.data} tasks={tasks.data} />
   </>);
 }

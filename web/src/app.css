@@ -91,29 +91,59 @@ fieldset.qcard legend + *{clear:both}
 .ovgrid .qcard{margin-bottom:0}
 .stale{margin:0 0 10px;color:var(--s-waiting);font-size:var(--fs-sm)}
 @media (max-width:1023px){.ovgrid{grid-template-columns:1fr}}
-/* M10 swarm (D-3 pick: b-chambers S4 lanes + C meters); strictly sequential plan, one lane per stage group */
-.swarmwrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
-.lanes{display:grid;gap:0;align-items:start}
-.lane{padding:0 10px;position:relative} .lane+.lane{border-left:1px dashed var(--control-border)}
-.lane h3{font-size:12px;color:var(--muted);margin:0 0 10px;font-weight:600;display:flex;justify-content:space-between}
-.node{display:block;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;padding:10px 12px;margin-bottom:10px;border-left:4px solid var(--s-idle)}
-.node b{display:block;font-size:13.5px} .node .s{display:block;font-size:12.5px;font-weight:600} .node .m{display:block;font:12px var(--font-mono);color:var(--muted)}
+/* M10 swarm (D-3 pick: b-chambers node cards + C meters); UX-3: a top-down dependency stepper
+   beside a sticky inspector. Spacing on the 8 px scale; mono only for identifiers. */
+.swarmwrap{display:grid;grid-template-columns:fit-content(560px) minmax(0,1fr);gap:var(--sp-6);align-items:start;margin-top:var(--sp-4)}
+.swarmwrap.solo{grid-template-columns:fit-content(100%)}
+.graphbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);margin:0 0 var(--sp-2)}
+.graphbar .seg{display:inline-flex;align-items:center;gap:var(--sp-1)}
+.zoomval{min-width:48px;text-align:center;font-size:var(--fs-sm);color:var(--muted);font-variant-numeric:tabular-nums}
+.graph{overflow:auto;padding:var(--sp-4);border:1px solid var(--rule);border-radius:var(--radius);background:var(--bg)}
+.graph__canvas{position:relative;transform-origin:0 0}
+.graph svg{position:absolute;inset:0;overflow:visible} .graph svg>path{fill:none;stroke:var(--control-border);stroke-width:1.5;stroke-dasharray:4 4}
+.graph svg>path.met{stroke-dasharray:none} .graph marker path{fill:var(--control-border)}
+.graph .node{position:absolute;width:248px;height:58px;margin:0;padding:9px 14px;overflow:hidden}
+.node .line{display:flex;gap:var(--sp-2);align-items:baseline;min-width:0;white-space:nowrap}
+.node .line .m{overflow:hidden;text-overflow:ellipsis}
+.graph .node b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stagemap{list-style:none;margin:0;padding:0;max-width:560px}
+.node{display:block;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;padding:10px 14px;margin-bottom:var(--sp-2);border-left:4px solid var(--s-idle)}
+.node b{display:block;font-size:var(--fs-sm);font-weight:600;margin-bottom:2px} .node .s{font-size:var(--fs-xs);font-weight:600}
+.node .m{font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums}
 .node.ok{border-left-color:var(--s-done)} .node.run{border-left-color:var(--s-running);outline:2px solid var(--accent);outline-offset:-1px}
 .node.wait{border-left-color:var(--s-waiting);background:var(--s-waiting-bg)} .node.bad{border-left-color:var(--s-failed)}
-.node[aria-pressed="true"]{box-shadow:0 0 0 2px var(--accent-soft)}
+.node[aria-pressed="true"]{box-shadow:0 0 0 3px var(--accent)}
 .ok .s{color:var(--s-done)} .run .s{color:var(--s-running)} .wait .s{color:var(--s-waiting)} .idle .s{color:var(--s-idle)} .bad .s{color:var(--s-failed)}
-.drawer{padding:14px 16px} .drawer h3{margin:0 0 8px;font-size:15px}
+.drawer{padding:var(--sp-5) var(--sp-6)} .drawer h3{margin:0;font-size:var(--fs-md)}
+.drawer .hdr{margin-bottom:var(--sp-2);align-items:center}
+.drawer .kv{grid-template-columns:112px minmax(0,72ch);gap:var(--sp-2) var(--sp-4);margin:var(--sp-4) 0}
+.drawer .kv dd .btn{margin:0 var(--sp-2) var(--sp-1) 0}
+.drawer form{margin-top:var(--sp-4)}
+/* the inspector stays in view while a long stepper scrolls past it */
+.swarmwrap .drawer{position:sticky;top:var(--sp-4);max-height:calc(100vh - 2 * var(--sp-4));overflow:auto}
 .kv{display:grid;grid-template-columns:86px 1fr;gap:4px 10px;margin:0 0 12px;font-size:13px} .kv dt{color:var(--muted)} .kv dd{margin:0}
 .log{font:12px/1.55 var(--font-mono);background:var(--bg);border-radius:4px;padding:8px;color:var(--muted);white-space:pre-wrap;margin:12px 0 0}
-/* 05 §11: below 1024px the lanes degrade to one stacked list */
-@media (max-width:1023px){.swarmwrap{grid-template-columns:1fr} .lanes{grid-template-columns:1fr !important} .lane+.lane{border-left:0;border-top:1px dashed var(--control-border);padding-top:10px}}
-/* M10 counsel chat (D-3 pick C: m10-chat-c.html dock + A's four rail cards). The left nav owns
-   .rail, so the dock's context column is .ctxrail. */
-.bottom{display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start;margin-top:16px}
-.chat{display:flex;flex-direction:column;min-height:340px}
-.ch{display:flex;justify-content:space-between;align-items:baseline;padding:10px 16px;border-bottom:1px solid var(--rule)}
-.ch h2{margin:0;font-size:15px} .ch span{color:var(--muted);font-size:12.5px}
-.msgs{padding:4px 16px 10px;flex:1}
+/* 05 §11: below 1024px the inspector stacks under the stepper (the List view is the stacked form) */
+@media (max-width:1023px){.swarmwrap{grid-template-columns:1fr} .swarmwrap .drawer{position:static;max-height:none}}
+/* counsel chat: a floating launcher bottom-right opening a non-modal panel above it */
+.chatfab{position:fixed;right:var(--sp-6);bottom:var(--sp-6);z-index:40;display:flex;flex-direction:column;align-items:flex-end;gap:var(--sp-3)}
+.chatfab__btn{display:inline-flex;align-items:center;gap:var(--sp-2);height:44px;padding:0 var(--sp-5);border-radius:var(--radius-pill);
+  border:1px solid var(--accent);background:var(--accent);color:var(--accent-text);font:inherit;font-weight:600;cursor:pointer;
+  box-shadow:0 4px 14px rgba(20,16,8,.18)}
+.chatfab__btn[aria-expanded="true"]{background:var(--surface);color:var(--text);border-color:var(--control-border)}
+.chatfab__badge{font-size:var(--fs-xs);font-weight:600;padding:2px 8px;border-radius:var(--radius-pill);background:var(--s-waiting-bg);color:var(--s-waiting)}
+.chatpanel{width:min(400px,calc(100vw - 2 * var(--sp-6)));height:min(600px,calc(100vh - 120px));box-shadow:0 12px 32px rgba(20,16,8,.22)}
+.chatpanel[hidden]{display:none}
+.chatpanel .msgs{overflow-y:auto}
+.chatpanel__min{width:32px;height:32px;padding:0;justify-content:center}
+.msg .src{margin-top:var(--sp-1)}
+.confirmcard{margin:var(--sp-3) 0;padding:var(--sp-3) var(--sp-4);border-left:4px solid var(--s-waiting);background:var(--s-waiting-bg)}
+.confirmcard__title{margin:0 0 var(--sp-1);font-weight:650}
+.confirmcard .row{display:flex;justify-content:flex-end;gap:var(--sp-2);margin-top:var(--sp-2)}
+.chat{display:flex;flex-direction:column;min-height:0}
+.ch{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--rule)}
+.ch h2{margin:0;font-size:var(--fs-md)} .ch span{display:block;color:var(--muted);font-size:var(--fs-xs);margin-top:2px}
+.msgs{padding:var(--sp-1) var(--sp-4) var(--sp-3);flex:1}
 .msg{margin:12px 0}
 .msg .who{font-size:12px;color:var(--muted);margin-bottom:3px} .msg .who b{color:var(--text)}
 .msg .body{background:var(--bg);border-radius:var(--radius);padding:8px 12px;white-space:pre-wrap}
@@ -130,10 +160,6 @@ fieldset.qcard legend + *{clear:both}
 .comp .row{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
 .comp .hint{color:var(--muted);font-size:12px}
 .small{font-size:12.5px;color:var(--muted)}
-.ctxrail{display:flex;flex-direction:column;gap:16px}
-.ctxrail .card{padding:12px 14px}
-.ctxrail .card h3{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-.ctxrail .kv{grid-template-columns:auto 1fr;gap:3px 10px;margin:0}
 .st{font-weight:600} .st.run{color:var(--s-running)} .st.wait{color:var(--s-waiting)} .st.done{color:var(--s-done)}
 .bar2{height:5px;border-radius:999px;background:var(--rule);overflow:hidden;margin:6px 0 2px} .bar2 i{display:block;height:100%;background:var(--accent)}
 ul.links{margin:4px 0 0;padding-left:18px} ul.links li{margin:3px 0}
@@ -148,7 +174,20 @@ ul.links{margin:4px 0 0;padding-left:18px} ul.links li{margin:3px 0}
 .runov summary{cursor:pointer}
 /* the 380px drawer: the agent table wraps instead of overflowing; its rows are not clickable */
 .runov .table th,.runov .table td{white-space:normal;height:auto;padding:6px var(--sp-2)} .runov .table tbody tr{cursor:default}
-@media (max-width:1024px){.bottom{grid-template-columns:1fr}}
+/* run page rhythm: title row → facts strip → banner → sections 32 px apart, labels over values */
+.runhead{align-items:center;margin-bottom:0} .runhead h1,.runhead h2{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
+.runhead .mono{font-size:var(--fs-sm);color:var(--muted);font-weight:400}
+.runfacts{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:var(--sp-4) var(--sp-6);margin-inline:0;margin-bottom:0;
+  padding:var(--sp-4) var(--sp-5);background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius)}
+.runfacts div{min-width:0} .runfacts__wide{grid-column:1 / -1}
+.runfacts dt{font-size:var(--fs-xs);color:var(--muted);letter-spacing:.02em;margin-bottom:2px}
+.runfacts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.runfacts__wide dd{font-size:var(--fs-md);line-height:1.45;max-width:90ch}
+.runov .runsec{margin-top:var(--sp-8)}
+.runov h2.runsec,.runov h3.runsec,.runov .runsec>h2,.runov .runsec>h3{font-size:var(--fs-md);font-weight:650;margin:0}
+.runov h2.runsec,.runov h3.runsec{margin-top:var(--sp-8)}
+/* clear the floating chat launcher at the end of the page */
+main:has(.chatfab){padding-bottom:96px}
 /* 320px reflow: the 232px rail leaves main ~32px wide, the top bar cannot wrap, tables
    push the document to 704px — all three below. Rail stacks on top so firm nav survives. */
 @media (max-width:700px){

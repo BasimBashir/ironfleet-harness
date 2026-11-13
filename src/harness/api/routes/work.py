@@ -2,13 +2,13 @@
 # requests, conversations (04 §5.4–§5.6, §5.8). parse -> one service call -> serialize.
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from harness.api.deps import get_con, get_principal, page, paged
-from harness.api.schemas import (AgentIn, AgentPatch, AnswerIn, ConversationIn,
+from harness.api.schemas import (AgentIn, AgentPatch, AnswerIn, AskIn, ConversationIn,
                                  ExecutionIn, MessageIn, NoteIn, ReasonIn, RedirectIn,
                                  RequestIn, TextIn, WorkflowIn)
-from harness.service import catalog, conversations, executions
+from harness.service import catalog, conversations, counsel, executions
 
 router = APIRouter(prefix="/api/v1")
 P = Depends(get_principal)
@@ -151,3 +151,10 @@ def list_messages(cid: str, pg=Depends(page), p=P, con=C):
 @router.post("/conversations/{cid}/messages", status_code=202)
 def post_message(cid: str, body: MessageIn, p=P, con=C):
     return conversations.post_message(con, p, cid, body.model_dump())
+
+
+# sync on purpose: a model answer runs asyncio.run(gate.dispatch) in FastAPI's threadpool
+@router.post("/conversations/{cid}/ask")
+def ask_counsel(cid: str, body: AskIn, request: Request, p=P, con=C):
+    """Answer about the matter (records first, else a model) or propose a run command."""
+    return counsel.ask(con, p, cid, body.model_dump(), store_root=request.app.state.store_root)

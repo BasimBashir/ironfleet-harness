@@ -116,6 +116,30 @@
         "title": "AnswerIn",
         "type": "object"
       },
+      "AskIn": {
+        "properties": {
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "AskIn",
+        "type": "object"
+      },
       "AssignIn": {
         "properties": {
           "provider": {
@@ -1488,6 +1512,54 @@
           }
         },
         "summary": "Signup"
+      }
+    },
+    "/api/v1/conversations/{cid}/ask": {
+      "post": {
+        "description": "Answer about the matter (records first, else a model) or propose a run command.",
+        "operationId": "ask_counsel_api_v1_conversations__cid__ask_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "title": "Cid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask Counsel"
       }
     },
     "/api/v1/conversations/{cid}/messages": {

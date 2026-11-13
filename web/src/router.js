@@ -8,7 +8,7 @@ const ROUTES = [
   ["oversight", []],
   ["workspace", ["mid", "tab"], "m", { tab: "overview" }],
   ["case", ["mid", "view"], "case", { view: "home" }],
-  ["run", ["rid"], "runs"],
+  ["run", ["rid", "node"], "runs", { node: undefined }],
 ];
 
 export function parseRoute(hash) {

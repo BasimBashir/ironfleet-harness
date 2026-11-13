@@ -77,6 +77,8 @@ ROUTES = {
     "POST /api/v1/matters/{mid}/conversations": ("write", {"title": "c"}, ""),
     "GET /api/v1/conversations/{cid}/messages": ("read", None, ""),
     "POST /api/v1/conversations/{cid}/messages": ("write", {"text": "hello"}, ""),
+    # a records question: answered without a model, so the contract sweep never dials one
+    "POST /api/v1/conversations/{cid}/ask": ("read", {"text": "where are we?"}, ""),
     "GET /api/v1/matters/{mid}/lifecycle": ("read", None, ""),
     "POST /api/v1/matters/{mid}/lifecycle": ("write", {"to": "INTAKE"}, ""),
     "GET /api/v1/matters/{mid}/next-actions": ("read", None, ""),
