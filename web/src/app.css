@@ -12,7 +12,7 @@ kbd{font:11px var(--font-mono);border:1px solid var(--control-border);border-rad
 .user{display:flex;align-items:center;gap:8px;color:var(--muted)}
 .av{width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:var(--fw-bold);font-size:var(--fs-xs)}
 .toggles{display:flex;gap:var(--sp-1)}
-.toggle{font:inherit;font-size:var(--fs-xs);padding:2px 8px;border:1px solid var(--control-border);border-radius:var(--radius-pill);background:var(--raise);color:var(--text);cursor:pointer}
+.toggle{font:inherit;font-size:var(--fs-xs);padding:2px 8px;min-height:24px;/* 2.5.8: measured 23.6px without it */border:1px solid var(--control-border);border-radius:var(--radius-pill);background:var(--raise);color:var(--text);cursor:pointer}
 .toggle[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
 
 .shell{display:grid;grid-template-columns:232px 1fr;min-height:calc(100vh - 52px)}
@@ -20,7 +20,9 @@ kbd{font:11px var(--font-mono);border:1px solid var(--control-border);border-rad
 .rail{padding:16px 10px;border-right:1px solid var(--rule)}
 .rail h2{font-size:var(--fs-xs);color:var(--muted);margin:14px 10px 6px;font-weight:var(--fw-medium)}
 .rail a{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-radius:var(--radius);color:var(--text);text-decoration:none}
-.rail a:hover{background:var(--surface)} .rail a[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:var(--fw-medium)}
+.rail a:hover{background:var(--surface)} .rail a[aria-current]{color:var(--accent);font-weight:var(--fw-medium);border-left:3px solid var(--accent);padding-left:7px}
+.rail a[aria-current="page"]{background:var(--accent-soft)}  /* the screen itself; "true" = the section/matter it sits in */
+main:focus-visible{box-shadow:none}  /* not a control: focus there only marks where a new screen starts */
 .pill{font-size:var(--fs-xs);font-weight:var(--fw-bold);background:var(--s-waiting-bg);color:var(--s-waiting);border-radius:var(--radius-pill);padding:0 8px}
 main{padding:22px 28px;min-width:0}
 .hdr{display:flex;align-items:flex-end;gap:14px;margin-bottom:14px;flex-wrap:wrap}
@@ -100,6 +102,11 @@ fieldset.qcard legend + *{clear:both}
 .passage{padding:16px;scroll-margin-top:16px} .passage h3{margin:0 0 8px;font-size:var(--fs-md)}
 .passage[aria-current="true"]{box-shadow:0 0 0 2px var(--accent)}
 @media (max-width:1023px){.docsplit{grid-template-columns:1fr} .docrail{position:static;max-height:240px}}
+/* Work plan: the run drawer splits beside the executions table at ≥1280 (05 §11), stacks under it
+   below — a fixed 380px column left the table ~100px wide at 768 and 327px at 1024 */
+.split{display:grid;gap:var(--sp-4)} .split>*{min-width:0}
+.split--open{grid-template-columns:minmax(0,1fr) 380px}
+@media (max-width:1279px){.split--open{grid-template-columns:1fr}}
 /* M10 swarm (D-3 pick: b-chambers node cards + C meters); UX-3: a top-down dependency stepper
    beside a sticky inspector. Spacing on the 8 px scale; mono only for identifiers. */
 .swarmwrap{display:grid;grid-template-columns:fit-content(560px) minmax(0,1fr);gap:var(--sp-6);align-items:start;margin-top:var(--sp-4)}
@@ -203,13 +210,25 @@ ul.links{margin:4px 0 0;padding-left:18px} ul.links li{margin:3px 0}
 main:has(.chatfab){padding-bottom:96px}
 /* 320px reflow: the 232px rail leaves main ~32px wide, the top bar cannot wrap, tables
    push the document to 704px — all three below. Rail stacks on top so firm nav survives. */
+/* laptop/tablet (UX-6, measured at 1024 and 768): the one-row top bar wrapped the search into a
+   56–98px-tall blob inside a 52px bar, and wide tables pushed the whole page to 1190px. The search
+   now shortens on one line; below 1024 the bar wraps (search on its own row); below 1280 tables
+   scroll inside themselves, never the document. */
+.toggle,.health,.user{white-space:nowrap}
+.search{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+@media (max-width:1279px){
+  /* the frame hugs its columns, capped at main's width, then scrolls.
+     shortcut: a table narrower than main no longer stretches to it below 1280; a wrapper per table would restore that */
+  .table{display:block;overflow-x:auto;width:max-content;max-width:100%}
+}
+@media (max-width:1023px){
+  .top{flex-wrap:wrap;height:auto;min-height:52px;padding:8px 12px;gap:8px 10px}
+  .search{order:9;flex-basis:100%;max-width:none}
+}
 @media (max-width:700px){
   .shell{grid-template-columns:1fr}
   .rail{display:flex;flex-wrap:wrap;gap:2px 8px;border-right:0;border-bottom:1px solid var(--rule);padding:8px 12px}
   .rail h2{display:none}
-  .top{flex-wrap:wrap;height:auto;min-height:52px;padding:8px 12px;gap:8px 10px}
-  .search{order:9;flex-basis:100%;max-width:none}
   main{padding:14px 12px}
-  .table{display:block;overflow-x:auto}   /* scroll inside the table, never the document */
   .facts div{grid-template-columns:1fr}
 }

@@ -74,8 +74,12 @@ Found in passing by the same browser runs (T8), fixed: the approval centre's "Pr
   board's table is an allowed two-dimensional exception; the shell is not). Needs a responsive
   shell — a layout design change, so mockups first (owner rule), and plan §3 already defers the
   tablet layout to after D-5. **Blocks a clean D-6 sign-off for Release B (self-rep on phones).**
-- **Route changes do not move focus** to the new screen's heading (advisory, not a WCAG failure
-  for SPAs; screen-reader users hear nothing on view change). Pair with the reflow work.
+  *UX-6 (2026-11-14):* the shell now reflows at the supported laptop/tablet widths — no page-level
+  horizontal scroll on any firm screen at 1024 or 768 (tables scroll inside themselves; guarded by
+  `reflow_checks` in `test_web_a11y.py`). A 320px measurement of six screens showed no page-level
+  scroll either, but phone use is still not claimed (no AT/zoom/touch pass) — this item stays open for Release B.
+- ~~**Route changes do not move focus**~~ — fixed in UX-6: a new screen focuses `main` and sets
+  its own `document.title` (2.4.2); asserted in the ⌘K keyboard walk. See `data/eval/UX-6/REPORT.md`.
 
 ## Not covered by this audit (owed, manual)
 

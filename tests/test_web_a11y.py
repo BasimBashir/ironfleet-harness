@@ -130,6 +130,30 @@ def audit_screens(live, pg, ids) -> dict[str, list]:
     return found
 
 
+def reflow_checks(live, pg, ids) -> list[str]:
+    """UX-6: at the supported laptop/tablet widths the document never scrolls sideways (wide tables
+    scroll inside themselves) and the top bar's search stays one line. Phones (320) are not claimed."""
+    fails = []
+    set_prefs(pg, "firm", "light")
+    for w in (1024, 768):
+        pg.set_viewport_size({"width": w, "height": 900})
+        for label, mode, h in screens(ids):
+            if mode != "firm":
+                continue
+            pg.goto(f"{live.base}/{h}")
+            pg.wait_for_selector("main > *", timeout=15000)
+            pg.wait_for_function("() => !document.querySelector('[aria-busy=true]')", timeout=15000)
+            time.sleep(0.2)
+            sw, cw, sh = pg.evaluate("() => [document.documentElement.scrollWidth, document.documentElement.clientWidth,"
+                                     " document.querySelector('.search')?.getBoundingClientRect().height || 0]")
+            if sw > cw:
+                fails.append(f"reflow {w}px · {label}: page scrolls sideways ({sw} > {cw})")
+            if sh > 40:
+                fails.append(f"reflow {w}px · {label}: search wraps to {sh:.0f}px")
+    pg.set_viewport_size({"width": 1366, "height": 900})
+    return fails
+
+
 NO_FOCUS_RING: set[str] = set()
 FOCUS_RING_JS = r"""() => {
   const e = document.activeElement;
@@ -188,6 +212,10 @@ def keyboard_walks(live, pg, ids) -> list[str]:
     pg.keyboard.type("Go to Approvals")
     pg.keyboard.press("Enter")
     pg.wait_for_selector("#ap-h", timeout=15000)
+    # UX-6: a new screen names itself (2.4.2) and takes focus at its start (2.4.3)
+    want("Approvals" in pg.title(), f"route change: title not updated ({pg.title()!r})")
+    want(pg.evaluate("() => !!document.activeElement.closest('main')"),
+         f"route change: focus not moved into the new screen (focus on {focus()})")
 
     # approvals: answer a request and approve a filing, keyboard only
     q = "article.approval:has-text('Keyboard audit question')"
@@ -307,6 +335,7 @@ def test_d6_every_screen_both_themes_and_keyboard_walks(live):
             ids = seed_and_journey(live, pg)
             found = audit_screens(live, pg, ids)
             walks = keyboard_walks(live, pg, ids)
+            walks += reflow_checks(live, pg, ids)
         finally:
             b.close()
     walks += [f"focus-visible: no focus indicator on {w}" for w in sorted(NO_FOCUS_RING)]

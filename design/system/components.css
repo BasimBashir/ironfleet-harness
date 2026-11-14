@@ -12,6 +12,7 @@ a{color:var(--accent);text-underline-offset:2px}
 .muted{color:var(--muted)}
 .card{background:var(--raise);border:1px solid var(--rule);border-radius:var(--radius);box-shadow:var(--shadow)}
 .btn{font:inherit;min-height:var(--control-h);padding:0 var(--sp-4);border:1px solid var(--control-border);border-radius:var(--radius);background:var(--raise);color:var(--text);cursor:pointer}
+a.btn{display:inline-flex;align-items:center;text-decoration:none}  /* a link that navigates, drawn as a button */
 .btn--primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:var(--fw-medium)}
 .btn[aria-disabled="true"]{opacity:.6;cursor:not-allowed}  /* disabled-with-reason (05 §12): keep focusable, say why */
 .btn__why{display:block;font-size:var(--fs-xs);color:var(--muted);margin-top:var(--sp-1)}

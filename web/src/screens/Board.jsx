@@ -118,8 +118,7 @@ export default function Board() {
     <section aria-labelledby="board-h">
       <div className="hdr"><h1 id="board-h">Matters</h1>
         <span className="sub">{list.data ? `${rows.length}${next ? "+" : ""} ${state ? "shown" : `open · ${nRunning} running`} · ${nNeeds} matter${nNeeds === "1" ? "" : "s"} waiting on you` : ""}</span>
-        <span className="act"><a className="btn btn--primary" href={href("new")}
-          style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>New matter</a></span></div>
+        <span className="act"><a className="btn btn--primary" href={href("new")}>New matter</a></span></div>
       <WaitingOnYou items={pend.data?.items}
         runs={(needs.data?.items || []).filter((m) => !m.outstanding_approvals)} more={pend.data?.next_cursor != null} titles={titles}
         loading={pend.loading} error={pend.error} onRetry={pend.reload} />
@@ -158,7 +157,7 @@ export default function Board() {
                   <td>{orGap(lc, lc.data?.stage ? stageName(lc.data.stage) : null)}</td>
                   <td>{m.outstanding_approvals
                     ? <a className="chip chip--waiting" data-icon="⚑" href={href("workspace", { mid: m.matter_id, tab: "decisions" })}
-                      aria-label={`${m.outstanding_approvals} pending on ${m.title || m.matter_id}`} onClick={(e) => e.stopPropagation()}>{m.outstanding_approvals}</a>
+                      aria-label={`${m.outstanding_approvals} pending on ${m.title || m.matter_id}`} onClick={(e) => e.stopPropagation()}>{m.outstanding_approvals} pending</a>
                     : "—"}</td>
                   <td className={`title${next?.status === "overdue" ? " due-late" : ""}`}>
                     {next ? <><b>{next.status === "overdue" ? `⚠ overdue · ${fmtDate(next.due)}` : fmtDate(next.due)}</b><span>{next.what}</span></> : orGap(dl, null)}</td>

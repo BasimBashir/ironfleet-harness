@@ -591,7 +591,7 @@ export function Deadlines({ mid }) {
 
 const VIEWS = { home: CaseHome, intake: Intake, timeline: Timeline, plan: Strategy, testing: Flaws,
   hearing: Hearing, debrief: Debrief, dates: Deadlines };
-const NAV = [["home", "Case home"], ["intake", "Set up my case"], ["timeline", "Journey"], ["plan", "Plan"],
+export const NAV = [["home", "Case home"], ["intake", "Set up my case"], ["timeline", "Journey"], ["plan", "Plan"],
   ["testing", "Testing"], ["dates", "Dates"], ["hearing", "Hearing"], ["debrief", "After court"]];
 
 export default function CaseScreens({ mid, view }) {

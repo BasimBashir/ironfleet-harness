@@ -19,11 +19,11 @@ export function MetricsView({ m }) {
         </tbody>
       </table>
       <table className="table" aria-label="Model latency">
-        <thead><tr><th scope="col">Provider</th><th scope="col">Model</th><th scope="col">Calls</th>
-          <th scope="col">p50 ms</th><th scope="col">p95 ms</th></tr></thead>
+        <thead><tr><th scope="col">Provider</th><th scope="col">Model</th><th scope="col" className="num">Calls</th>
+          <th scope="col" className="num">p50 ms</th><th scope="col" className="num">p95 ms</th></tr></thead>
         <tbody>{m.latency.map((r) => (
           <tr key={`${r.provider}/${r.model}`}><td>{r.provider}</td><td className="mono">{r.model}</td>
-            <td>{r.n}</td><td>{r.p50_ms}</td><td>{r.p95_ms}</td></tr>))}</tbody>
+            <td className="num">{r.n}</td><td className="num">{r.p50_ms}</td><td className="num">{r.p95_ms}</td></tr>))}</tbody>
       </table>
     </div>
   );

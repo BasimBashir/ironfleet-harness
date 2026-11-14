@@ -22,7 +22,7 @@ export const orGap = (r, value, none = "—") => value ?? (r.error
   ? <span className="muted" title={r.error.message}>unavailable</span>
   : r.loading ? <span className="muted">loading…</span> : none);
 
-const TABS = [["overview", "Overview"], ["documents", "Documents"], ["evidence", "Evidence"],
+export const TABS = [["overview", "Overview"], ["documents", "Documents"], ["evidence", "Evidence"],
   ["workplan", "Work plan"], ["agents", "Agents"], ["drafts", "Drafts"], ["decisions", "Decisions"],
   ["deadlines", "Deadlines"], ["activity", "Activity"], ["audit", "Audit"]];
 
@@ -449,7 +449,7 @@ function Documents({ mid, item: openId, part: chunk }) {
       {canWrite ? (
         <p>
           <input ref={file} type="file" multiple onChange={onFiles} className="sr-only" id="doc-up" tabIndex={-1} aria-hidden="true" />
-          <button type="button" className="btn btn--primary" onClick={() => file.current?.click()}>Upload documents</button>
+          <button type="button" className="btn btn--primary" onClick={() => file.current?.click()}>Upload documents</button>{" "}
           {hasDocs ? <button type="button" className="btn" onClick={ingestMine} disabled={st.busy}
             title="Run this matter's uploaded documents through the retrieval pipeline">Ingest documents</button> : null}
           {st.busy ? <span className="muted" role="status"> Working…</span> : null}
@@ -559,7 +559,7 @@ function WorkPlan({ mid }) {
   const [sel, setSel] = useState(null);
   const rows = runs.data || [];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: sel ? "1fr 380px" : "1fr", gap: 16 }}>
+    <div className={`split${sel ? " split--open" : ""}`}>
       <div>
         <ErrorLine error={runs.error} onRetry={runs.reload} />
         {runs.loading ? <Loading /> : rows.length === 0 ? <Empty>No executions yet. Dispatch work from the Overview tab.</Empty> : (
@@ -569,7 +569,7 @@ function WorkPlan({ mid }) {
               <tr key={r.execution_id} aria-selected={sel === r.execution_id} onClick={() => setSel(r.execution_id)}>
                 <td><a href={href("run", { rid: r.execution_id })} onClick={(e) => { e.preventDefault(); setSel(r.execution_id); }} className="mono">{r.execution_id}</a></td>
                 <td><StatusChip kind="agent" state={r.state} /></td>
-                <td>{r.input_task_text}</td><td>{fmtAgo(r.started_at)}</td>
+                <td title={r.input_task_text}>{r.input_task_text}</td><td>{fmtAgo(r.started_at)}</td>
               </tr>))}</tbody>
           </table>)}
       </div>
@@ -718,7 +718,7 @@ function Activity({ mid }) {
       {shown.length === 0 ? <Empty>No activity yet.</Empty> : (
         <ol className="timeline timeline--activity" aria-label="Activity, newest first">
           {shown.map((e) => (
-            <li key={e.id} data-state="done">
+            <li key={e.id}>{/* neutral dot: an event is not a "done" state (task.failed drew green) */}
               <time dateTime={e.data?.ts}>{e.data?.ts ? new Date(e.data.ts).toLocaleString("en-NZ") : ""}</time>
               <b>{e.event}</b>{e.data?.task_id ? <span className="id"> {e.data.task_id}</span> : null}
             </li>))}

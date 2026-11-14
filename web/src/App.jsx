@@ -8,10 +8,10 @@ import { EVENT, useApi } from "./useApi.js";
 import { Meter, allowed } from "./ui.jsx";
 import Board from "./screens/Board.jsx";
 import NewMatter from "./screens/NewMatter.jsx";
-import Workspace from "./screens/Workspace.jsx";
+import Workspace, { TABS } from "./screens/Workspace.jsx";
 import Approvals from "./screens/Approvals.jsx";
 import RunPage from "./screens/RunPage.jsx";
-import CaseScreens from "./screens/CaseScreens.jsx";
+import CaseScreens, { NAV as CASE_NAV } from "./screens/CaseScreens.jsx";
 import Users from "./screens/Users.jsx";
 import Settings from "./screens/Settings.jsx";
 import Oversight from "./screens/Oversight.jsx";
@@ -24,6 +24,16 @@ function usePref(key, initial) {
   const [v, setV] = useState(() => localStorage.getItem(`ironfleet.${key}`) ?? initial);
   useEffect(() => { localStorage.setItem(`ironfleet.${key}`, v); }, [key, v]);
   return [v, setV];
+}
+
+const TITLES = { home: "Matters", board: "Matters", new: "New matter", approvals: "Approvals",
+  users: "Users & roles", settings: "Model settings", oversight: "Audit & metrics", notfound: "Page not found" };
+export function pageTitle({ name, params: p }) {
+  const what = name === "workspace" ? `${(TABS.find(([k]) => k === p.tab) || [, "Overview"])[1]} · ${p.mid}`
+    : name === "run" ? `Run ${p.rid}`
+      : name === "case" ? `${(CASE_NAV.find(([k]) => k === p.view) || [, "Case home"])[1]} · ${p.mid}`
+        : TITLES[name] || TITLES.notfound;
+  return `${what} — IronFleet`;
 }
 
 function useRoute() {
@@ -199,6 +209,18 @@ function Shell({ me, onLogout }) {
       { onStatus: setLive });
   }, [mode, mid]);
 
+  useEffect(() => { document.title = pageTitle(route); }, [route]);   // 2.4.2: each view names itself
+
+  // 2.4.3: a new screen takes focus at its start (keyboard + screen-reader users otherwise stay on
+  // the rail link). A screen that placed focus itself (intake question, lawyer-now banner) keeps it.
+  const firstScreen = useRef(true);
+  const rid = route.params.rid;
+  useEffect(() => {
+    if (firstScreen.current) { firstScreen.current = false; return; }
+    const main = document.getElementById("main");
+    if (main && !main.contains(document.activeElement)) main.focus();
+  }, [route.name, mid, rid]);
+
   useEffect(() => {
     const on = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette(true); }
@@ -214,8 +236,11 @@ function Shell({ me, onLogout }) {
   const perms = me.permissions || [];
   const ctx = { me, perms, mode, setMode, theme, plain: plainOn, route, live };
   const name = me.user?.username || "";
+  // "page" on the screen itself; "true" on its section, so a matter or run still shows where it lives
+  const at = route.name === "home" ? "board" : route.name;
+  const section = { workspace: "board", run: "board", case: "board" }[at] || at;
   const nav = (name2, label, extra) => (
-    <a href={href(name2)} aria-current={route.name === name2 ? "page" : undefined}><span>{label}</span>{extra}</a>);
+    <a href={href(name2)} aria-current={at === name2 ? "page" : section === name2 ? "true" : undefined}><span>{label}</span>{extra}</a>);
 
   let screen;
   switch (route.name) {
@@ -268,7 +293,7 @@ function Shell({ me, onLogout }) {
           <h2>Recent matters</h2>
           {(recent.data?.items || []).slice(0, 6).map((m) => (
             <a key={m.matter_id} href={href("workspace", { mid: m.matter_id })}
-              aria-current={mid === m.matter_id ? "page" : undefined}><span>{m.title || m.matter_id}</span></a>))}
+              aria-current={mid === m.matter_id ? "true" : undefined}><span>{m.title || m.matter_id}</span></a>))}
         </nav>
         <main id="main" tabIndex={-1}>{screen}</main>
       </div>
