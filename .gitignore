@@ -26,3 +26,10 @@ data/eval/R1-C5-*/ws/
 pytest-output.txt
 desktop.ini
 .claude/
+
+# Case material is never committed: each user supplies their own judgments,
+# documents and eval runs (they stay on that machine only).
+*.pdf
+data/eval/
+data/golden_cases/sources/*
+!data/golden_cases/sources/README.md

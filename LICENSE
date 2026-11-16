@@ -1,0 +1,23 @@
+Copyright (c) 2026 IronFleet. All rights reserved.
+
+This repository and its contents (source code, documentation, designs, build
+scripts and released binaries) are proprietary. They are published for viewing
+and for installing the released IronFleet application on your own machines.
+
+No licence is granted to copy, modify, merge, publish, distribute, sublicense,
+sell, or create derivative works from any part of this repository, in whole or
+in part, without prior written permission from IronFleet.
+
+Third-party components bundled in released builds (for example opencode,
+llama.cpp, Python packages and model files) remain under their own licences.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+IronFleet is a tool for legal professionals and self-represented parties. It
+does not give legal advice, and its output must be checked by a qualified
+person before it is relied on.
