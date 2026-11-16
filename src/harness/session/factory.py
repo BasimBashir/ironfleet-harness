@@ -421,7 +421,8 @@ class FactoryRunner:
         # opencode's permission wall (the phase-2/3 crews' "source files aren't
         # at that path" + denied reads) — in-cwd reads are the path that works.
         if self.store:
-            for src in (Path(self.store.root) / "workspaces" / session_id).glob("*/*.md"):
+            # ws.parent: the session dir the driver's matter guard checked, not a rebuilt path
+            for src in ws.parent.glob("*/*.md"):
                 # from-* are earlier forwards: re-forwarding them nests the names past MAX_PATH
                 if ".opencode" in src.parts or src.parent == ws or src.name.startswith("from-"):
                     continue

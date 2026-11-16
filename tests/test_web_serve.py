@@ -172,6 +172,63 @@ def test_live_body_drives_the_crew_and_registers_deliverables(store, monkeypatch
         con.close()
 
 
+def test_two_matters_same_user_get_disjoint_workspaces(store, monkeypatch):
+    """Confidentiality regression (2026-11-16): matter B's stages must never see
+    matter A's files — not in their own workspace, not as a from-* forward."""
+    import re
+    from contextlib import nullcontext
+
+    from harness.session import driver as drv
+    from harness.session.store import TurnRow
+    from harness.session.workspace import agent_workspace
+    from harness.service import executions, matters, system, worker
+    root, adm = store
+
+    class _Driver:
+        def __init__(self, store, base):
+            self.base = base
+
+        def open_gate(self):
+            return nullcontext()
+
+        def workspace_for(self, session_id, agent, matter_ref, classification="LOCAL_PREFERRED"):
+            ws = agent_workspace(self.base, session_id, agent, matter_ref)  # the real guard
+            (ws / "matter.json").write_text(json.dumps({"matter_ref": matter_ref}),
+                                            encoding="utf-8")  # what sync_mount records
+            return ws
+
+        async def run_turn(self, session_id, matter_ref, agent, prompt, **kw):
+            for name in re.findall(r"\bWrite ([\w.-]+\.md)", prompt):
+                (self.workspace_for(session_id, agent, matter_ref) / name).write_text(
+                    f"privileged to {matter_ref}", encoding="utf-8")
+            return TurnRow(ts="t", session_id=session_id, matter_ref=matter_ref, display="",
+                           agent=agent, tools_used=[], output_summary="ok",
+                           docs_touched=[], trace_refs=[])
+
+    monkeypatch.setattr(drv, "SessionDriver", _Driver)
+    plan = ("```plan\nintake|ingestor|Write intake-note.md\n"
+            "strategy|strategist|Write case-theory.md\n```")
+    con = system.open_db(root)
+    mids = [matters.create(con, adm, {"title": t})["matter_id"] for t in ("A", "B")]
+    sids = []
+    for mid in mids:
+        eid = executions.create(con, adm, mid, {"task_text": "go", "plan_block": plan}
+                                )["execution_id"]
+        sids.append(con.execute("SELECT session_id FROM executions WHERE execution_id=?",
+                                (eid,)).fetchone()["session_id"])
+    con.close()
+    bind, d = worker.live_body(root)
+    with d.open_gate():
+        worker.drain(root, bind)
+
+    assert sids[0] != sids[1]
+    for mid, sid in zip(mids, sids):
+        files = list((root / "workspaces" / sid).glob("*/*.md"))
+        # both deliverables plus the strategy stage's forward of the intake note
+        assert len(files) == 3 and any(f.name.startswith("from-") for f in files)
+        assert {f.read_text(encoding="utf-8") for f in files} == {f"privileged to {mid}"}
+
+
 def test_worker_runs_inside_the_served_app(store):
     from fastapi.testclient import TestClient
 

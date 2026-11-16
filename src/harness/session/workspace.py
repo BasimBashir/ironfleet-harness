@@ -40,6 +40,20 @@ def agent_workspace(base: Path, session_id: str, agent: str,
     _require_colon_free(agent, "agent name")
     if matter_ref is not None:
         _require_colon_free(matter_ref, "matter ref")
+        # Confidentiality: sibling workspaces feed this one (the factory's from-*
+        # forward), so a session dir that already holds another matter's workspace
+        # is refused outright — never reused, never silently adopted (2026-11-16:
+        # the shared "api-admin" dir leaked one matter's case theory into another).
+        for rec in (Path(base) / session_id).glob("*/matter.json"):
+            try:
+                other = json.loads(rec.read_text(encoding="utf-8")).get("matter_ref")
+            except (ValueError, OSError):
+                other = None
+            if other != matter_ref:
+                raise PermissionError(
+                    f"workspace {rec.parent} belongs to matter {other!r}, not"
+                    f" {matter_ref!r}: refusing to share session {session_id!r}"
+                    " across matters")
     ws = Path(base) / session_id / agent
     ws.mkdir(parents=True, exist_ok=True)
     return ws

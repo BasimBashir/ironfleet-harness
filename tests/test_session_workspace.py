@@ -36,6 +36,18 @@ def test_agent_workspace_shape_and_creation(tmp_path):
     assert ws.is_dir()
 
 
+def test_agent_workspace_refuses_a_session_dir_holding_another_matter(tmp_path):
+    """The 2026-11-16 leak: one shared session dir served two matters. A dir whose
+    workspaces carry another matter's record is refused, not adopted."""
+    import json
+    a = agent_workspace(tmp_path, "api-admin", "ingestor-stage-intake", "m-a")
+    (a / "matter.json").write_text(json.dumps({"matter_ref": "m-a"}), encoding="utf-8")
+    assert agent_workspace(tmp_path, "api-admin", "hunter-stage-research", "m-a").is_dir()
+    with pytest.raises(PermissionError, match="m-a"):
+        agent_workspace(tmp_path, "api-admin", "strategist", "m-b")
+    assert not (tmp_path / "api-admin" / "strategist").exists()
+
+
 def test_opencode_data_dir_shape_and_creation(tmp_path):
     dd = opencode_data_dir(tmp_path, "ses-20261019-abcd1234", "hunter")
     assert dd == tmp_path / "ses-20261019-abcd1234" / "hunter" / ".opencode-data"

@@ -8,6 +8,7 @@ next claim; redirect rewrites a pending task's instruction."""
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timezone
 
 from harness.service import authz
@@ -63,9 +64,12 @@ def create(con, principal: dict, matter_id: str, body: dict) -> dict:
     else:
         # fallback_plan routes a /mock-hearing | /hearing-pack goal to its workflow file
         stages = factory.fallback_plan("", "LOW", task_text).stages
-    eid = orchestrator.create_execution(
-        con, matter_id, session_id=f"api-{principal['username']}",
-        task_text=task_text, stages=stages)
+    # the session id keys the agent workspaces: one per execution, so no two runs
+    # (and never two matters) share a workspace tree or its from-* hand-forwards
+    eid = f"exec-{uuid.uuid4().hex[:12]}"
+    orchestrator.create_execution(
+        con, matter_id, session_id=f"api-{principal['username']}-{eid}",
+        task_text=task_text, stages=stages, execution_id=eid)
     return get(con, principal, eid)
 
 
