@@ -10,6 +10,7 @@ import { BulkBar, Btn, Empty, ErrorLine, LiveNote, Loading, SelectAll, SelectCel
   fmtAgo, fmtDate, fmtDue, fmtTokens, useSelect } from "../ui.jsx";
 import { ApprovalCard, plainKind } from "./Approvals.jsx";
 import { DEADLINE_WORD, Deadlines, JOURNEY_STRIP, LawyerNowBanner, STAGE_PLAIN, stripIndex } from "./CaseScreens.jsx";
+import { LiveAgents, fmtMs } from "./Live.jsx";
 import { MatterChat, RunDrawer } from "./RunPage.jsx";
 import { Members } from "./Users.jsx";
 
@@ -583,15 +584,19 @@ function Agents({ mid }) {
   const t = tk.data?.total;
   return (
     <div className="stack">
-      <p>{t ? <>Matter total <b>{fmtTokens(t.all)}</b> tokens · in {fmtTokens(t.in)} · out {fmtTokens(t.out)} · thinking {fmtTokens(t.thinking)} · {t.dispatches} model calls</> : null}</p>
+      <LiveAgents mid={mid} onSettled={tk.reload} />
+      <h2>Usage by agent</h2>
+      <p>{t ? <>Matter total <b>{fmtTokens(t.all)}</b> tokens · in {fmtTokens(t.in)} · out {fmtTokens(t.out)} · thinking {fmtTokens(t.thinking)} · {t.dispatches} model calls · {fmtMs(t.ms)} model time</> : null}</p>
       <ErrorLine error={tk.error} onRetry={tk.reload} />
       {tk.loading ? <Loading /> : (tk.data?.agents || []).length === 0 ? <Empty>No model calls recorded for this matter yet.</Empty> : (
         <table className="table" aria-label="Tokens by agent">
           <thead><tr><th scope="col">Agent</th><th scope="col" className="num">Total</th><th scope="col" className="num">In</th>
-            <th scope="col" className="num">Out</th><th scope="col" className="num">Thinking</th><th scope="col" className="num">Calls</th></tr></thead>
+            <th scope="col" className="num">Out</th><th scope="col" className="num">Thinking</th><th scope="col" className="num">Calls</th>
+            <th scope="col" className="num">Model time</th></tr></thead>
           <tbody>{tk.data.agents.map((a) => (
             <tr key={a.agent}><td>{a.agent}</td><td className="num">{fmtTokens(a.all)}</td><td className="num">{fmtTokens(a.in)}</td>
-              <td className="num">{fmtTokens(a.out)}</td><td className="num">{fmtTokens(a.thinking)}</td><td className="num">{a.dispatches}</td></tr>))}</tbody>
+              <td className="num">{fmtTokens(a.out)}</td><td className="num">{fmtTokens(a.thinking)}</td><td className="num">{a.dispatches}</td>
+              <td className="num">{fmtMs(a.ms)}</td></tr>))}</tbody>
         </table>)}
     </div>
   );

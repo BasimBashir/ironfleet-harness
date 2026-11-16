@@ -25,7 +25,7 @@ def test_tokens_per_matter_and_agent(api_world):
     assert r.status_code == 200
     body = r.json()
     assert body["total"] == {"in": 157, "out": 33, "cache": 0, "thinking": 5,
-                             "all": 190, "dispatches": 3}
+                             "all": 190, "dispatches": 3, "ms": 0}
     assert [(a["agent"], a["in"], a["out"], a["thinking"]) for a in body["agents"]] == [
         ("clerk", 150, 30, 5), ("hunter", 7, 3, 0)]
 

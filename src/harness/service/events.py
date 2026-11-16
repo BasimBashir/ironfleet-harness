@@ -54,6 +54,15 @@ def since(con, principal: dict, channels: list[str], after_id: int = 0,
     return [_row(r) for r in rows]
 
 
+def live_since(con, principal: dict, root, matter_id: str,
+               offset: int | None) -> tuple[list[tuple[int, dict]], int]:
+    """The matter's live agent/LLM log after byte `offset` (None = replay the tail),
+    behind the same matter.read check as the matter channel."""
+    from harness import live
+    authz.require(con, principal, authz.READ, matter_id)
+    return live.read_from(root, matter_id, offset)
+
+
 def latest_id(con) -> int:
     row = con.execute("SELECT MAX(id) AS m FROM workflow_events").fetchone()
     return row["m"] or 0

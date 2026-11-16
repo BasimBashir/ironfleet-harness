@@ -263,6 +263,11 @@ def metrics(p=P, con=C):
     return usage.metrics(con, p)
 
 
+@router.get("/usage")
+def account_usage(p=P, con=C):
+    return usage.account_usage(con, p)
+
+
 @router.get("/audit")
 def audit_list(matter_id: str = "", pg=Depends(page), p=P, con=C):
     return paged(conversations.audit_list(con, p, matter_id=matter_id, **pg))

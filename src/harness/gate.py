@@ -155,6 +155,13 @@ class EgressGate:
             raw={"source": "response-meta" if meta else "declared-only"},
         )
 
+    def _live(self, request: LLMRequest, kind: str, **fields) -> None:
+        # the live log sits beside trace.db; a trace stand-in without a path writes none
+        root = getattr(getattr(self.trace, "db_path", None), "parent", None)
+        if root is not None:
+            from harness import live
+            live.append(root, request.matter_ref, kind, task_class=request.task_class, **fields)
+
     async def dispatch(self, request: LLMRequest) -> LLMResponse:
         # classification travels on the request until the matters table exists
         policy = MatterPolicy(matter_ref=request.matter_ref, classification=request.classification)
@@ -184,11 +191,18 @@ class EgressGate:
                     payload["tool_choice"] = request.tool_choice
             if cfg.max_output_tokens is not None:          # S6-4: clamp, never raise
                 payload["max_tokens"] = min(payload["max_tokens"], cfg.max_output_tokens)
+            msgs = request.messages or []
+            self._live(request, "llm.start", provider=cfg.name, model=payload["model"],
+                       n_messages=len(msgs), tools=len(request.tools),
+                       input=msgs[-1] if msgs else None)
             t0 = time.monotonic()
             try:
                 result = await self._transport(cfg, payload)
             except Exception as ex:                       # noqa: BLE001 — trace, then next candidate
                 last_error = str(ex)
+                self._live(request, "llm.end", provider=cfg.name, model=payload["model"],
+                           status="error", error=last_error,
+                           ms=int((time.monotonic()-t0)*1000))
                 self.trace.append(DispatchRecord(
                     matter_ref=request.matter_ref, task_class=request.task_class,
                     classification=request.classification, provider=cfg.name, model=payload["model"],
@@ -218,6 +232,17 @@ class EgressGate:
                 tokens_reasoning=reasoning,
                 latency_ms=int((time.monotonic()-t0)*1000)))
             msg = result["choices"][0]["message"]
+            self._live(request, "llm.end", provider=cfg.name,
+                       model=result.get("model", payload["model"]), status="ok",
+                       ms=int((time.monotonic()-t0)*1000),
+                       tokens_in=usage.get("prompt_tokens", 0),
+                       tokens_out=usage.get("completion_tokens", 0),
+                       tokens_reasoning=reasoning,
+                       content=msg.get("content"),
+                       # thinking: NIM/DeepSeek name it reasoning_content, Ollama/OpenRouter reasoning
+                       reasoning=msg.get("reasoning_content") or msg.get("reasoning"),
+                       tool_calls=msg.get("tool_calls") or [],
+                       finish_reason=result["choices"][0].get("finish_reason"))
             return LLMResponse(content=msg.get("content"),
                                provider=cfg.name, model=result.get("model", payload["model"]),
                                usage=usage, provenance=prov,

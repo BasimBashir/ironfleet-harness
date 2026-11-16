@@ -3619,6 +3619,58 @@
         "summary": "Post Lifecycle"
       }
     },
+    "/api/v1/matters/{mid}/live": {
+      "get": {
+        "description": "Every agent step and LLM call of the matter's runs, as they happen (the\n<store>/live/<mid>.jsonl tail). id = byte offset, so Last-Event-ID resumes.",
+        "operationId": "live_stream_api_v1_matters__mid__live_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mid",
+            "required": true,
+            "schema": {
+              "title": "Mid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "last-event-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Live Stream"
+      }
+    },
     "/api/v1/matters/{mid}/members": {
       "get": {
         "operationId": "list_members_api_v1_matters__mid__members_get",
@@ -4734,6 +4786,22 @@
           }
         },
         "summary": "Upload Skill"
+      }
+    },
+    "/api/v1/usage": {
+      "get": {
+        "operationId": "account_usage_api_v1_usage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Account Usage"
       }
     },
     "/api/v1/users": {

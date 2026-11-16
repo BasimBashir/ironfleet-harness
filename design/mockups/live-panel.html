@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IronFleet — Live agent panel mockups</title>
+<!-- the app's real design tokens: same colours, type, spacing, motion as the product -->
+<link rel="stylesheet" href="../system/tokens.css">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:var(--fs-base)/var(--lh) var(--font-sans)}
+.page{max-width:1240px;margin:0 auto;padding:var(--sp-6)}
+.top{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-bottom:var(--sp-4)}
+.top h1{font-size:var(--fs-lg);margin:0;font-weight:650;letter-spacing:-.01em}
+.top .sub{color:var(--muted);font-size:var(--fs-sm)}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:var(--radius-pill);background:var(--raise);padding:3px;gap:2px}
+.seg button{font:inherit;font-size:var(--fs-sm);border:0;background:none;color:var(--muted);padding:5px 14px;border-radius:var(--radius-pill);cursor:pointer;min-height:32px}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-text);font-weight:var(--fw-medium)}
+.seg button:focus-visible,.btn:focus-visible,summary:focus-visible,.agent:focus-visible,.wf-row:focus-visible,.f:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.btn{font:inherit;font-size:var(--fs-sm);border:1px solid var(--control-border);background:var(--raise);color:var(--text);border-radius:var(--radius);padding:5px 12px;cursor:pointer;min-height:32px}
+.spacer{flex:1}
+.mock{display:none}.mock.on{display:block}
+.note{color:var(--muted);font-size:var(--fs-sm);margin:0 0 var(--sp-4)}
+.ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.ico.sm{width:14px;height:14px}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--font-mono);font-size:12.5px}
+.card{background:var(--raise);border:1px solid var(--rule);border-radius:var(--radius);box-shadow:var(--shadow)}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-xs);font-weight:var(--fw-medium);padding:1px 8px;border-radius:var(--radius-pill);border:1px solid currentColor;line-height:18px;white-space:nowrap}
+.k-llm{color:var(--s-running)} .k-tool{color:var(--s-review)} .k-think{color:var(--s-waiting)} .k-out{color:var(--accent)} .k-turn{color:var(--muted)} .k-bad{color:var(--s-failed)} .k-ok{color:var(--s-done)}
+details>summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-sm);color:var(--muted);padding:2px 0;min-height:28px}
+details>summary::-webkit-details-marker{display:none}
+details>summary .chev{transition:transform var(--dur) var(--ease)}
+details[open]>summary .chev{transform:rotate(90deg)}
+details[open]>summary{color:var(--text)}
+pre.blk{margin:6px 0 4px;background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius);padding:10px 12px;font:12.5px/1.55 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--s-running);flex:none;display:inline-block}
+.dot.live{animation:pulse 1.6s var(--ease) infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.dot.live{animation:none}}
+
+/* ---------- A · Mission control ---------- */
+.strip{display:grid;grid-template-columns:1fr auto;gap:var(--sp-3) var(--sp-6);padding:var(--sp-4) var(--sp-5);border-left:4px solid var(--s-running);margin-bottom:var(--sp-4)}
+.strip .who{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-md);font-weight:650}
+.strip .who .stage{color:var(--muted);font-weight:400}
+.strip .model{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:var(--fs-sm);margin-top:2px;flex-wrap:wrap}
+.strip .model b{color:var(--text);font-weight:var(--fw-medium)}
+.stats{display:flex;gap:var(--sp-6);align-items:flex-end;flex-wrap:wrap}
+.stat{display:flex;flex-direction:column;align-items:flex-end}
+.stat .v{font-size:var(--fs-lg);font-weight:650;font-variant-numeric:tabular-nums;line-height:1.2}
+.stat .l{font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.stat.wait .v{color:var(--s-running)}
+.mc{display:grid;grid-template-columns:270px 1fr;gap:var(--sp-4);align-items:start}
+.rail{padding:var(--sp-2)}
+.rail h3{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:var(--sp-2);font-weight:var(--fw-medium)}
+.agent{display:block;width:100%;text-align:left;font:inherit;background:none;border:1px solid transparent;border-radius:var(--radius);padding:10px var(--sp-3);cursor:pointer;color:inherit;margin-bottom:2px;transition:background var(--dur) var(--ease)}
+.agent:hover{background:var(--surface)}
+.agent[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent)}
+.agent .row1{display:flex;align-items:center;gap:var(--sp-2);font-weight:var(--fw-medium)}
+.agent .row1 .st{margin-left:auto;font-size:var(--fs-xs);font-weight:var(--fw-medium);display:inline-flex;gap:4px;align-items:center}
+.agent .row2{font-size:var(--fs-xs);color:var(--muted);margin-top:2px;padding-left:16px}
+.agent .row3{font-size:var(--fs-xs);color:var(--muted);padding-left:16px}
+.st.run{color:var(--s-running)} .st.done{color:var(--s-done)} .st.idle{color:var(--s-idle)}
+.bar{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-3)}
+.f{font:inherit;font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--radius-pill);padding:3px 12px;background:var(--raise);color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:30px}
+.f[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);font-weight:var(--fw-medium)}
+.f .n{font-size:var(--fs-xs);opacity:.8}
+.tl{list-style:none;margin:0;padding:0;position:relative}
+.tl::before{content:"";position:absolute;left:17px;top:6px;bottom:6px;width:2px;background:var(--rule)}
+.ev{position:relative;display:grid;grid-template-columns:36px 1fr;gap:var(--sp-3);margin-bottom:var(--sp-3)}
+.ev .badge{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--raise);border:2px solid currentColor;z-index:1}
+.ev .body{padding:var(--sp-3) var(--sp-4);min-width:0}
+.ev .h{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.ev .h .t{font-weight:var(--fw-medium)}
+.ev .h .time{margin-left:auto;color:var(--muted);font-size:var(--fs-xs)}
+.ev .m{display:flex;gap:var(--sp-4);flex-wrap:wrap;color:var(--muted);font-size:var(--fs-sm);margin-top:4px}
+.ev .m b{color:var(--text);font-weight:var(--fw-medium)}
+.ev .x{display:flex;flex-direction:column;margin-top:4px}
+.ev.now .body{border-color:var(--s-running);border-style:dashed}
+
+/* ---------- B · Transcript ---------- */
+.turn{margin-bottom:var(--sp-5)}
+.turn>header{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--rule);flex-wrap:wrap}
+.turn>header .nm{font-weight:650}
+.turn>header .md{color:var(--muted);font-size:var(--fs-sm);display:inline-flex;gap:6px;align-items:center}
+.turn>header .st{margin-left:auto;display:inline-flex;gap:6px;align-items:center;font-size:var(--fs-sm);font-weight:var(--fw-medium)}
+.turn .flow{padding:var(--sp-4) var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-4);max-width:860px}
+.instr{font-size:var(--fs-sm);color:var(--muted);background:var(--surface);border-radius:var(--radius);padding:var(--sp-2) var(--sp-3)}
+.instr b{color:var(--text)}
+.think{border-left:3px solid var(--s-waiting);padding:2px 0 2px var(--sp-4);color:var(--muted)}
+.think .lbl{display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.05em;color:var(--s-waiting);font-weight:var(--fw-medium);margin-bottom:4px}
+.think p{margin:0;font-style:italic;max-width:72ch}
+.say{margin:0;max-width:72ch;font-size:var(--fs-md);line-height:1.6}
+.toolc{border:1px solid var(--rule);border-radius:var(--radius);overflow:hidden}
+.toolc .th{display:flex;align-items:center;gap:var(--sp-2);padding:8px var(--sp-3);background:var(--surface);border-bottom:1px solid var(--rule);font-size:var(--fs-sm)}
+.toolc .th:last-child{border-bottom:0}
+.toolc .th .d{margin-left:auto;display:inline-flex;gap:6px;align-items:center;color:var(--s-done);font-weight:var(--fw-medium)}
+.toolc .tb{padding:8px var(--sp-3);font-size:var(--fs-sm)}
+.callmeta{display:flex;gap:var(--sp-3);font-size:var(--fs-xs);color:var(--muted);align-items:center;flex-wrap:wrap}
+.callmeta .sep{width:1px;height:12px;background:var(--rule)}
+.collapsed{padding:var(--sp-3) var(--sp-4);display:flex;align-items:center;gap:var(--sp-3);color:var(--muted);font-size:var(--fs-sm)}
+
+/* ---------- C · Waterfall ---------- */
+.wf{display:grid;grid-template-columns:1fr 340px;gap:var(--sp-4);align-items:start}
+.wf-axis,.wf-row{display:grid;grid-template-columns:230px 1fr 64px;align-items:center;gap:var(--sp-3)}
+.wf-axis{font-size:var(--fs-xs);color:var(--muted);padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--rule)}
+.wf-axis .ticks{position:relative;height:16px}
+.wf-axis .ticks span{position:absolute;transform:translateX(-50%)}
+.wf-axis .ticks span:first-child{transform:none} .wf-axis .ticks span:last-child{transform:translateX(-100%)}
+.wf-row{padding:6px var(--sp-3);border:0;border-bottom:1px solid var(--rule);cursor:pointer;width:100%;font:inherit;color:inherit;background:none;text-align:left;min-height:40px}
+.wf-row:hover{background:var(--surface)}
+.wf-row[aria-selected="true"]{background:var(--accent-soft)}
+.wf-row .lab{display:flex;align-items:center;gap:6px;min-width:0}
+.wf-row .lab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wf-row.child .lab{padding-left:20px;font-size:var(--fs-sm)}
+.wf-row.turnrow .lab{font-weight:650}
+.track{position:relative;height:18px;background:repeating-linear-gradient(90deg,transparent 0 calc(25% - 1px),var(--rule) calc(25% - 1px) 25%)}
+.span{position:absolute;top:3px;height:12px;border-radius:3px;min-width:3px}
+.span.turn{background:var(--accent);opacity:.25;top:1px;height:16px}
+.span.turn.live{background:repeating-linear-gradient(45deg,var(--accent) 0 6px,transparent 6px 10px);opacity:.4}
+.span.llm{background:var(--s-running)} .span.tool{background:var(--s-review)}
+.wf-row .dur{text-align:right;font-size:var(--fs-sm);color:var(--muted)}
+.side{position:sticky;top:var(--sp-4);padding:var(--sp-4)}
+.side h3{margin:0 0 6px;font-size:var(--fs-md);display:flex;align-items:center;gap:var(--sp-2)}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:4px var(--sp-3);font-size:var(--fs-sm);margin:var(--sp-3) 0}
+.kv dt{color:var(--muted)} .kv dd{margin:0;overflow-wrap:anywhere}
+.legend{display:flex;gap:var(--sp-4);font-size:var(--fs-xs);color:var(--muted);margin:var(--sp-2) 0 var(--sp-3)}
+.legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:4px;vertical-align:middle}
+@media (max-width:900px){.mc,.wf{grid-template-columns:1fr}.wf-axis,.wf-row{grid-template-columns:140px 1fr 56px}.side{position:static}.strip{grid-template-columns:1fr}.stat{align-items:flex-start}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-llm" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/></symbol>
+  <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></symbol>
+  <symbol id="i-think" viewBox="0 0 24 24"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6M10 22h4"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M10 15V9M14 15V9"/></symbol>
+</svg>
+
+<div class="page">
+  <div class="top">
+    <h1>Live agent panel — three designs</h1>
+    <span class="spacer"></span>
+    <div class="seg" role="group" aria-label="Design">
+      <button type="button" aria-pressed="true" data-show="a">A · Mission control</button>
+      <button type="button" aria-pressed="false" data-show="b">B · Agent transcript</button>
+      <button type="button" aria-pressed="false" data-show="c">C · Trace waterfall</button>
+    </div>
+    <button class="btn" type="button" id="theme">Dark</button>
+  </div>
+  <p class="note">Real records from the 14:50 run on “UX-5 viewer check (synthetic)” (the hunter/strategist rows are illustrative). Built on the app's own tokens; SVG icons; timers tick to show the live feel.</p>
+
+  <!-- ============ A · MISSION CONTROL ============ -->
+  <section class="mock on" id="a" aria-label="Design A, mission control">
+    <p class="note">Everything at a glance: who is running and on which real model right now, each agent's model and totals in the rail, and every step as a card you open in place.</p>
+    <div class="card strip">
+      <div>
+        <div class="who"><span class="dot live" aria-hidden="true"></span>ingestor <span class="stage">· stage intake</span>
+          <span class="chip k-llm">Running</span></div>
+        <div class="model"><svg class="ico sm"><use href="#i-llm"/></svg> answering: <b>nvidia-nim · nemotron-3.5-super-120b</b> <span>(requested vl-120b · route gate/drafting)</span></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><span class="v num" data-tick="34.7">00:34.7</span><span class="l">Turn</span></div>
+        <div class="stat wait"><span class="v num" data-tick="5.2">00:05.2</span><span class="l">Waiting on model</span></div>
+        <div class="stat"><span class="v num">14.6k</span><span class="l">In</span></div>
+        <div class="stat"><span class="v num">845</span><span class="l">Out</span></div>
+        <div class="stat"><span class="v num">3</span><span class="l">LLM calls</span></div>
+      </div>
+    </div>
+    <div class="mc">
+      <nav class="card rail" aria-label="Agents in this run">
+        <h3>Agents · 3</h3>
+        <button class="agent" type="button" aria-pressed="true">
+          <div class="row1"><span class="dot live" aria-hidden="true"></span>ingestor<span class="st run"><svg class="ico sm"><use href="#i-clock"/></svg>Running</span></div>
+          <div class="row2 mono">nemotron-3.5-super-120b</div>
+          <div class="row3 num">14.6k tok · 3 calls · 4 tools · 00:34</div>
+        </button>
+        <button class="agent" type="button" aria-pressed="false">
+          <div class="row1"><svg class="ico sm k-ok"><use href="#i-check"/></svg>hunter<span class="st done"><svg class="ico sm"><use href="#i-check"/></svg>Done</span></div>
+          <div class="row2 mono">thomson1-chat · ollama-local</div>
+          <div class="row3 num">8.3k tok · 2 calls · 1m 12s</div>
+        </button>
+        <button class="agent" type="button" aria-pressed="false">
+          <div class="row1"><svg class="ico sm k-turn"><use href="#i-pause"/></svg>strategist<span class="st idle">Queued</span></div>
+          <div class="row2">not started</div>
+        </button>
+      </nav>
+      <div>
+        <div class="bar" role="group" aria-label="Show">
+          <button class="f" type="button" aria-pressed="true">All <span class="n num">12</span></button>
+          <button class="f" type="button" aria-pressed="false"><svg class="ico sm k-llm"><use href="#i-llm"/></svg>LLM calls <span class="n num">3</span></button>
+          <button class="f" type="button" aria-pressed="false"><svg class="ico sm k-tool"><use href="#i-tool"/></svg>Tools <span class="n num">5</span></button>
+          <button class="f" type="button" aria-pressed="false"><svg class="ico sm k-think"><use href="#i-think"/></svg>Thinking <span class="n num">2</span></button>
+          <button class="f" type="button" aria-pressed="false"><svg class="ico sm k-out"><use href="#i-out"/></svg>Output <span class="n num">1</span></button>
+        </div>
+        <ol class="tl" aria-label="ingestor activity, newest first">
+          <li class="ev now">
+            <span class="badge k-llm"><svg class="ico"><use href="#i-llm"/></svg></span>
+            <div class="card body">
+              <div class="h"><span class="chip k-llm">LLM call</span><span class="t">Waiting on nemotron-3.5-super-120b</span><span class="time num">14:51:18</span></div>
+              <div class="m"><span>13 messages in context</span><span>8 tools offered</span><span class="num"><b data-tick="5.2">00:05.2</b> so far</span></div>
+            </div>
+          </li>
+          <li class="ev">
+            <span class="badge k-llm"><svg class="ico"><use href="#i-llm"/></svg></span>
+            <div class="card body">
+              <div class="h"><span class="chip k-llm">LLM call</span><span class="t">nemotron-3.5-super-120b answered</span><span class="time num">14:51:17</span></div>
+              <div class="m num"><span><b>5.7 s</b></span><span><b>12.1k</b> in</span><span><b>581</b> out</span><span>asked for <b class="mono">ironfleet_corpus_search</b></span></div>
+              <div class="x">
+                <details open><summary><svg class="ico sm chev"><use href="#i-chev"/></svg><svg class="ico sm k-think"><use href="#i-think"/></svg>Thinking</summary>
+                  <pre class="blk">Now I understand the situation. The existing files in the workspace are from a PREVIOUS matter ("how much work is done?" / unpaid invoices intake) — not this estate. I should not reuse them. Search the corpus for executor duties first.</pre></details>
+                <details><summary><svg class="ico sm chev"><use href="#i-chev"/></svg><svg class="ico sm k-tool"><use href="#i-tool"/></svg>Tool call requested</summary>
+                  <pre class="blk">ironfleet_corpus_search({"query": "executor duties administration estate New Zealand"})</pre></details>
+              </div>
+            </div>
+          </li>
+          <li class="ev">
+            <span class="badge k-tool"><svg class="ico"><use href="#i-tool"/></svg></span>
+            <div class="card body">
+              <div class="h"><span class="chip k-tool">Tool</span><span class="t mono">read</span><span class="chip k-ok"><svg class="ico sm"><use href="#i-check"/></svg>completed</span><span class="time num">14:51:11</span></div>
+              <div class="m num"><span><b>1.5 s</b></span><span class="mono">guard-in-1794489412821.json</span></div>
+              <div class="x"><details><summary><svg class="ico sm chev"><use href="#i-chev"/></svg>Input &amp; output</summary>
+                <pre class="blk">{ "filePath": "…/ingestor-stage-intake/guard-in-1794489412821-810840754.json" }</pre></details></div>
+            </div>
+          </li>
+          <li class="ev">
+            <span class="badge k-tool"><svg class="ico"><use href="#i-tool"/></svg></span>
+            <div class="card body">
+              <div class="h"><span class="chip k-tool">Tool</span><span class="t mono">ironfleet_corpus_search</span><span class="chip k-ok"><svg class="ico sm"><use href="#i-check"/></svg>completed</span><span class="time num">14:51:02</span></div>
+              <div class="m num"><span><b>26.8 s</b></span><span>6 passages returned</span></div>
+              <div class="x"><details><summary><svg class="ico sm chev"><use href="#i-chev"/></svg>Input &amp; output</summary>
+                <pre class="blk">in:  {"query": "first steps executor administer estate"}
+out: 6 hits — Administration Act 1969 s 24; Trustee Act 2019 s 22 …</pre></details></div>
+            </div>
+          </li>
+          <li class="ev">
+            <span class="badge k-turn"><svg class="ico"><use href="#i-play"/></svg></span>
+            <div class="card body">
+              <div class="h"><span class="chip k-turn">Turn</span><span class="t">ingestor started intake</span><span class="time num">14:50:27</span></div>
+              <div class="x"><details><summary><svg class="ico sm chev"><use href="#i-chev"/></svg>Instruction</summary>
+                <pre class="blk">Live-stream check (synthetic): briefly outline the first steps an executor takes to administer a small NZ estate. Keep each stage short.</pre></details></div>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ B · TRANSCRIPT ============ -->
+  <section class="mock" id="b" aria-label="Design B, agent transcript">
+    <p class="note">Reads top to bottom like the agent's working notes: its instruction, its thinking, what it said, and each tool it used, in order. Finished turns fold to one line.</p>
+    <article class="card turn">
+      <header>
+        <span class="dot live" aria-hidden="true"></span><span class="nm">ingestor</span><span class="md">· intake · <svg class="ico sm"><use href="#i-llm"/></svg><span class="mono">nemotron-3.5-super-120b</span> via nvidia-nim</span>
+        <span class="st k-llm"><svg class="ico sm"><use href="#i-clock"/></svg>Running <span class="num" data-tick="34.7">00:34.7</span></span>
+      </header>
+      <div class="flow">
+        <div class="instr"><b>Instruction</b> · Live-stream check (synthetic): briefly outline the first steps an executor takes to administer a small NZ estate.</div>
+        <div class="callmeta num"><svg class="ico sm k-llm"><use href="#i-llm"/></svg>Model call 1 · 2.9 s<span class="sep"></span>2.5k in · 264 out</div>
+        <p class="say">I'll search the corpus for the executor's statutory duties before drafting the intake summary.</p>
+        <div class="toolc">
+          <div class="th"><svg class="ico sm k-tool"><use href="#i-tool"/></svg><span class="mono">ironfleet_corpus_search</span><span class="d num"><svg class="ico sm"><use href="#i-check"/></svg>26.8 s</span></div>
+          <div class="tb"><span class="mono">query: "first steps executor administer estate"</span> → 6 passages
+            <details><summary><svg class="ico sm chev"><use href="#i-chev"/></svg>Output</summary><pre class="blk">Administration Act 1969 s 24 — duties of administrators …
+Trustee Act 2019 s 22 — duty to act honestly and in good faith …</pre></details></div>
+        </div>
+        <div class="toolc">
+          <div class="th"><svg class="ico sm k-tool"><use href="#i-tool"/></svg><span class="mono">read</span> <span class="mono" style="color:var(--muted)">matter.json</span><span class="d num"><svg class="ico sm"><use href="#i-check"/></svg>1.5 s</span></div>
+        </div>
+        <div class="callmeta num"><svg class="ico sm k-llm"><use href="#i-llm"/></svg>Model call 2 · 5.7 s<span class="sep"></span>12.1k in · 581 out</div>
+        <div class="think">
+          <div class="lbl"><svg class="ico sm"><use href="#i-think"/></svg>Thinking</div>
+          <p>Now I understand the situation. The existing files in the workspace are from a previous matter — not this estate. I should not reuse them…</p>
+          <details><summary><svg class="ico sm chev"><use href="#i-chev"/></svg>Show all</summary><pre class="blk">…full thinking text…</pre></details>
+        </div>
+        <div class="callmeta num"><span class="dot live" aria-hidden="true"></span>Model call 3 · waiting <span data-tick="5.2">00:05.2</span><span class="sep"></span>13 messages in context</div>
+      </div>
+    </article>
+    <article class="card turn">
+      <header><svg class="ico k-ok"><use href="#i-check"/></svg><span class="nm">hunter</span><span class="md">· research · <svg class="ico sm"><use href="#i-llm"/></svg><span class="mono">thomson1-chat</span> via ollama-local</span>
+        <span class="st k-ok">Done · <span class="num">1m 12s · 8.3k tokens · 2 calls</span></span></header>
+      <div class="collapsed"><svg class="ico sm"><use href="#i-chev"/></svg>Open the full transcript of this turn</div>
+    </article>
+  </section>
+
+  <!-- ============ C · WATERFALL ============ -->
+  <section class="mock" id="c" aria-label="Design C, trace waterfall">
+    <p class="note">Where the time goes: each turn is a bar, with its model calls and tool calls nested under it on one time axis. Pick a row to read its full detail on the right.</p>
+    <div class="legend"><span><i style="background:var(--accent);opacity:.4"></i>Turn</span><span><i style="background:var(--s-running)"></i>LLM call</span><span><i style="background:var(--s-review)"></i>Tool call</span></div>
+    <div class="wf">
+      <div class="card">
+        <div class="wf-axis"><span>Step</span><div class="ticks num"><span style="left:0">0s</span><span style="left:25%">15s</span><span style="left:50%">30s</span><span style="left:75%">45s</span><span style="left:100%">60s</span></div><span style="text-align:right">Time</span></div>
+        <button class="wf-row turnrow" type="button" aria-selected="false"><span class="lab"><span class="dot live" aria-hidden="true"></span><span>ingestor · intake</span></span><div class="track"><span class="span turn live" style="left:0;width:85%"></span></div><span class="dur num">00:51</span></button>
+        <button class="wf-row child" type="button" aria-selected="false"><span class="lab"><svg class="ico sm k-llm"><use href="#i-llm"/></svg><span>nemotron-120b · call 1</span></span><div class="track"><span class="span llm" style="left:8.3%;width:4.8%"></span></div><span class="dur num">2.9 s</span></button>
+        <button class="wf-row child" type="button" aria-selected="false"><span class="lab"><svg class="ico sm k-tool"><use href="#i-tool"/></svg><span class="mono">corpus_search</span></span><div class="track"><span class="span tool" style="left:13%;width:44.7%"></span></div><span class="dur num">26.8 s</span></button>
+        <button class="wf-row child" type="button" aria-selected="false"><span class="lab"><svg class="ico sm k-tool"><use href="#i-tool"/></svg><span class="mono">corpus_search</span></span><div class="track"><span class="span tool" style="left:38%;width:19.5%"></span></div><span class="dur num">11.7 s</span></button>
+        <button class="wf-row child" type="button" aria-selected="false"><span class="lab"><svg class="ico sm k-tool"><use href="#i-tool"/></svg><span class="mono">read ×3</span></span><div class="track"><span class="span tool" style="left:58%;width:7.5%"></span></div><span class="dur num">4.5 s</span></button>
+        <button class="wf-row child" type="button" aria-selected="true"><span class="lab"><svg class="ico sm k-llm"><use href="#i-llm"/></svg><span>nemotron-120b · call 2</span></span><div class="track"><span class="span llm" style="left:73.3%;width:9.5%"></span></div><span class="dur num">5.7 s</span></button>
+        <button class="wf-row child" type="button" aria-selected="false"><span class="lab"><span class="dot live" aria-hidden="true"></span><span>nemotron-120b · call 3</span></span><div class="track"><span class="span llm" style="left:85%;width:8%;opacity:.5"></span></div><span class="dur num">…</span></button>
+        <button class="wf-row turnrow" type="button" aria-selected="false"><span class="lab"><svg class="ico sm k-turn"><use href="#i-pause"/></svg><span>strategist · strategy</span></span><div class="track"></div><span class="dur num">queued</span></button>
+      </div>
+      <aside class="card side" aria-label="Selected step">
+        <h3><svg class="ico k-llm"><use href="#i-llm"/></svg>nemotron-120b · call 2</h3>
+        <span class="chip k-ok"><svg class="ico sm"><use href="#i-check"/></svg>answered</span>
+        <dl class="kv num">
+          <dt>Agent</dt><dd>ingestor · intake</dd>
+          <dt>Provider</dt><dd>nvidia-nim</dd>
+          <dt>Model</dt><dd class="mono">private/nvidia/nemotron-3.5-super-120b-a12b</dd>
+          <dt>Requested</dt><dd class="mono">nvidia/nemotron-3.5-super-vl-120b-a12b</dd>
+          <dt>Time</dt><dd>5.7 s · 14:51:11 → 14:51:17</dd>
+          <dt>Tokens</dt><dd>12.1k in · 581 out · thinking not reported</dd>
+          <dt>Asked for</dt><dd class="mono">ironfleet_corpus_search</dd>
+        </dl>
+        <details open><summary><svg class="ico sm chev"><use href="#i-chev"/></svg><svg class="ico sm k-think"><use href="#i-think"/></svg>Thinking</summary>
+          <pre class="blk">Now I understand the situation. The existing files in the workspace are from a PREVIOUS matter…</pre></details>
+        <details><summary><svg class="ico sm chev"><use href="#i-chev"/></svg><svg class="ico sm k-out"><use href="#i-out"/></svg>Output</summary><pre class="blk">(empty — the model went straight to a tool call)</pre></details>
+        <details><summary><svg class="ico sm chev"><use href="#i-chev"/></svg><svg class="ico sm"><use href="#i-file"/></svg>Latest input</summary><pre class="blk">&lt;path&gt;…guard-in-1794489412821-810840754.json&lt;/path&gt; …</pre></details>
+      </aside>
+    </div>
+  </section>
+</div>
+<script>
+// mock-only behaviour: switch designs, theme, and tick the live timers so the feel is visible
+document.querySelectorAll("[data-show]").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("[data-show]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  document.querySelectorAll(".mock").forEach((m) => m.classList.toggle("on", m.id === b.dataset.show));
+});
+document.getElementById("theme").onclick = (e) => {
+  const d = document.documentElement, dark = d.dataset.theme !== "dark";
+  d.dataset.theme = dark ? "dark" : "light"; e.target.textContent = dark ? "Light" : "Dark";
+};
+const t0 = Date.now();
+setInterval(() => document.querySelectorAll("[data-tick]").forEach((el) => {
+  const s = +el.dataset.tick + (Date.now() - t0) / 1000, m = Math.floor(s / 60);
+  el.textContent = `${String(m).padStart(2, "0")}:${(s % 60).toFixed(1).padStart(4, "0")}`;
+}), 100);
+document.querySelectorAll(".agent,.f,.wf-row").forEach((b) => b.addEventListener("click", () => {
+  const attr = b.classList.contains("wf-row") ? "aria-selected" : "aria-pressed";
+  b.parentElement.querySelectorAll(`.${b.classList[0]}`).forEach((x) => x.setAttribute(attr, x === b));
+}));
+</script>
+</body>
+</html>

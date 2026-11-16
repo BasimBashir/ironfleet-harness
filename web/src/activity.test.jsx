@@ -156,7 +156,7 @@ describe("connection, waiting and completion states", () => {
     expect(text(h)).toContain("Latest: Run completed");
     expect(h.match(/data-latest=""/g)).toHaveLength(1);
     expect(h).not.toContain("aria-current");                       // "latest" is not "current stage"
-    expect(text(h)).toContain("does not emit tool calls, progress summaries, findings or evidence references");
+    expect(text(h)).toContain("streams live on the matter's Agents tab");
   });
   it("an empty run says so", () => {
     expect(text(stream({ run: { ...RUN, events: [] } }))).toContain("No events recorded for this run.");

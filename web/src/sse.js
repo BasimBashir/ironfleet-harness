@@ -31,7 +31,12 @@ export function createParser(onEvent) {
   };
 }
 
-export function subscribe(channels, onEvent,
+export function subscribe(channels, onEvent, opts) {
+  return stream(`/api/v1/events?channels=${channels.map(encodeURIComponent).join(",")}`, onEvent, opts);
+}
+
+// any SSE route on this API: /events above, and a matter's live agent/LLM log
+export function stream(url, onEvent,
   { onStatus = () => {}, fetchImpl = fetch, token = getToken, retryMs = 2000 } = {}) {
   let lastId = null;
   let stopped = false;
@@ -43,8 +48,7 @@ export function subscribe(channels, onEvent,
       try {
         const headers = { Authorization: `Bearer ${token()}` };
         if (lastId) headers["Last-Event-ID"] = lastId;
-        const res = await fetchImpl(`/api/v1/events?channels=${channels.map(encodeURIComponent).join(",")}`,
-          { headers, signal: ctrl.signal });
+        const res = await fetchImpl(url, { headers, signal: ctrl.signal });
         if (!res.ok) { refused = true; throw new Error(`events ${res.status}`); }
         onStatus("live");
         const feed = createParser((e) => {

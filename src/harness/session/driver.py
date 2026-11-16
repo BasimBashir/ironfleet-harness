@@ -123,9 +123,17 @@ class SessionDriver:
         import asyncio
         from datetime import datetime, timezone
 
+        import time
+        from harness import live
+
         ws = self.workspace_for(session_id, agent, matter_ref, classification)
         env = spawn_env(ws)
         before = _trace_ids(self.trace_db)
+        # the live log: who is running, on what, with which instruction — before the spawn
+        live.current[matter_ref] = {"agent": agent, "session_id": session_id, "model": model}
+        live.append(self.store.root, matter_ref, "turn.start", prompt=prompt,
+                    resume=continue_session or "")
+        t0 = time.monotonic()
         try:
             # to_thread: the spawn is a BLOCKING subprocess ride (watchdog, tree-kill)
             # — awaited inline it froze the TUI's event loop for the whole turn
@@ -136,7 +144,9 @@ class SessionDriver:
             # itself is a detached daemon — nothing joins it, so it cannot leak.
             code, events, sid = await asyncio.wait_for(asyncio.to_thread(
                 spawn_session, ws, agent, prompt, env=env, model=model,
-                continue_session=continue_session), timeout=self.TURN_TIMEOUT_S)
+                continue_session=continue_session,
+                on_line=live.agent_line(self.store.root, matter_ref)),
+                timeout=self.TURN_TIMEOUT_S)
         except Exception as exc:                                  # noqa: BLE001
             # asyncio.TimeoutError IS an Exception subclass in 3.11+, and
             # CancelledError is NOT — a shell-level cancel (user quit mid-turn)
@@ -157,11 +167,19 @@ class SessionDriver:
             self.store.set_opencode_session(session_id, sid)
         after = _trace_ids(self.trace_db)
         new = sorted(after - before)
+        recs = []
         if new:
             # Attribute the span to THIS agent + session — the meter's per-agent
             # ledger reads these columns, and the gate was never told who asked.
             from harness.trace import TraceStore
             TraceStore(self.trace_db).attr(agent, session_id, new)
+            recs = TraceStore(self.trace_db).by_ids(new)
+        live.append(self.store.root, matter_ref, "turn.end", code=code,
+                    ms=int((time.monotonic() - t0) * 1000), calls=len(recs),
+                    tokens_in=sum(r.tokens_in for r in recs),
+                    tokens_out=sum(r.tokens_out for r in recs),
+                    tokens_reasoning=sum(r.tokens_reasoning for r in recs))
+        live.current.pop(matter_ref, None)
         row = build_turn_row(session_id=session_id, matter_ref=matter_ref, agent=agent,
                              events=events, trace_refs=new,
                              ts=datetime.now(timezone.utc).isoformat())

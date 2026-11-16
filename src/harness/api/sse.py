@@ -67,3 +67,44 @@ def stream(request: Request, channels: str,
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",
                                       "X-Accel-Buffering": "no"})
+
+
+@router.get("/matters/{mid}/live", response_class=StreamingResponse,
+            responses={200: {"content": {"text/event-stream": {}}}})
+def live_stream(request: Request, mid: str,
+                last_event_id: Annotated[int | None, Header()] = None,
+                p=Depends(get_principal), con=Depends(get_con)):
+    """Every agent step and LLM call of the matter's runs, as they happen (the
+    <store>/live/<mid>.jsonl tail). id = byte offset, so Last-Event-ID resumes."""
+    root = request.app.state.store_root
+    first, pos = events.live_since(con, p, root, mid, last_event_id)   # authz -> 404 here
+    cfg = request.app.state.sse
+
+    async def gen():
+        batch, off = first, pos
+        own = system.open_db(root)
+        start = last_hb = time.monotonic()
+        try:
+            while True:
+                for end, rec in batch:
+                    yield (f"id: {end}\nevent: {rec.get('kind', 'live')}\n"
+                           f"data: {json.dumps(rec, ensure_ascii=False)}\n\n")
+                now = time.monotonic()
+                if now - last_hb >= cfg["heartbeat_s"]:
+                    last_hb = now
+                    yield ": hb\n\n"
+                if cfg["max_s"] is not None and now - start >= cfg["max_s"]:
+                    return
+                if await request.is_disconnected():
+                    return
+                await asyncio.sleep(cfg["poll_s"])
+                try:
+                    batch, off = events.live_since(own, p, root, mid, off)
+                except ServiceError:
+                    return
+        finally:
+            own.close()
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})

@@ -237,7 +237,7 @@ export function ActivityStream({ run: r, tasks, approvals = [], live, resynced =
         </ol>) : <p className="muted">No events recorded for this run.</p>}
       {list.length < items.length ? <p className="small muted">{`${items.length - list.length} event${items.length - list.length === 1 ? "" : "s"} hidden by the filter; errors and retries always show.`}</p> : null}
       {(r.events || []).length >= 200 ? <p className="small muted">The server returns this run's latest 200 events; older ones appear only if this page received them live.</p> : null}
-      <p className="small muted">This server does not emit tool calls, progress summaries, findings or evidence references as events, so none appear here. Each stage's recorded summary is in its details.</p>
+      <p className="small muted">This list shows run and stage events. Every agent step, tool call and model call (with thinking, output, ms and tokens) streams live on the matter's Agents tab.</p>
     </section>
   );
 }

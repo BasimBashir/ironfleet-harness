@@ -11,7 +11,7 @@ from pathlib import Path
 
 from harness.service import authz
 
-_ZERO = {"in": 0, "out": 0, "cache": 0, "thinking": 0, "all": 0, "dispatches": 0}
+_ZERO = {"in": 0, "out": 0, "cache": 0, "thinking": 0, "all": 0, "dispatches": 0, "ms": 0}
 
 
 def _trace_db(con) -> Path:
@@ -22,7 +22,7 @@ def _trace_db(con) -> Path:
 
 def _row(r) -> dict:
     d = {"in": r[1] or 0, "out": r[2] or 0, "cache": r[3] or 0, "thinking": r[4] or 0,
-         "dispatches": r[5]}
+         "dispatches": r[5], "ms": r[6] or 0}
     d["all"] = d["in"] + d["out"]          # cache reads are not new tokens
     return d
 
@@ -35,7 +35,7 @@ def matter_tokens(con, matter_id: str) -> dict:
     try:
         rows = t.execute(
             "SELECT agent, SUM(tokens_in), SUM(tokens_out), SUM(tokens_cache),"
-            " SUM(tokens_reasoning), COUNT(*) FROM dispatches WHERE matter_ref=?"
+            " SUM(tokens_reasoning), COUNT(*), SUM(latency_ms) FROM dispatches WHERE matter_ref=?"
             " GROUP BY agent ORDER BY agent", (matter_id,)).fetchall()
     finally:
         t.close()
@@ -50,6 +50,43 @@ def matter_tokens(con, matter_id: str) -> dict:
 def get(con, principal: dict, matter_id: str) -> dict:
     authz.require(con, principal, authz.READ, matter_id)
     return matter_tokens(con, matter_id)
+
+
+def _sums(rows) -> dict:
+    """calls, errors, tokens, ms over (status, in, out, reasoning, cache, ms) rows."""
+    d = {"calls": 0, "errors": 0, "in": 0, "out": 0, "thinking": 0, "cache": 0, "ms": 0}
+    for st, tin, tout, tr, tc, ms in rows:
+        d["calls"] += 1
+        d["errors"] += st == "error"
+        d["in"] += tin or 0
+        d["out"] += tout or 0
+        d["thinking"] += tr or 0
+        d["cache"] += tc or 0
+        d["ms"] += ms or 0
+    d["all"] = d["in"] + d["out"]
+    return d
+
+
+def account_usage(con, principal: dict) -> dict:
+    """Totals per provider/model (each LLM account) and per IronFleet user (the
+    matter's creator owns its calls); refused calls are counted, never dropped."""
+    authz.require(con, principal, "audit.read")
+    rows = _dispatches(con, "SELECT provider, model, matter_ref, status, tokens_in, tokens_out,"
+                            " tokens_reasoning, tokens_cache, latency_ms FROM dispatches")
+    owner = {m: u for m, u in con.execute(
+        "SELECT m.matter_id, COALESCE(u.username, m.created_by) FROM matters m"
+        " LEFT JOIN users u ON u.user_id = m.created_by").fetchall()}
+    by_model: dict[tuple, list] = {}
+    by_user: dict[str, list] = {}
+    for prov, model, mref, *vals in rows:
+        by_model.setdefault((prov or "-", model or "-"), []).append(vals)
+        by_user.setdefault(owner.get(mref) or "(no matter)", []).append(vals)
+    return {
+        "total": _sums(v for vs in by_model.values() for v in vs),
+        "by_model": [{"provider": p, "model": m, **_sums(vs)}
+                     for (p, m), vs in sorted(by_model.items())],
+        "by_user": [{"user": u, **_sums(vs)} for u, vs in sorted(by_user.items())],
+    }
 
 
 def _dispatches(con, sql: str) -> list:

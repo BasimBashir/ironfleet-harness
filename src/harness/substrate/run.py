@@ -24,8 +24,20 @@ def opencode_cmd() -> list[str]:
     return [exe]
 
 
+def _drain(pipe, sink: list[str], on_line=None) -> None:
+    """Reader-thread body. Line by line so each opencode JSON event reaches `on_line`
+    (the live log) as it is printed; a failing callback never stops the drain."""
+    for line in pipe:
+        sink.append(line)
+        if on_line is not None:
+            try:
+                on_line(line)
+            except Exception:                             # noqa: BLE001
+                pass
+
+
 def run_opencode(ws: Path, args: list[str], timeout: int = RUN_TIMEOUT_S,
-                 env: dict[str, str] | None = None) -> tuple[int, str]:
+                 env: dict[str, str] | None = None, on_line=None) -> tuple[int, str]:
     """Run opencode in the workspace; return (exit code, combined stdout+stderr text).
     PWD must be scrubbed: opencode reads the env's PWD for project/instance resolution and
     an inherited PWD pointing elsewhere (e.g. harness-core) steers the session into THAT
@@ -60,9 +72,9 @@ def run_opencode(ws: Path, args: list[str], timeout: int = RUN_TIMEOUT_S,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, encoding="utf-8", errors="replace", env=env)
     chunks: dict[str, list[str]] = {"out": [], "err": []}
-    readers = [threading.Thread(target=lambda k, p=p: chunks[k].append(
-                                   p.read() or ""), args=(k,), daemon=True)
-               for k, p in (("out", proc.stdout), ("err", proc.stderr))]
+    readers = [threading.Thread(target=_drain, args=(proc.stdout, chunks["out"], on_line),
+                                daemon=True),
+               threading.Thread(target=_drain, args=(proc.stderr, chunks["err"]), daemon=True)]
     for th in readers:
         th.start()
     try:

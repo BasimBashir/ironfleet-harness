@@ -118,7 +118,7 @@ def turn_argv(agent: str, model: str, prompt: str,
 
 def spawn_session(ws: Path, agent: str, prompt: str, *, timeout: int = DEFAULT_TIMEOUT_S,
                   env: dict | None = None, model: str = "gate-local/gate/extraction",
-                  continue_session: str | None = None
+                  continue_session: str | None = None, on_line=None
                   ) -> tuple[int, list[dict], str]:
     """One supervised opencode turn in this agent's workspace.
 
@@ -132,11 +132,11 @@ def spawn_session(ws: Path, agent: str, prompt: str, *, timeout: int = DEFAULT_T
     suite (house rule: live probes never run in tests)."""
     from harness.substrate.run import parse_events, run_opencode
     argv = turn_argv(agent, model, prompt, continue_session)
-    code, raw = run_opencode(ws, argv, timeout=timeout, env=env)
+    code, raw = run_opencode(ws, argv, timeout=timeout, env=env, on_line=on_line)
     events = parse_events(raw)
     if code == 124 and not events:
         # the known startup hang (~2 in 7 on this box) — retry once, then report
-        code, raw = run_opencode(ws, argv, timeout=timeout, env=env)
+        code, raw = run_opencode(ws, argv, timeout=timeout, env=env, on_line=on_line)
         events = parse_events(raw)
     return code, events, _parse_session_id(events)
 

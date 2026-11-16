@@ -51,6 +51,8 @@ ROUTES = {
     "GET /healthz": ("public", None, ""),
     "GET /api/v1/audit": ("audit", None, ""),
     "GET /api/v1/metrics": ("audit", None, ""),
+    "GET /api/v1/usage": ("audit", None, ""),
+    "GET /api/v1/matters/{mid}/live": ("read", None, ""),
     "GET /api/v1/workflows": ("authed", None, ""),
     "POST /api/v1/workflows": ("gwrite", {"name": "w", "definition": WF}, ""),
     "POST /api/v1/matters/{mid}/executions": ("write", {"task_text": "t",

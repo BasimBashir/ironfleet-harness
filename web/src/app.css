@@ -139,6 +139,75 @@ fieldset.qcard legend + *{clear:both}
 .swarmwrap .drawer{position:sticky;top:var(--sp-4);max-height:calc(100vh - 2 * var(--sp-4));overflow:auto}
 .kv{display:grid;grid-template-columns:86px 1fr;gap:4px 10px;margin:0 0 12px;font-size:13px} .kv dt{color:var(--muted)} .kv dd{margin:0}
 .log{font:12px/1.55 var(--font-mono);background:var(--bg);border-radius:4px;padding:8px;color:var(--muted);white-space:pre-wrap;margin:12px 0 0}
+/* Live activity — "mission control" (design/mockups/live-panel.html, design A). Scoped to .lv-*.
+   Tones: llm=running blue · tool=review violet · think=waiting amber · out=accent · ok/bad/idle/turn=state colours;
+   every tone also carries a word + an icon, never colour alone (05 §0). */
+.lv .k-llm,.lv .k-run{color:var(--s-running)} .lv .k-tool{color:var(--s-review)} .lv .k-think{color:var(--s-waiting)}
+.lv .k-out{color:var(--accent)} .lv .k-ok{color:var(--s-done)} .lv .k-bad{color:var(--s-failed)}
+.lv .k-idle,.lv .k-turn{color:var(--muted)}
+.lv-ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.lv-ico--sm{width:14px;height:14px}
+.lv-mono{font-family:var(--font-mono);font-size:12.5px}
+.lv-muted{color:var(--muted);font-weight:400}
+.lv-card{background:var(--raise);border:1px solid var(--rule);border-radius:var(--radius);box-shadow:var(--shadow)}
+.lv-chip{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-xs);font-weight:var(--fw-medium);padding:0 8px;border-radius:var(--radius-pill);border:1px solid currentColor;line-height:20px;white-space:nowrap}
+.lv-dot{width:8px;height:8px;border-radius:50%;background:var(--s-running);flex:none;display:inline-block}
+.lv-dot--live{animation:lv-pulse 1.6s var(--ease) infinite}
+@keyframes lv-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.lv-dot--live{animation:none}}
+.lv-strip{display:grid;grid-template-columns:1fr auto;gap:var(--sp-3) var(--sp-6);align-items:center;padding:var(--sp-4) var(--sp-5);border-left:4px solid var(--s-running)}
+.lv-strip--idle{border-left-color:var(--rule)}
+.lv-who{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-md);font-weight:650;flex-wrap:wrap}
+.lv-stage{color:var(--muted);font-weight:400}
+.lv-model{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:var(--fs-sm);margin-top:2px;flex-wrap:wrap}
+.lv-model b{color:var(--text);font-weight:var(--fw-medium)}
+.lv-stats{display:flex;gap:var(--sp-6);margin:0;flex-wrap:wrap;justify-content:flex-end}
+.lv-stat{display:flex;flex-direction:column-reverse;align-items:flex-end}
+.lv-stat dd{margin:0;font-size:var(--fs-lg);font-weight:650;font-variant-numeric:tabular-nums;line-height:1.2}
+.lv-stat dt{font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.lv-stat--wait dd{color:var(--s-running)}
+.lv-grid{display:grid;grid-template-columns:270px minmax(0,1fr);gap:var(--sp-4);align-items:start}
+.lv-rail{padding:var(--sp-2);position:sticky;top:var(--sp-4)}
+.lv-rail h3{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:var(--sp-2);font-weight:var(--fw-medium)}
+.lv-agent{display:flex;flex-direction:column;width:100%;text-align:left;font:inherit;background:none;border:1px solid transparent;border-radius:var(--radius);padding:10px var(--sp-3);cursor:pointer;color:inherit;margin-bottom:2px;transition:background var(--dur) var(--ease)}
+.lv-agent:hover{background:var(--surface)}
+.lv-agent[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent)}
+.lv-agent:focus-visible,.lv-f:focus-visible,.lv details>summary:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.lv-row1{display:flex;align-items:center;gap:var(--sp-2);font-weight:var(--fw-medium)}
+.lv-st{margin-left:auto;font-size:var(--fs-xs);font-weight:var(--fw-medium);display:inline-flex;gap:4px;align-items:center}
+.lv-row2,.lv-row3{font-size:var(--fs-xs);color:var(--muted);padding-left:22px;font-variant-numeric:tabular-nums}
+.lv-row2{margin-top:2px;overflow-wrap:anywhere}
+.lv-filters{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-3)}
+.lv-f{font:inherit;font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--radius-pill);padding:3px 12px;background:var(--raise);color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:32px}
+.lv-f[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);font-weight:var(--fw-medium)}
+.lv-n{font-size:var(--fs-xs);opacity:.85;font-variant-numeric:tabular-nums}
+.lv-tl{list-style:none;margin:0;padding:0;position:relative}
+.lv-tl::before{content:"";position:absolute;left:17px;top:6px;bottom:6px;width:2px;background:var(--rule)}
+.lv-ev{position:relative;display:grid;grid-template-columns:36px minmax(0,1fr);gap:var(--sp-3);margin-bottom:var(--sp-3)}
+.lv-badge{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--raise);border:2px solid currentColor;z-index:1}
+.lv-body{padding:var(--sp-3) var(--sp-4);min-width:0}
+.lv-ev--now .lv-body{border-color:var(--s-running);border-style:dashed}
+.lv-h{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.lv-t{font-weight:var(--fw-medium);overflow-wrap:anywhere;min-width:0}
+.lv-who-sm{color:var(--muted);font-size:var(--fs-xs)}
+.lv-time{margin-left:auto;color:var(--muted);font-size:var(--fs-xs);font-variant-numeric:tabular-nums}
+.lv-meta{display:flex;gap:4px var(--sp-4);flex-wrap:wrap;color:var(--muted);font-size:var(--fs-sm);margin-top:4px;font-variant-numeric:tabular-nums}
+.lv-meta span:first-child{color:var(--text);font-weight:var(--fw-medium)}
+.lv-meta b{color:var(--text);font-weight:var(--fw-medium)}
+.lv-tabs{display:flex;flex-wrap:wrap;gap:2px var(--sp-3);margin-top:4px}
+.lv-tab{font:inherit;font-size:var(--fs-sm);background:none;border:0;padding:2px 4px 2px 0;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:4px;min-height:28px;border-radius:var(--radius)}
+.lv-tab:hover{color:var(--text)}
+.lv-tab[aria-expanded="true"]{color:var(--text);font-weight:var(--fw-medium)}
+.lv-tab[aria-expanded="true"] .lv-chev{transform:rotate(90deg)}
+.lv-tab:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.lv details{margin-top:2px}
+.lv details>summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-sm);color:var(--muted);min-height:28px;border-radius:var(--radius)}
+.lv details>summary::-webkit-details-marker{display:none}
+.lv-chev{transition:transform var(--dur) var(--ease)}
+.lv details[open]>summary{color:var(--text)} .lv details[open]>summary .lv-chev{transform:rotate(90deg)}
+.lv-blk{margin:4px 0 6px;background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius);padding:10px 12px;font:12.5px/1.55 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;color:var(--text)}
+.lv-empty{color:var(--muted);border:1px dashed var(--rule);border-radius:var(--radius);padding:var(--sp-4)}
+@media (max-width:900px){.lv-grid,.lv-strip{grid-template-columns:1fr}.lv-rail{position:static}.lv-stats{justify-content:flex-start}.lv-stat{align-items:flex-start}}
 /* 05 §11: below 1024px the inspector stacks under the stepper (the List view is the stacked form) */
 @media (max-width:1023px){.swarmwrap{grid-template-columns:1fr} .swarmwrap .drawer{position:static;max-height:none}}
 /* counsel chat: a floating launcher bottom-right opening a non-modal panel above it */
