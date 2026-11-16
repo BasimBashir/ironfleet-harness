@@ -73,7 +73,7 @@ def skip_reason() -> str | None:
 class Live:
     """create_app(worker='demo') under uvicorn on a free loopback port, in a thread."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, worker: str | None = "demo"):
         import uvicorn
 
         from harness.api.app import create_app
@@ -87,7 +87,7 @@ class Live:
         s.close()
         self.root, self.base, self.token = root, f"http://127.0.0.1:{port}", None
         self.server = uvicorn.Server(uvicorn.Config(
-            create_app(root, web_dist=DIST, worker="demo", worker_poll_s=0.2, sse_poll_s=0.2),
+            create_app(root, web_dist=DIST, worker=worker, worker_poll_s=0.2, sse_poll_s=0.2),
             host="127.0.0.1", port=port, log_level="warning"))
         self.thread = threading.Thread(target=self.server.run, daemon=True)
         self.thread.start()
