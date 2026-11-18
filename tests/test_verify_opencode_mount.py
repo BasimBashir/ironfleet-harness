@@ -100,6 +100,17 @@ def test_mount_suppresses_the_keyless_catalog_provider():
         "suppressing the gate provider would leave the mount with nothing to dispatch through"
 
 
+def test_mount_keeps_the_turn_alive_after_a_refused_tool_call():
+    # 2026-11-17 Win11 test: a stage's read of a sibling workspace was auto-refused
+    # (headless "ask" = reject) and opencode ENDED the turn, so research/attack/
+    # filings/verify wrote no deliverable. With this flag the model sees the refusal
+    # as a tool error and carries on (the forwarded from-* copies are in its cwd).
+    import json
+    mount = Path(__file__).resolve().parent.parent / "data" / "opencode-a1" / "opencode.json"
+    cfg = json.loads(mount.read_text(encoding="utf-8"))
+    assert cfg["experimental"]["continue_loop_on_deny"] is True
+
+
 def test_parse_models_reads_the_real_output():
     from scripts.verify_opencode_mount import parse_models
     models, unparsed = parse_models(CLEAN_MODELS)

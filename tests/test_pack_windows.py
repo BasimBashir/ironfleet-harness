@@ -65,3 +65,15 @@ def test_linux_install_scripts_are_valid_bash():
     for name in ("install_linux.sh", "verify_linux_install.sh"):
         r = subprocess.run([bash, "-n", str(ops / name)], capture_output=True, text=True)
         assert r.returncode == 0, f"{name}: {r.stderr.strip()}"
+
+
+def test_exe_pack_stages_bin_even_with_no_download(monkeypatch):
+    """v1.0.0 shipped without bin/: --no-download skipped stage_bin while
+    PyInstaller had wiped dist/IronFleet, so fresh boxes had no bundled opencode."""
+    import scripts.pack_windows_exe as pk
+    calls = []
+    for name in ("vendor", "build", "stage", "stage_bin"):
+        monkeypatch.setattr(pk, name, lambda n=name: calls.append(n))
+    monkeypatch.setattr(pk.sys, "argv", ["pack", "--no-download"])
+    assert pk.main() == 0
+    assert calls == ["build", "stage", "stage_bin"]

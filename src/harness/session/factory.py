@@ -432,6 +432,12 @@ class FactoryRunner:
         prompt = _stage_prompt(stage=stage["stage"], instruction=instruction, agent=agent,
                                index=1, total=1, task=task, previous_stage=prev_stage,
                                previous_summary=prev_summary)
+        fwd = sorted(p.name for p in ws.glob("from-*.md"))
+        if fwd:
+            # without the names the model reaches for the sibling path its summary
+            # mentions, which opencode refuses (2026-11-17 Win11 test)
+            prompt += ("\nEarlier stages' files are already in your workspace — read them "
+                       "here, never from another directory: " + ", ".join(fwd))
         row = await self.driver.run_turn(session_id, matter_ref, fname, prompt,
                                          classification=classification,
                                          model=STAGE_MODEL)
@@ -449,7 +455,10 @@ class FactoryRunner:
                 f"it now.\n\n{prompt}", classification=classification, model=STAGE_MODEL)
             row.agent = agent
             if not any((ws / f).exists() for f in want):
-                row.output_summary = f"[NO DELIVERABLE: {want[0]} not written] {row.output_summary}"
+                row.output_summary = (
+                    f"[NO DELIVERABLE: {want[0]} not written] The model ended its turn twice "
+                    "without writing the file — assign a stronger cloud LLM to the drafting "
+                    f"class (Model settings → Stage assignment) and re-run. {row.output_summary}")
         for text in self._drain_injections(agent):
             # P7's interjection: continue the stage's OWN opencode session by id
             # when we have it, else a fresh turn in the same workspace.

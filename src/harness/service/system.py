@@ -33,7 +33,7 @@ def doctor_report(on_error=lambda where, exc: None) -> str:
     if cfg.is_file():
         try:
             body = cfg.read_text(encoding="utf-8")
-            autoupdate = '"autoupdate": false' in body or '"autoupdate":false' in body
+            autoupdate = not ('"autoupdate": false' in body or '"autoupdate":false' in body)
         except Exception as exc:                              # noqa: BLE001
             on_error("doctor_cfg", exc)
     provs = [(s["name"], f"declared {s.get('tier', '?')},"

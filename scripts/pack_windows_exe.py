@@ -21,6 +21,7 @@ the app root - data/ is staged at BOTH roots so every convention holds.
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import subprocess
 import sys
 import urllib.request
@@ -103,31 +104,30 @@ def stage_bin() -> None:
     bin_dir = DIST / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
 
+    # Fail, never WARN: v1.0.0 shipped with no bin/ and fresh boxes fell back to
+    # a stale global opencode and no rerank server (2026-11-17 Win11 test).
     oc = next((VENDOR / "opencode").rglob("opencode.exe"), None)
-    if oc:
-        shutil.copy2(oc, bin_dir / "opencode.exe")
-        log("  bin/opencode.exe staged")
     if oc is None:
-        log("  WARN: opencode.exe not found in vendor cache")
+        raise SystemExit("FAIL: opencode.exe not in build/vendor - run once without --no-download")
+    shutil.copy2(oc, bin_dir / "opencode.exe")
+    log("  bin/opencode.exe staged")
 
     server = next(iter((VENDOR / "llamacpp").rglob("llama-server.exe")), None)
-    if server:
-        shutil.copy2(server, bin_dir / "llama-server.exe")
-        dlls = list(server.parent.glob("*.dll"))
-        for dll in dlls:
-            shutil.copy2(dll, bin_dir / dll.name)
-        log(f"  bin/llama-server.exe + {len(dlls)} DLLs staged")
     if server is None:
-        log("  WARN: llama-server.exe not found in vendor cache")
+        raise SystemExit("FAIL: llama-server.exe not in build/vendor - run once without --no-download")
+    shutil.copy2(server, bin_dir / "llama-server.exe")
+    dlls = list(server.parent.glob("*.dll"))
+    for dll in dlls:
+        shutil.copy2(dll, bin_dir / dll.name)
+    log(f"  bin/llama-server.exe + {len(dlls)} DLLs staged")
 
     gguf_src = VENDOR / "gguf" / GGUF_NAME
     gguf_dst = bin_dir / "models" / GGUF_NAME
     gguf_dst.parent.mkdir(parents=True, exist_ok=True)
-    if gguf_src.is_file():
-        shutil.copy2(gguf_src, gguf_dst)
-        log(f"  bin/models/{GGUF_NAME} staged")
-    else:
-        log(f"  WARN: {GGUF_NAME} not vendored")
+    if not gguf_src.is_file():
+        raise SystemExit(f"FAIL: {GGUF_NAME} not in build/vendor - run once without --no-download")
+    shutil.copy2(gguf_src, gguf_dst)
+    log(f"  bin/models/{GGUF_NAME} staged")
 
 # data/ entries the frozen app actually reads at runtime (all other data/ trees -
 # the 2.2 GB eval corpora, golden_cases, opencode-audit - are dev-only and stay out).
@@ -148,6 +148,15 @@ def stage() -> None:
                 elif src.is_file():
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
+                    if dst.suffix == ".sqlite3":
+                        # ship the schema only: the dev box's dispatch log (matter refs,
+                        # models, errors) is not the user's
+                        con = sqlite3.connect(dst)
+                        for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table'"):
+                            con.execute(f"DELETE FROM [{t}]")
+                        con.commit()
+                        con.execute("VACUUM")
+                        con.close()
     web_src = REPO / "web" / "dist"
     web_dst = DIST / "web" / "dist"
     if web_src.is_dir():
@@ -192,10 +201,9 @@ def main() -> int:
         return 0
     if dl:
         vendor()
-    build()
+    build()          # PyInstaller wipes dist/IronFleet, so bin/ is re-staged every time
     stage()
-    if dl:
-        stage_bin()
+    stage_bin()
     log("DONE: dist/IronFleet")
     return 0
 

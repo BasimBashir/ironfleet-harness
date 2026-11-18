@@ -57,7 +57,7 @@ work in its own isolated workspace, and lets you watch every agent and every LLM
 |---|---|
 | Windows 10 or 11, 64-bit | Pro / Enterprise / Education recommended so the data folder can sit on a BitLocker-encrypted drive. |
 | 32 GB RAM recommended | Local models reserve ~20 GB each while loaded. |
-| ~40 GB free disk | Local models + your documents and indexes. |
+| ~30 GB free disk | App ~1 GB, Ollama ~6 GB, local models ~18 GB, plus room for your documents and indexes. Setup checks this first and, if the drive is short, stops and tells you how many GB to free. |
 | [Ollama](https://ollama.com/download) | Local model server. Install it before IronFleet; IronFleet starts it if it isn't running. |
 | An NVIDIA NIM API key *(recommended)* | Cloud model for drafting, research and analysis. Without a cloud provider those stages refuse by design; only mechanical tasks (extraction, classification, redaction, grounding checks) run locally. Get a key at [build.nvidia.com](https://build.nvidia.com). |
 
@@ -72,8 +72,12 @@ needed.
    ollama pull bge-m3:567m      # embeddings (required for document search), ~1.2 GB
    ollama pull qwen3.8:27b      # local tool-calling model, ~17 GB
    ```
-   Optional: `thomson1-chat` (IronFleet's in-house local chat model) if your organisation
-   has provided it to you.
+   **About `thomson1-chat`:** it is IronFleet's private fine-tuned model and is **not
+   publicly downloadable** — neither you nor Setup can `ollama pull` it. The `ollama-local`
+   provider (extraction, classification, redaction) points at it, so without it those
+   tasks are unavailable. Fix: in IronFleet open **Model settings** and set `ollama-local`'s
+   model to `qwen3.8:27b` (or assign a cloud model). If your organisation gave you
+   `thomson1-chat`, load it into Ollama and nothing else is needed.
 2. **Download** `IronFleet-Setup.exe` and `IronFleet-Setup.exe.sha256` from the
    [latest release](https://github.com/BasimBashir/ironfleet-harness/releases/latest).
 3. **Verify the download** (the release is not code-signed yet, so check the hash):

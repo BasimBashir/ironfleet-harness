@@ -98,3 +98,26 @@ def test_stage_that_writes_nothing_is_nudged_once_then_flagged(tmp_path, monkeyp
         sid, "m1", "t", stage, "", ""))
     assert driver.calls == ["citation-stage-verify"] * 2
     assert row.output_summary.startswith("[NO DELIVERABLE: citation-check.md not written]")
+
+
+def test_stage_prompt_names_the_forwarded_files(tmp_path, monkeypatch):
+    """The 2026-11-17 Win11 failure: the agent read the sibling intake workspace,
+    opencode refused it and ended the turn. The prompt now names the in-cwd copies."""
+    monkeypatch.delenv("HARNESS_DURABLE", raising=False)
+    prompts = []
+
+    class _Rec(_FakeDriver):
+        async def run_turn(self, session_id, matter_ref, agent, prompt, **kw):
+            prompts.append(prompt)
+            return await super().run_turn(session_id, matter_ref, agent, prompt, **kw)
+
+    store = SessionStore(tmp_path)
+    sid = store.new_session("m1")
+    driver = _Rec(tmp_path)
+    driver.workspace_for(sid, "ingestor-stage-intake", "m1")
+    (tmp_path / "workspaces" / sid / "ingestor-stage-intake" / "case-summary.md").write_text(
+        "facts", encoding="utf-8")
+    stage = {"stage": "research", "agent": "hunter", "instruction": "Write research-memo.md."}
+    asyncio.run(FactoryRunner(driver, store=store)._run_stage(sid, "m1", "t", stage, "", ""))
+    assert "from-ingestor-stage-intake--case-summary.md" in prompts[0]
+    assert "never from another directory" in prompts[0]

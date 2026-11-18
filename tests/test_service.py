@@ -245,10 +245,9 @@ def test_doctor_report_names_the_pin_and_providers(monkeypatch, tmp_path):
     errors = []
     text = sys_mod.doctor_report(on_error=lambda where, exc: errors.append((where, exc)))
     assert "1.18.25" in text and "installed 1.18.25 OK" in text
-    # verbatim move: tui.py passed the cfg-detection bool straight through, so a
-    # correctly-disabled autoupdate prints DRIFT (the doctor_lines contract takes
-    # autoupdate=False for OK) — preserved exactly; no behaviour change in M3.
-    assert "autoupdate: DRIFT" in text, f"cfg seen: {sys_mod._home()}, text={text!r}"
+    # a correctly-disabled autoupdate is OK (the 2026-11-17 Win11 test caught the
+    # inverted bool the M3 move had preserved and this test had locked in)
+    assert "autoupdate: false OK" in text, f"cfg seen: {sys_mod._home()}, text={text!r}"
     assert any("gate" in ln and "256000" in ln or "declared" in ln for ln in text.splitlines())
     assert errors == []
 
