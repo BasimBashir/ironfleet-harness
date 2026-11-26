@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import platform
 import runpy
 import secrets
 import shutil
@@ -37,7 +38,13 @@ import webbrowser
 from pathlib import Path
 from urllib.request import urlopen
 
-CREATE_NO_WINDOW = 0x08000000          # windowless child on Windows
+# Windowless child spawn is Windows-only; on macOS/Linux a non-zero creationflags
+# raises ValueError (Python 3.13+), which would abort boot before the API starts.
+_POPEN_KW: dict = (
+    {"creationflags": 0x08000000} if platform.system() == "Windows" else {}
+)
+_IS_WIN = platform.system() == "Windows"
+_LLAMA_BIN = "llama-server.exe" if _IS_WIN else "llama-server"
 OLLAMA_URL = "http://127.0.0.1:11434"
 RERANK_URL = "http://127.0.0.1:8778/models"
 RERANK_MODEL = "qwen3-reranker-0.6b-q8_0.gguf"
@@ -45,7 +52,15 @@ RERANK_MODEL = "qwen3-reranker-0.6b-q8_0.gguf"
 
 def _app_dir() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        # Windows onedir: IronFleet.exe sits beside data/, web/, bin/.
+        # macOS .app: binary is Contents/MacOS/IronFleet, collected tree is
+        # Contents/Frameworks (PyInstaller bootloader rule). Depth-2 modules
+        # (harness/cli.py) resolve parents[2] → Contents, so runtime assets
+        # (data/, web/, bin/, src/) are staged at Contents — return that root.
+        p = Path(sys.executable).resolve().parent
+        if sys.platform == "darwin" and p.name == "MacOS":
+            return p.parent
+        return p
     return Path(__file__).resolve().parents[3]      # unfrozen dev run: repo root
 
 
@@ -64,20 +79,35 @@ def _say(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _ollama_candidates() -> list[Path]:
+    found: list[Path] = []
+    which = shutil.which("ollama")
+    if which:
+        found.append(Path(which))
+    if _IS_WIN:
+        found.append(Path(os.environ.get("LOCALAPPDATA", ""))
+                     / "Programs" / "Ollama" / "ollama.exe")
+    else:
+        found.append(Path("/Applications/Ollama.app/Contents/Resources/ollama"))
+        found.append(Path.home() / "Applications" / "Ollama.app"
+                     / "Contents" / "Resources" / "ollama")
+    return found
+
+
 def ensure_ollama() -> None:
     """Ollama up on 11434 — spawn `ollama serve` only if nothing answers."""
     if _wait(f"{OLLAMA_URL}/api/tags", 2):
         _say("[app] ollama already up on 11434")
         return
-    exe = shutil.which("ollama") or str(
-        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe")
-    if not Path(exe).is_file():
+    exe = next((p for p in _ollama_candidates() if p.is_file()), None)
+    if exe is None:
         _say("[app] WARN: ollama not found — install Ollama first; chat/embedding "
              "providers will be unreachable until it is running")
         return
     _say(f"[app] starting ollama ({exe})")
-    subprocess.Popen([exe, "serve"], creationflags=CREATE_NO_WINDOW,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen([str(exe), "serve"],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     **_POPEN_KW)
     if not _wait(f"{OLLAMA_URL}/api/tags", 60):
         _say("[app] WARN: ollama did not answer within 60s — continuing anyway")
 
@@ -91,7 +121,7 @@ def ensure_llama_server(app_dir: Path) -> subprocess.Popen | None:
     if _wait(RERANK_URL, 2):
         _say("[app] llama-server already up on 8778")
         return None
-    exe = app_dir / "bin" / "llama-server.exe"
+    exe = app_dir / "bin" / _LLAMA_BIN
     gguf = app_dir / "bin" / "models" / RERANK_MODEL
     if not exe.is_file() or not gguf.is_file():
         _say(f"[app] WARN: bundled llama-server/model missing — corpus rerank will "
@@ -101,8 +131,8 @@ def ensure_llama_server(app_dir: Path) -> subprocess.Popen | None:
     _llama_proc = subprocess.Popen(
         [str(exe), "-m", str(gguf), "--reranking", "--pooling", "rank",
          "--host", "127.0.0.1", "--port", "8778"],
-        creationflags=CREATE_NO_WINDOW,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        **_POPEN_KW)
     if not _wait(RERANK_URL, 120):
         _say("[app] WARN: llama-server did not answer within 120s — continuing anyway")
     return _llama_proc
@@ -147,6 +177,21 @@ def seed_admin_if_needed(root: Path) -> str | None:
     return generated
 
 
+def _want_desktop_window() -> bool:
+    """Native desktop window (WKWebView / WebView2) unless explicitly forced to browser."""
+    if os.environ.get("IRONFLEET_USE_BROWSER", "").strip() in ("1", "true", "yes"):
+        return False
+    try:
+        import webview  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _run_api_server(server) -> None:
+    server.run()
+
+
 def main() -> int:
     from harness.paths import resolve_store_root
 
@@ -176,16 +221,48 @@ def main() -> int:
     web_dist = app_dir / "web" / "dist"
     app = create_app(root, web_dist=str(web_dist) if (web_dist / "index.html").is_file() else None,
                      worker="live")
+    server = Server(Config(app, host="127.0.0.1", port=port, log_level="warning"))
+
+    use_window = _want_desktop_window()
+    if use_window:
+        # Desktop shell: API on a background thread; native window on the main
+        # thread (required on macOS). Closing the window stops the server.
+        _say(f"[app] serving on {url} — opening desktop window")
+        api_thread = threading.Thread(target=_run_api_server, args=(server,), daemon=True)
+        api_thread.start()
+        if not _wait(f"{url}/healthz", 90):
+            _say("[app] WARN: API did not become ready within 90s")
+        try:
+            import webview
+            webview.create_window(
+                "IronFleet",
+                url,
+                width=1440,
+                height=900,
+                min_size=(1024, 700),
+            )
+            webview.start()
+        except Exception as ex:
+            _say(f"[app] WARN: desktop window failed ({ex}) — falling back to browser")
+            webbrowser.open(url)
+            try:
+                api_thread.join()
+            except KeyboardInterrupt:
+                pass
+        finally:
+            server.should_exit = True
+            stop_llama_server()
+        return 0
 
     def _open_browser() -> None:
         if _wait(f"{url}/healthz", 90):
-            _say(f"[app] ready — opening {url}")
+            _say(f"[app] ready — opening browser {url}")
             webbrowser.open(url)
 
     threading.Thread(target=_open_browser, daemon=True).start()
     _say(f"[app] serving on {url} (Ctrl+C or close this window to stop)")
     try:
-        Server(Config(app, host="127.0.0.1", port=port, log_level="warning")).run()
+        server.run()
     finally:
         stop_llama_server()
     return 0

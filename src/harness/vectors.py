@@ -19,6 +19,7 @@ import sqlite3
 from array import array
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -29,7 +30,62 @@ class SearchHit(BaseModel):
     score: float
 
 
-def _load_extension(con: sqlite3.Connection) -> None:
+def _stdlib_can_load_extensions() -> bool:
+    """python.org macOS builds ship sqlite3 WITHOUT enable_load_extension (security
+    default). Windows/Homebrew builds usually have it. D4 needs loadable vec0."""
+    try:
+        con = sqlite3.connect(":memory:")
+        ok = hasattr(con, "enable_load_extension")
+        con.close()
+        return ok
+    except Exception:                                      # pragma: no cover
+        return False
+
+
+class _ApswCursor:
+    """Minimal sqlite3.Cursor façade over APSW (rowcount / lastrowid / fetch*)."""
+
+    def __init__(self, cur: Any, con: "_ApswConnection") -> None:
+        self._cur = cur
+        self._con = con
+        self.rowcount = con._c.changes()
+        self.lastrowid = con._c.last_insert_rowid()
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+
+class _ApswConnection:
+    """sqlite3.Connection façade so VectorStore keeps one code path on macOS."""
+
+    def __init__(self, con: Any) -> None:
+        self._c = con
+
+    def __enter__(self) -> "_ApswConnection":
+        self._c.__enter__()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._c.__exit__(*exc)
+
+    def close(self) -> None:
+        self._c.close()
+
+    def execute(self, sql: str, params: tuple | list = ()) -> _ApswCursor:
+        return _ApswCursor(self._c.execute(sql, params), self)
+
+    def executescript(self, script: str) -> None:
+        # APSW has no executescript; run statements one by one (schema only here).
+        for stmt in script.split(";"):
+            s = stmt.strip()
+            if s:
+                self._c.execute(s)
+
+
+def _load_extension(con: Any) -> None:
     try:
         import sqlite_vec
     except ImportError as ex:                              # pragma: no cover — pinned dep
@@ -40,6 +96,26 @@ def _load_extension(con: sqlite3.Connection) -> None:
         con.load_extension(sqlite_vec.loadable_path())
     except Exception as ex:                                # noqa: BLE001 — fail closed
         raise RuntimeError(f"sqlite-vec extension failed to load (D4 fail-closed): {ex}") from ex
+
+
+def _connect(db_path: Path) -> Any:
+    """Open a connection that can load sqlite-vec (stdlib or APSW fallback)."""
+    if _stdlib_can_load_extensions():
+        con = sqlite3.connect(db_path)
+        _load_extension(con)
+        return con
+    try:
+        import apsw
+    except ImportError as ex:                              # pragma: no cover
+        raise RuntimeError(
+            "sqlite-vec needs loadable extensions; this Python's sqlite3 cannot "
+            "enable_load_extension. Install APSW (`pip install apsw`) for the "
+            "macOS fallback, or use a Python built with "
+            "--enable-loadable-sqlite-extensions."
+        ) from ex
+    con = apsw.Connection(str(db_path))
+    _load_extension(con)
+    return _ApswConnection(con)
 
 
 def _unit(v: array) -> array:
@@ -56,9 +132,10 @@ class VectorStore:
         self.dim = dim
         self.last_skipped: list[int] = []      # interface compat: the vec0 engine has no
         con = self._c()                        # skippable rows — mismatches refuse at add
+        # WAL cannot run inside an APSW transaction — set it before `with con:`.
+        con.execute("PRAGMA journal_mode=WAL")
         with con:
             con.executescript(f"""
-            PRAGMA journal_mode=WAL;
             CREATE TABLE IF NOT EXISTS embeddings(
               id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT,
               matter_ref TEXT, seq INTEGER, text TEXT, model TEXT, provider TEXT);
@@ -69,10 +146,11 @@ class VectorStore:
             try:
                 con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_emb_matter_text "
                             "ON embeddings(matter_ref, text)")
-            except sqlite3.IntegrityError:
+            except Exception:
                 # Legacy store (pre-idempotence): duplicate (matter_ref, text) rows from
                 # interrupted-then-rerun ingests. Self-migrate — earliest row wins —
-                # then bind the constraint. A no-op on every compliant store.
+                # then bind the constraint. Catches sqlite3.IntegrityError and APSW
+                # ConstraintError alike (macOS APSW fallback for D4).
                 con.execute(
                     "DELETE FROM vec_index WHERE rowid IN (SELECT id FROM embeddings e "
                     "WHERE EXISTS (SELECT 1 FROM embeddings t WHERE "
@@ -84,10 +162,8 @@ class VectorStore:
                 con.execute("CREATE UNIQUE INDEX idx_emb_matter_text "
                             "ON embeddings(matter_ref, text)")
 
-    def _c(self) -> sqlite3.Connection:
-        con = sqlite3.connect(self.db_path)
-        _load_extension(con)
-        return con
+    def _c(self) -> Any:
+        return _connect(self.db_path)
 
     def add(self, matter_ref: str, texts: list[str], vectors: list[list[float]],
             model: str, provider: str) -> int:
