@@ -102,9 +102,14 @@ class EgressGate:
         # No key -> NO Authorization header. A "Bearer " value with an empty token is an
         # illegal header (httpx LocalProtocolError) — local servers don't need auth anyway.
         headers = {"Authorization": f"Bearer {key}"} if key else {}
-        result = await openai_fetch(f"{provider.base_url.rstrip('/')}/chat/completions", headers, payload)
+        errs: list[str] = []
+        result = await openai_fetch(f"{provider.base_url.rstrip('/')}/chat/completions",
+                                    headers, payload, errors=errs)
         if result is None:
-            raise RuntimeError(f"provider {provider.name} call failed")
+            why = errs[0] if errs else "no response"
+            if not key and provider.tier == "cloud":
+                why += "; no API key is set for it — add one in Model settings"
+            raise RuntimeError(f"provider {provider.name} call failed ({why})")
         return result
 
     async def _default_embedding_transport(self, provider: ProviderConfig, payload: dict) -> dict:

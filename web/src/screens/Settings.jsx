@@ -119,7 +119,7 @@ export default function Settings() {
   const probe = (name) => cmd(async () => {
     const { data: r } = await post(`/settings/providers/test?name=${encodeURIComponent(name)}`, {});
     setTested((t) => ({ ...t, [name]: r.reachable
-      ? `reachable · ${r.admission}${r.verified ? " · verified" : ""}`
+      ? `reachable · ${r.admission}${r.verified ? " · verified" : ""}${r.error ? ` · ${r.error}` : ""}`
       : "unreachable" }));
     return true;
   });

@@ -179,9 +179,22 @@ async def _probe_one(name: str, spec: dict) -> dict:
         name, spec["base_url"], get_key(name) or "", model=spec["model"],
         engine=spec["engine"], kind=spec["kind"], declared=spec["declared"],
         fetch=openai_fetch, keychain_set={})
-    return {"name": name, "reachable": res.reachable, "auth_ok": res.auth_ok,
-            "admission": res.admission, "verified": res.provenance.verified,
-            "models": len(res.models)}
+    out = {"name": name, "reachable": res.reachable, "auth_ok": res.auth_ok,
+           "admission": res.admission, "verified": res.provenance.verified,
+           "models": len(res.models)}
+    # A cloud model list (NIM's) answers WITHOUT a key, so the probe alone passed a keyless
+    # row; one 1-token chat with the stored key is the real auth check (Test only, not boot).
+    if spec["engine"] not in _LOCAL_ENGINES and res.admission != "refused":
+        key, errs = get_key(name) or "", []
+        ok = bool(key) and await openai_fetch(
+            f"{spec['base_url'].rstrip('/')}/chat/completions",
+            {"Authorization": f"Bearer {key}"},
+            {"model": spec["model"], "messages": [{"role": "user", "content": "ping"}],
+             "max_tokens": 1}, errors=errs) is not None
+        if not ok:
+            out.update(auth_ok=False, admission="refused",
+                       error=errs[0] if errs else "no API key set")
+    return out
 
 
 async def test_provider(con, principal: dict, name: str, *, store_root) -> dict:

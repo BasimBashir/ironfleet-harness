@@ -18,7 +18,10 @@ DEFAULT_STREAM_TIMEOUT = float(os.environ.get("HARNESS_HTTP_STREAM_TIMEOUT", "18
 
 
 async def openai_fetch(url: str, headers: dict, payload: dict | None = None,
-                       timeout: float = DEFAULT_TIMEOUT) -> dict | None:
+                       timeout: float = DEFAULT_TIMEOUT,
+                       errors: list[str] | None = None) -> dict | None:
+    """None on any failure; pass `errors` to learn why (HTTP status + body head) — the
+    2026-11 Mac test spent a run on 162 bare "call failed"s that were a missing key."""
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             if payload is None:
@@ -27,9 +30,13 @@ async def openai_fetch(url: str, headers: dict, payload: dict | None = None,
                 r = await client.post(url, headers={**headers, "Content-Type": "application/json"},
                                       json=payload)
         if r.status_code >= 400:
+            if errors is not None:
+                errors.append(f"HTTP {r.status_code}: {r.text[:200]}")
             return None
         return r.json()
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, ValueError) as ex:
+        if errors is not None:
+            errors.append(f"{type(ex).__name__}: {ex}"[:200])
         return None
 
 

@@ -178,7 +178,10 @@ def seed_admin_if_needed(root: Path) -> str | None:
 
 
 def _want_desktop_window() -> bool:
-    """Native desktop window (WKWebView / WebView2) unless explicitly forced to browser."""
+    """Native desktop window (WKWebView) on macOS unless forced to browser. Windows
+    keeps its console + browser flow (the documented one) even if pywebview is present."""
+    if sys.platform != "darwin":
+        return False
     if os.environ.get("IRONFLEET_USE_BROWSER", "").strip() in ("1", "true", "yes"):
         return False
     try:

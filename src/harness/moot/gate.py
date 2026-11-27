@@ -27,6 +27,7 @@ _CLASS_FOR = {
     "date_not_matching_kernel": "wrong_deadline",
     "statutory_demand_not_computed": "wrong_form",
 }
+_NON_BLOCKING = {"statutory_demand_not_computed"}
 
 
 def _evidence_labels(con, matter: str) -> set[str]:
@@ -50,7 +51,11 @@ def moot_check(con, matter: str, path, store=None) -> dict:
                            if ob.get(k)) or ob.get("kind", "objection")
         flaws.append({
             "class": _CLASS_FOR.get(ob["kind"], "other"),
-            "severity": "critical",
+            # a PLANNED demand has no service date yet, and only the operator can register
+            # the kernel row (no agent can) — so it is a note for the human approver, not a
+            # block (1.0.2 Windows test: every "serve a demand" roadmap CAPPED). Wrong demand
+            # numbers still block via check() -> form_rows (wrong_form, critical).
+            "severity": "minor" if ob["kind"] in _NON_BLOCKING else "critical",
             "detector": "objection",
             "kind": ob.get("kind"),
             "detail": detail,

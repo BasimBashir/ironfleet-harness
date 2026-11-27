@@ -47,7 +47,7 @@ GGUF_REPO = "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF"
 GGUF_NAME = "qwen3-reranker-0.6b-q8_0.gguf"
 
 BUNDLE_ID = "ai.ironfleet.harness"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 
 HIDDEN = [
     "uvicorn.loops", "uvicorn.loops.auto", "uvicorn.loops.asyncio",

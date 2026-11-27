@@ -21,7 +21,9 @@ from pathlib import Path
 
 # The spawn timeout: the S7j-W watchdog budget. opencode hangs after init ~2 in 7
 # on this box (load-sensitive), so every spawn gets one retry, never a loop.
-DEFAULT_TIMEOUT_S = 480
+# 900 not 480: the 1.0.2 Windows test's verify stage (~20 corpus searches over 30-57k
+# token contexts) was killed at exactly 480s twice — a working turn, not a hang.
+DEFAULT_TIMEOUT_S = 900
 
 
 def _require_colon_free(value: str, what: str) -> None:

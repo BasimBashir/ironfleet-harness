@@ -125,7 +125,7 @@ async def test_missing_model_refuses_instead_of_guessing(tmp_path, fake_transpor
 async def test_default_transport_omits_auth_header_when_no_key(monkeypatch, tmp_path, fake_transport):
     import harness.providers.http_fetch as hf
     captured: dict = {}
-    async def fake_fetch(url, headers, payload=None):
+    async def fake_fetch(url, headers, payload=None, **kw):
         captured["url"], captured["headers"] = url, headers
         return {"model": "m", "choices": [{"message": {"content": "ok"}}],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
@@ -362,3 +362,17 @@ async def test_embed_reduces_ollamas_nested_usage_breakdown(tmp_path):
     gate = _emb_gate(tmp_path, transport)
     resp = await gate.embed(EmbeddingRequest(matter_ref="M-1", texts=["a"]))
     assert resp.usage == {"prompt_tokens": 7, "total_tokens": 7}
+
+@pytest.mark.asyncio
+async def test_failed_call_says_why_and_names_a_missing_key(monkeypatch, tmp_path, fake_transport):
+    # Mac 1.0.1 test-1: 162 bare "call failed"s were a missing key; the reason must surface
+    import harness.providers.http_fetch as hf
+    async def failing(url, headers, payload=None, errors=None, **kw):
+        errors.append("HTTP 401: unauthorized")
+        return None
+    monkeypatch.setattr(hf, "openai_fetch", failing)
+    monkeypatch.setattr("harness.keychain._kv", {})
+    gate = _gate(tmp_path, fake_transport)
+    p = gate.registry.get("mini1").model_copy(update={"tier": "cloud"})
+    with pytest.raises(RuntimeError, match=r"HTTP 401.*no API key is set"):
+        await gate._default_transport(p, {"model": "m"})

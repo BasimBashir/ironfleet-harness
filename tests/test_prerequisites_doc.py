@@ -39,7 +39,8 @@ def test_doc_names_every_registered_model():
 
 def test_doc_names_pinned_python_deps():
     deps = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    pinned = [d for d in deps["project"]["dependencies"] if "==" in d]
+    # the version spec only — an environment marker (`; sys_platform == 'darwin'`) is not a pin
+    pinned = [d for d in deps["project"]["dependencies"] if "==" in d.split(";")[0]]
     assert pinned, "expected at least one == pin in pyproject dependencies"
     for d in pinned:
         assert d in DOC, f"doc must name pinned dependency {d}"

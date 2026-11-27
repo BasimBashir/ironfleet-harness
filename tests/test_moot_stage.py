@@ -216,3 +216,42 @@ def test_moot_stage_pipeline_yaml_has_gate_after_filings():
     assert by_name["filings"].get("approval") is None
     assert by_name["moot"].get("gate") == "moot"
     assert by_name["moot"].get("approval") == "filing"
+
+
+def test_deferring_a_statutory_demand_does_not_raise_one(tmp_path):
+    """Mac 1.0.1 retest: a roadmap that said "Defer the s 289 statutory demand (do NOT
+    serve now)" got a critical wrong_form row it could never revise away -> CAPPED."""
+    from harness.moot.objection import objection
+    con = connect(tmp_path / "platform.db")
+    kinds = lambda text: [o["kind"] for o in objection(
+        con, MATTER, str((tmp_path / "d.md").write_text(text, encoding="utf-8")
+                         and tmp_path / "d.md"))["objections"]]
+    deferred = ("## Step 3 - Defer the s 289 statutory demand (do NOT serve now)\n"
+                "4. Defer any s 289 statutory demand until ss 289/241 are confirmed.\n")
+    assert "statutory_demand_not_computed" not in kinds(deferred)
+    assert "statutory_demand_not_computed" in kinds("Serve a statutory demand for $12,000.\n")
+
+
+def test_moot_attackers_get_the_draft_in_their_own_workspace(tmp_path, monkeypatch):
+    """1.0.1 Windows: most refused reads were moot attackers reaching into the clerk's
+    folder. Each attacker now finds the round's draft in its own workspace."""
+    _, driver, _, _ = _run(tmp_path, monkeypatch, ["", "", "", "revised"], _clean_draft())
+    attackers = {a for a, _ in driver.calls if a != "clerk-stage-moot"}
+    assert attackers
+    for a in attackers:
+        assert list((tmp_path / "workspaces").glob(f"*/{a}/{DOC}")), a
+    assert all("already in your workspace" in p for a, p in driver.calls if a in attackers)
+
+
+def test_a_planned_statutory_demand_is_a_note_not_a_block(tmp_path):
+    """1.0.2 Windows test: a roadmap recommending "serve a statutory demand" CAPPED every
+    time — only an operator can register the kernel row. It is now a minor ledger row the
+    approver sees; the draft is not blocked by it."""
+    con = connect(tmp_path / "platform.db")
+    p = tmp_path / "d.md"
+    p.write_text("B3. Serve the statutory demand on the debtor company.\n", encoding="utf-8")
+    r = moot_gate.moot_check(con, MATTER, str(p))
+    sd = [f for f in r["flaws"] if f.get("kind") == "statutory_demand_not_computed"]
+    assert sd and sd[0]["severity"] == "minor"
+    assert not [f for f in r["flaws"] if f.get("kind") == "statutory_demand_not_computed"
+                and f["severity"] in ("critical", "material")]

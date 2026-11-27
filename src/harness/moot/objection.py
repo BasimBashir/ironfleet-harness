@@ -29,6 +29,8 @@ _CTX = re.compile(r"(?i)deadline|complian|no later than|working days")
 _CTX_STRICT = re.compile(r"(?i)deadline|compl")        # for periods: _PERIOD already
                                                        # guarantees a days phrase
 _PERIOD = re.compile(r"(?i)within (\d+) (?:working )?days?")
+_SD_DECLINED = re.compile(r"(?i)\b(?:defer(?:red|s)?|do not|don't|not (?:to )?serv|no demand|"
+                          r"not recommended|instead of|rather than|avoid|premature)")
 _MONTHS = {m: i for i, m in enumerate(
     ("jan feb mar apr may jun jul aug sep oct nov dec").split(), 1)}
 _PROSE_DATE = re.compile(
@@ -224,8 +226,13 @@ def objection(con, matter: str, path: str, store: object | None = None) -> dict:
 
     # (d): a draft that raises a statutory demand must have a kernel row — found live
     # 2026-10-26 in the plugin; the platform register is the same enforcement point.
-    if re.search(r"(?i)statutory demand", text) and \
-            not any(c["kind"] == "statutory_demand" for c in comps):
+    # A line that defers or declines the demand does not raise one (Mac 1.0.1 retest:
+    # "Defer the s 289 statutory demand (do NOT serve now)" capped the moot 4 rounds).
+    # shortcut: the decline cue must sit on the same line as the mention; upgrade to
+    # sentence-level parsing if a draft splits "statutory demand" and "do not" across lines.
+    raises_sd = any(re.search(r"(?i)statutory demand", ln) and not _SD_DECLINED.search(ln)
+                    for ln in text.splitlines())
+    if raises_sd and not any(c["kind"] == "statutory_demand" for c in comps):
         out["objections"].append({
             "kind": "statutory_demand_not_computed",
             "detail": "the draft raises a statutory demand but this matter has no "

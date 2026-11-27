@@ -45,9 +45,10 @@ class SessionDriver:
     # headroom for the mount sync and the post-turn trace reads. A spawn that
     # outlives it is ABANDONED (recorded) rather than allowed to freeze the whole
     # shell — the 2026-10-21 live freeze: one wedged stage held the event loop
-    # for 54 minutes. Legit long turns (a 20-tool research stage) finish inside
-    # 480s on this box. Class attribute so a test can bound it on the instance.
-    TURN_TIMEOUT_S = 660
+    # for 54 minutes. The spawn watchdog is 900s (workspace.DEFAULT_TIMEOUT_S; a
+    # 20-search verify stage outran 480s) + 180s headroom. Class attribute so a
+    # test can bound it on the instance.
+    TURN_TIMEOUT_S = 1080
 
     def __init__(self, store: SessionStore, base: Path) -> None:
         from contextlib import contextmanager

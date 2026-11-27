@@ -457,8 +457,11 @@ class FactoryRunner:
             if not any((ws / f).exists() for f in want):
                 row.output_summary = (
                     f"[NO DELIVERABLE: {want[0]} not written] The model ended its turn twice "
-                    "without writing the file — assign a stronger cloud LLM to the drafting "
-                    f"class (Model settings → Stage assignment) and re-run. {row.output_summary}")
+                    "without writing the file. If the Agents log shows failed model calls "
+                    "(no or invalid API key, rate limit), fix the provider in Model settings "
+                    "(Test must pass); if the calls succeeded, assign a stronger cloud LLM to "
+                    f"the drafting class (Model settings → Stage assignment). Then re-run. "
+                    f"{row.output_summary}")
         for text in self._drain_injections(agent):
             # P7's interjection: continue the stage's OWN opencode session by id
             # when we have it, else a fresh turn in the same workspace.
@@ -525,9 +528,18 @@ class FactoryRunner:
             for rounds in range(1, self._MOOT_MAX_ROUNDS + 1):
                 attacks: list[dict] = []
                 for attacker in self._MOOT_ATTACKERS:
+                    # the attacker's cwd is its own workspace; a read of the clerk's is
+                    # refused (1.0.1 Windows test: most refused reads were moot's) — give
+                    # it this round's draft in place
+                    aws = self.driver.workspace_for(session_id, f"{attacker}-stage-moot",
+                                                    matter_ref, classification)
+                    if doc.is_file():
+                        shutil.copy2(doc, aws / self._MOOT_DOC)
                     prompt = _stage_prompt(
                         stage=f"moot-{attacker}", agent=attacker,
-                        instruction=(f"Attack {self._MOOT_DOC} for this ask: {task}. "
+                        instruction=(f"Attack {self._MOOT_DOC} (already in your workspace — "
+                                     f"read it there, never from another directory) for "
+                                     f"this ask: {task}. "
                                      f"Open flaw rows from the pre-pass and prior rounds: "
                                      f"{json.dumps(_open_rows(con, matter_ref))}. Write "
                                      f"your attacks as rows '[CRITICAL|MAJOR|MINOR] "

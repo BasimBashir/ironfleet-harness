@@ -11,8 +11,8 @@
 [Setup]
 AppId={{7C1F2E4A-9B36-4D58-8A21-54E3F0B6C9D2}
 AppName={#AppName}
-AppVersion=1.0.1
-VersionInfoVersion=1.0.1
+AppVersion=1.0.2
+VersionInfoVersion=1.0.2
 DefaultDirName={localappdata}\Programs\{#AppName}
 PrivilegesRequired=lowest
 SetupIconFile=ironfleet.ico
